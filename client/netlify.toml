@@ -1,0 +1,23 @@
+[build]
+  base = "client"
+  command = "npm install && npm run build"
+  publish = "dist"
+
+# Point the built client at the Railway-deployed backend.
+# Override in the Netlify dashboard for staging/per-spa deploys.
+[build.environment]
+  VITE_API_BASE = "https://spa-api.siamepos.co.uk"
+
+# SPA fallback — every unknown path serves index.html so react-router
+# can resolve client-side. Must NOT rewrite anything starting with /api
+# (those go to the Railway backend, called directly from the client).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Long-cache static assets — Vite hashes filenames so this is safe.
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

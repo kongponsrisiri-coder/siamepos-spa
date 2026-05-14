@@ -1,0 +1,110 @@
+/* SiamEPOS Spa — base styles. Keep it minimal; screens use inline styles
+   for component-specific layout so each file is self-contained. */
+
+* { box-sizing: border-box; }
+
+:root {
+  --primary:    #7a4f1e;
+  --primary-2:  #a16a2c;
+  --accent:     #d97706;
+  --bg:         #faf7f2;
+  --card:       #ffffff;
+  --border:     #e5e7eb;
+  --text:       #1f2937;
+  --muted:      #6b7280;
+  --danger:     #dc2626;
+  --success:    #16a34a;
+}
+
+html, body, #root { height: 100%; margin: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: 8px;
+  padding: 8px 14px;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+button:hover { border-color: var(--primary); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+button.primary {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+button.primary:hover { background: var(--primary-2); border-color: var(--primary-2); }
+
+button.danger {
+  background: var(--danger);
+  color: white;
+  border-color: var(--danger);
+}
+
+input, select, textarea {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: white;
+  width: 100%;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(122, 79, 30, 0.12);
+}
+
+label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+}
+
+.muted { color: var(--muted); }
+
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 50;
+  padding: 16px;
+}
+.modal {
+  background: white;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow: auto;
+  padding: 20px;
+}
+
+.row { display: flex; gap: 12px; align-items: center; }
+.col { display: flex; flex-direction: column; gap: 12px; }
+
+.status-booked      { background: #dbeafe; color: #1e40af; }
+.status-in_progress { background: #fef3c7; color: #92400e; }
+.status-completed   { background: #dcfce7; color: #166534; }
+.status-cancelled   { background: #fee2e2; color: #991b1b; }
+.status-no_show     { background: #f3f4f6; color: #4b5563; }
+.status-pill {
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+}
