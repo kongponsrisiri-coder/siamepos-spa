@@ -45,13 +45,10 @@ export default function SettingsSection() {
       </div>
 
       <div className="card">
-        <h3 style={{ marginTop: 0 }}>Public booking widget snippet</h3>
-        <p className="muted">Embed on any external site:</p>
-        <pre style={{
-          background: '#0f172a', color: '#f8fafc', padding: 12, borderRadius: 6,
-          fontSize: 12, whiteSpace: 'pre-wrap', overflow: 'auto',
-        }}>{`<script src="${window.location.origin.replace(/^https?:\/\/spa\./, 'https://spa-api.')}/widget.js" defer></script>
-<button onclick="SiamEPOSSpa.open()">Book now</button>`}</pre>
+        <h3 style={{ marginTop: 0 }}>Public booking widget</h3>
+        <p className="muted">
+          The embed snippets for your website live under the <strong>Embed Codes</strong> tab.
+        </p>
       </div>
     </div>
   );

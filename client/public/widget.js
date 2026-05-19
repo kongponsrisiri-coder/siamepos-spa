@@ -5,6 +5,9 @@
  *   <script src="https://spa-api.siamepos.co.uk/widget.js" defer></script>
  *   <button onclick="SiamEPOSSpa.open()">Book now</button>
  *
+ * OR auto-mount a button — drop this placeholder anywhere on the page:
+ *   <div id="siamespa-booking"></div>
+ *
  * Optional config (set BEFORE the script loads):
  *   window.SIAMEPOS_SPA_API = 'https://spa-api.siamepos.co.uk';
  */
@@ -39,9 +42,13 @@
     .ses-input:focus, .ses-select:focus { outline:none; border-color:#7a4f1e;
       box-shadow:0 0 0 3px rgba(122,79,30,.12); }
     .ses-card { border:1px solid #e5e7eb; border-radius:8px; padding:10px; margin-bottom:6px;
-      cursor:pointer; transition:border-color .1s; }
+      cursor:pointer; transition:border-color .1s; display:flex; gap:10px; align-items:center; }
     .ses-card:hover { border-color:#7a4f1e; }
     .ses-card.selected { border-color:#7a4f1e; background:#fdf6ec; }
+    .ses-avatar { width:40px; height:40px; border-radius:50%; background:#fdf6ec; color:#7a4f1e;
+      display:flex; align-items:center; justify-content:center; font-weight:600; font-size:14px;
+      flex-shrink:0; border:1px solid #f0e0c8; }
+    .ses-avatar.any { background:#7a4f1e; color:#fff; border-color:#7a4f1e; }
     .ses-slot-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; max-height:200px; overflow:auto; }
     .ses-slot { padding:8px 0; text-align:center; border:1px solid #e5e7eb; border-radius:6px;
       cursor:pointer; background:#fff; }
@@ -56,6 +63,10 @@
     .ses-muted { color:#6b7280; font-size:13px; }
     .ses-consent { display:flex; gap:8px; align-items:flex-start; font-size:13px; margin-top:8px; }
     .ses-consent input { margin-top:3px; }
+    .ses-mount-btn { padding:12px 22px; background:#7a4f1e; color:#fff; border:none;
+      border-radius:8px; font-size:15px; font-weight:600; cursor:pointer;
+      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+    .ses-mount-btn:hover { background:#a16a2c; }
   `;
 
   function injectStyle() {
@@ -86,22 +97,33 @@
     return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
   function todayISO() { return new Date().toISOString().slice(0, 10); }
+  function initialsOf(name) {
+    if (!name) return '?';
+    var parts = String(name).trim().split(/\s+/);
+    return (parts[0][0] + (parts[1] ? parts[1][0] : '')).toUpperCase();
+  }
 
   // -------- widget state ----------------------------------------------------
-  var state = {
-    step: 1,                 // 1..5
-    treatments: [],
-    treatmentId: null,
-    date: todayISO(),
-    slots: [],
-    slot: null,
-    therapistId: null,       // null = no preference
-    name: '', phone: '', email: '', notes: '',
-    gdpr: false, marketing: false,
-    confirmation: null,
-    error: '',
-    busy: false,
-  };
+  // Step order matches SPA-002 spec:
+  //   1 Treatment  2 Therapist  3 Date+Time  4 Details  5 Confirmation
+  function freshState() {
+    return {
+      step: 1,
+      treatments: [],
+      treatmentId: null,
+      therapists: [],
+      therapistId: null,       // null = "Any available"
+      date: todayISO(),
+      slots: [],
+      slot: null,
+      name: '', phone: '', email: '', notes: '',
+      gdpr: false, marketing: false,
+      confirmation: null,
+      error: '',
+      busy: false,
+    };
+  }
+  var state = freshState();
 
   var root, modal;
 
@@ -115,24 +137,24 @@
     modal.className = 'ses-modal';
     root.appendChild(modal);
     document.body.appendChild(root);
-    state.step = 1;
+    state = freshState();
+    render();
+    // Kick off the parallel data loads — both are tiny.
     api('/treatments').then(function (r) {
       state.treatments = r.treatments;
       render();
-    }).catch(function (err) {
-      state.error = err.message; render();
-    });
-    render();
+    }).catch(function (err) { state.error = err.message; render(); });
+    api('/therapists').then(function (r) {
+      state.therapists = r.therapists || [];
+      render();
+    }).catch(function (err) { state.error = err.message; render(); });
   }
 
   function close() {
     if (!root) return;
     root.remove();
     root = null; modal = null;
-    state = { step: 1, treatments: [], treatmentId: null, date: todayISO(),
-              slots: [], slot: null, therapistId: null,
-              name: '', phone: '', email: '', notes: '',
-              gdpr: false, marketing: false, confirmation: null, error: '', busy: false };
+    state = freshState();
   }
 
   function go(step) { state.step = step; state.error = ''; render(); }
@@ -140,7 +162,9 @@
   function loadSlots() {
     if (!state.treatmentId || !state.date) return;
     state.slots = []; state.slot = null;
-    api('/availability?treatment_id=' + state.treatmentId + '&date=' + state.date)
+    var qs = '?treatment_id=' + state.treatmentId + '&date=' + state.date;
+    if (state.therapistId) qs += '&therapist_id=' + state.therapistId;
+    api('/availability' + qs)
       .then(function (r) { state.slots = r.slots; render(); })
       .catch(function (err) { state.error = err.message; render(); });
   }
@@ -151,7 +175,7 @@
       treatment_id: state.treatmentId,
       starts_at: state.slot,
       therapist_id: state.therapistId,
-      name: state.name, phone: state.phone, email: state.email,
+      name: state.name, phone: state.phone, email: state.email || undefined,
       notes: state.notes,
       gdpr_consent: state.gdpr,
       marketing_consent: state.marketing,
@@ -219,13 +243,13 @@
     if (state.step === 5) return renderStep5();
   }
 
+  // STEP 1 — Treatment
   function renderStep1() {
     var wrap = h('div', {}, []);
     wrap.appendChild(h('p', { className: 'ses-muted' }, ['Choose a treatment to begin.']));
     if (!state.treatments.length) {
       wrap.appendChild(h('div', { className: 'ses-muted' }, ['Loading treatments…']));
     } else {
-      // Group by category.
       var byCat = {};
       state.treatments.forEach(function (t) {
         var key = t.category_name || 'Treatments';
@@ -239,7 +263,7 @@
             className: 'ses-card' + (selected ? ' selected' : ''),
             onClick: function () { state.treatmentId = t.id; render(); },
           }, [
-            h('div', { style: 'display:flex;justify-content:space-between;align-items:center' }, [
+            h('div', { style: 'flex:1;display:flex;justify-content:space-between;align-items:center' }, [
               h('div', {}, [
                 h('div', { style: 'font-weight:600' }, [t.name]),
                 h('div', { className: 'ses-muted' }, [t.duration_minutes + ' min']),
@@ -257,14 +281,69 @@
       h('button', {
         className: 'ses-btn primary',
         disabled: !state.treatmentId,
-        onClick: function () { go(2); loadSlots(); },
+        onClick: function () { go(2); },
       }, ['Continue']),
     ]));
     return wrap;
   }
 
+  // STEP 2 — Therapist (the SPA-002 marquee feature)
   function renderStep2() {
     var wrap = h('div', {}, []);
+    wrap.appendChild(h('p', { className: 'ses-muted' }, ['Choose your therapist, or let us pick one for you.']));
+
+    // "Any available" — always first.
+    var anySelected = state.therapistId === null;
+    wrap.appendChild(h('div', {
+      className: 'ses-card' + (anySelected ? ' selected' : ''),
+      onClick: function () { state.therapistId = null; render(); },
+    }, [
+      h('div', { className: 'ses-avatar any' }, ['✦']),
+      h('div', { style: 'flex:1' }, [
+        h('div', { style: 'font-weight:600' }, ['Any available therapist']),
+        h('div', { className: 'ses-muted' }, ['We\'ll assign the first one free at your chosen time']),
+      ]),
+    ]));
+
+    if (!state.therapists.length) {
+      wrap.appendChild(h('div', { className: 'ses-muted', style: 'margin-top:8px' }, ['Loading therapists…']));
+    } else {
+      state.therapists.forEach(function (t) {
+        var selected = state.therapistId === t.id;
+        wrap.appendChild(h('div', {
+          className: 'ses-card' + (selected ? ' selected' : ''),
+          onClick: function () { state.therapistId = t.id; render(); },
+        }, [
+          h('div', { className: 'ses-avatar' }, [initialsOf(t.name)]),
+          h('div', { style: 'flex:1' }, [
+            h('div', { style: 'font-weight:600' }, [t.name]),
+            h('div', { className: 'ses-muted' }, [t.specialisms || 'Available']),
+          ]),
+        ]));
+      });
+    }
+
+    wrap.appendChild(h('div', { className: 'ses-actions' }, [
+      h('button', { className: 'ses-btn', onClick: function () { go(1); } }, ['Back']),
+      h('button', {
+        className: 'ses-btn primary',
+        onClick: function () { go(3); loadSlots(); },
+      }, ['Continue']),
+    ]));
+    return wrap;
+  }
+
+  // STEP 3 — Date + Time
+  function renderStep3() {
+    var wrap = h('div', {}, []);
+    if (state.therapistId) {
+      var pick = state.therapists.find(function (t) { return t.id === state.therapistId; });
+      if (pick) {
+        wrap.appendChild(h('div', { className: 'ses-muted', style: 'margin-bottom:6px' }, [
+          'Showing times for ' + pick.name + '.',
+        ]));
+      }
+    }
     wrap.appendChild(h('label', { className: 'ses-label' }, ['Date']));
     wrap.appendChild(h('input', {
       className: 'ses-input',
@@ -288,34 +367,17 @@
       wrap.appendChild(grid);
     }
     wrap.appendChild(h('div', { className: 'ses-actions' }, [
-      h('button', { className: 'ses-btn', onClick: function () { go(1); } }, ['Back']),
+      h('button', { className: 'ses-btn', onClick: function () { go(2); } }, ['Back']),
       h('button', {
         className: 'ses-btn primary',
         disabled: !state.slot,
-        onClick: function () { go(3); },
+        onClick: function () { go(4); },
       }, ['Continue']),
     ]));
     return wrap;
   }
 
-  function renderStep3() {
-    var wrap = h('div', {}, []);
-    wrap.appendChild(h('p', { className: 'ses-muted' }, ['Therapist preference?']));
-    wrap.appendChild(h('div', { className: 'ses-card' + (state.therapistId === null ? ' selected' : ''),
-      onClick: function () { state.therapistId = null; render(); } }, [
-      h('div', { style: 'font-weight:600' }, ['No preference']),
-      h('div', { className: 'ses-muted' }, ['We will assign an available therapist']),
-    ]));
-    // Phase 1 simplification: we don't ask for specific therapist from the
-    // widget — the public availability endpoint already only returns slots
-    // that have at least one therapist free, and book() picks one server-side.
-    wrap.appendChild(h('div', { className: 'ses-actions' }, [
-      h('button', { className: 'ses-btn', onClick: function () { go(2); } }, ['Back']),
-      h('button', { className: 'ses-btn primary', onClick: function () { go(4); } }, ['Continue']),
-    ]));
-    return wrap;
-  }
-
+  // STEP 4 — Details
   function renderStep4() {
     var wrap = h('div', {}, []);
     wrap.appendChild(h('label', { className: 'ses-label' }, ['Full name *']));
@@ -331,7 +393,7 @@
       })(),
       (function () {
         var c = h('div', {}, []);
-        c.appendChild(h('label', { className: 'ses-label' }, ['Email *']));
+        c.appendChild(h('label', { className: 'ses-label' }, ['Email (for confirmation)']));
         c.appendChild(h('input', { className: 'ses-input', value: state.email, type: 'email',
           onInput: function (e) { state.email = e.target.value; } }, []));
         return c;
@@ -363,16 +425,18 @@
       h('button', { className: 'ses-btn', onClick: function () { go(3); } }, ['Back']),
       h('button', {
         className: 'ses-btn primary',
-        disabled: state.busy || !state.name || !state.email || !state.phone || !state.gdpr,
+        disabled: state.busy || !state.name || !state.phone || !state.gdpr,
         onClick: submit,
       }, [state.busy ? 'Booking…' : 'Confirm booking']),
     ]));
     return wrap;
   }
 
+  // STEP 5 — Confirmation
   function renderStep5() {
     var c = state.confirmation;
-    var when = c ? new Date(c.appointment.starts_at).toLocaleString('en-GB', {
+    var ap = c && c.appointment;
+    var when = ap ? new Date(ap.starts_at).toLocaleString('en-GB', {
       weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
     }) : '';
     return h('div', {}, [
@@ -380,11 +444,13 @@
         h('div', { style: 'font-size:42px' }, ['✓']),
         h('h3', { style: 'margin:8px 0;color:#16a34a' }, ['Booking confirmed']),
         h('p', { className: 'ses-muted' }, [
-          c ? ('We have sent a confirmation to ' + state.email + '.') : '',
+          state.email ? ('We have sent a confirmation to ' + state.email + '.') : 'Please save your reference number below.',
         ]),
-        c ? h('div', { className: 'ses-card', style: 'text-align:left' }, [
+        ap ? h('div', { className: 'ses-card', style: 'text-align:left;display:block;cursor:default' }, [
           h('div', {}, [h('strong', {}, ['When: ']), when]),
-          h('div', {}, [h('strong', {}, ['Reference: ']), '#' + c.appointment.id]),
+          ap.therapist_name ? h('div', {}, [h('strong', {}, ['Therapist: ']), ap.therapist_name]) : null,
+          ap.room_name ? h('div', {}, [h('strong', {}, ['Room: ']), ap.room_name]) : null,
+          h('div', {}, [h('strong', {}, ['Reference: ']), '#' + ap.id]),
         ]) : null,
       ]),
       h('div', { className: 'ses-actions' }, [
@@ -392,6 +458,27 @@
         h('button', { className: 'ses-btn primary', onClick: close }, ['Close']),
       ]),
     ]);
+  }
+
+  // -------- auto-mount ------------------------------------------------------
+  // If the page has <div id="siamespa-booking"></div> we drop a styled
+  // button inside it. The button just calls open().
+  function autoMount() {
+    var slot = document.getElementById('siamespa-booking');
+    if (!slot || slot.getAttribute('data-ses-mounted')) return;
+    injectStyle();
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ses-mount-btn';
+    btn.textContent = 'Book your treatment';
+    btn.addEventListener('click', open);
+    slot.appendChild(btn);
+    slot.setAttribute('data-ses-mounted', '1');
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', autoMount);
+  } else {
+    autoMount();
   }
 
   // -------- public surface -------------------------------------------------

@@ -8,6 +8,7 @@ import TreatmentMenuSection   from './admin/TreatmentMenuSection.jsx';
 import TherapistSection       from './admin/TherapistSection.jsx';
 import RoomSection            from './admin/RoomSection.jsx';
 import BookingSettingsSection from './admin/BookingSettingsSection.jsx';
+import EmbedCodesSection      from './admin/EmbedCodesSection.jsx';
 import SettingsSection        from './admin/SettingsSection.jsx';
 
 const TABS = [
@@ -18,6 +19,7 @@ const TABS = [
   { k: 'therapists', t: 'Therapists',      C: TherapistSection },
   { k: 'rooms',     t: 'Rooms',            C: RoomSection },
   { k: 'booking',   t: 'Booking',          C: BookingSettingsSection },
+  { k: 'embed',     t: 'Embed Codes',      C: EmbedCodesSection },
   { k: 'settings',  t: 'Settings',         C: SettingsSection },
 ];
 

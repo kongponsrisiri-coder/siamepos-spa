@@ -217,6 +217,11 @@ async function initSchema() {
   ];
   for (const sql of medicalCols) { await pool.query(sql); }
 
+  // ── therapists new columns (booking-widget picker) ──────────────────────
+  await pool.query(`
+    ALTER TABLE therapists ADD COLUMN IF NOT EXISTS specialisms TEXT;
+  `);
+
   console.log('[db] schema ready');
 }
 

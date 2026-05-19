@@ -26,7 +26,24 @@ router.get('/treatments', async (_req, res) => {
   }
 });
 
-// GET /api/widget/availability?treatment_id=&date=YYYY-MM-DD
+// GET /api/widget/therapists — public list (active only).
+// Returns the bare minimum the customer needs to pick a therapist.
+router.get('/therapists', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, specialisms
+       FROM therapists
+       WHERE active = TRUE
+       ORDER BY name`,
+    );
+    res.json({ therapists: rows });
+  } catch (err) {
+    console.error('[widget] therapists', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// GET /api/widget/availability?treatment_id=&date=YYYY-MM-DD&therapist_id=(optional)
 router.get('/availability', async (req, res) => {
   const { treatment_id, date, therapist_id } = req.query;
   if (!treatment_id || !date) {
@@ -47,10 +64,10 @@ router.get('/availability', async (req, res) => {
 });
 
 // POST /api/widget/book
-// body: { treatment_id, starts_at, therapist_id?, name, phone, email, gdpr_consent, marketing_consent, notes }
+// body: { treatment_id, starts_at, therapist_id?, name, phone, email?, gdpr_consent, marketing_consent?, notes? }
 router.post('/book', async (req, res) => {
   const b = req.body || {};
-  const required = ['treatment_id', 'starts_at', 'name', 'email', 'phone'];
+  const required = ['treatment_id', 'starts_at', 'name', 'phone'];
   for (const k of required) if (!b[k]) return res.status(400).json({ error: `${k} required` });
   if (!b.gdpr_consent) return res.status(400).json({ error: 'gdpr_consent required' });
 
@@ -66,12 +83,17 @@ router.post('/book', async (req, res) => {
     if (!tr.rows[0]) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'treatment not found' }); }
     const ends_at = new Date(new Date(b.starts_at).getTime() + tr.rows[0].duration_minutes * 60_000);
 
-    // Find or create client. Match by email first, then phone.
+    // Find or create client. Match by email if given, otherwise by phone.
     let cli;
-    const existing = await client.query(
-      `SELECT * FROM clients WHERE email = $1 OR phone = $2 ORDER BY id LIMIT 1`,
-      [b.email, b.phone],
-    );
+    const existing = b.email
+      ? await client.query(
+          `SELECT * FROM clients WHERE email = $1 OR phone = $2 ORDER BY id LIMIT 1`,
+          [b.email, b.phone],
+        )
+      : await client.query(
+          `SELECT * FROM clients WHERE phone = $1 ORDER BY id LIMIT 1`,
+          [b.phone],
+        );
     if (existing.rows[0]) {
       cli = existing.rows[0];
       await client.query(
@@ -81,23 +103,23 @@ router.post('/book', async (req, res) => {
            email = COALESCE($4, email),
            gdpr_consent = TRUE,
            gdpr_consent_at = COALESCE(gdpr_consent_at, now()),
-           marketing_consent = $5
+           marketing_consent = clients.marketing_consent OR $5
          WHERE id = $1`,
-        [cli.id, b.name, b.phone, b.email, !!b.marketing_consent],
+        [cli.id, b.name, b.phone, b.email || null, !!b.marketing_consent],
       );
     } else {
       const ins = await client.query(
         `INSERT INTO clients (name, phone, email, gdpr_consent, gdpr_consent_at, marketing_consent)
          VALUES ($1, $2, $3, TRUE, now(), $4)
          RETURNING *`,
-        [b.name, b.phone, b.email, !!b.marketing_consent],
+        [b.name, b.phone, b.email || null, !!b.marketing_consent],
       );
       cli = ins.rows[0];
     }
 
-    // Pick a free therapist + room if not specified — fail loudly if none.
-    let therapist_id = b.therapist_id || null;
-    let room_id = null;
+    // Pick a free therapist + room. If a therapist was requested, honour it
+    // (computeAvailability will only return slots where that therapist is free).
+    let therapist_id = b.therapist_id ? Number(b.therapist_id) : null;
     const av = await computeAvailability({
       treatment_id: b.treatment_id,
       date: String(b.starts_at).slice(0, 10),
@@ -106,7 +128,7 @@ router.post('/book', async (req, res) => {
     const slot = av.find((s) => new Date(s.starts_at).getTime() === new Date(b.starts_at).getTime());
     if (!slot) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'slot no longer available' }); }
     if (!therapist_id) therapist_id = slot.therapists[0];
-    room_id = slot.rooms[0];
+    const room_id = slot.rooms[0];
 
     const ap = await client.query(
       `INSERT INTO appointments
@@ -114,6 +136,15 @@ router.post('/book', async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,'booked','online',$7)
        RETURNING *`,
       [cli.id, b.treatment_id, therapist_id, room_id, b.starts_at, ends_at, b.notes || null],
+    );
+
+    // Look up the names the widget renders on the confirmation card.
+    const named = await client.query(
+      `SELECT th.name AS therapist_name, r.name AS room_name
+       FROM therapists th
+       LEFT JOIN rooms r ON r.id = $2
+       WHERE th.id = $1`,
+      [therapist_id, room_id],
     );
 
     await client.query('COMMIT');
@@ -124,15 +155,23 @@ router.post('/book', async (req, res) => {
       `SELECT value FROM settings WHERE key = 'cancellation_policy_text'`,
     )).rows[0]?.value;
     req.app.get('io')?.emit('new_appointment', ap.rows[0]);
-    sendBookingConfirmation({
-      client: cli,
-      appointment: ap.rows[0],
-      treatment: tr.rows[0],
-      cancellationPolicy: policy,
-    }).catch((e) => console.error('[widget] email send failed', e));
+    if (cli.email) {
+      sendBookingConfirmation({
+        client: cli,
+        appointment: ap.rows[0],
+        treatment: tr.rows[0],
+        cancellationPolicy: policy,
+      }).catch((e) => console.error('[widget] email send failed', e));
+    }
 
     res.status(201).json({
-      appointment: { id: ap.rows[0].id, starts_at: ap.rows[0].starts_at, ends_at: ap.rows[0].ends_at },
+      appointment: {
+        id: ap.rows[0].id,
+        starts_at: ap.rows[0].starts_at,
+        ends_at: ap.rows[0].ends_at,
+        therapist_name: named.rows[0]?.therapist_name || null,
+        room_name: named.rows[0]?.room_name || null,
+      },
       client: { id: cli.id, name: cli.name },
     });
   } catch (err) {

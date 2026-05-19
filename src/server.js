@@ -50,11 +50,14 @@ app.get('/api/health', (_req, res) => {
 });
 
 // Public booking widget — served from the backend so any external site can
-// embed <script src="https://spa-api.siamepos.co.uk/widget.js">.
-app.get('/widget.js', (_req, res) => {
+// embed <script src="https://spa-api.siamepos.co.uk/widget.js">. The
+// `/booking-widget.js` alias matches the embed code shipped in SPA-002.
+function sendWidget(_req, res) {
   res.type('application/javascript');
   res.sendFile(path.resolve(__dirname, '..', 'client', 'public', 'widget.js'));
-});
+}
+app.get('/widget.js',         sendWidget);
+app.get('/booking-widget.js', sendWidget);
 
 // ---- Public routes (NO auth) ---------------------------------------------
 app.use('/api/widget', widgetRoutes);

@@ -37,6 +37,7 @@ export default function TherapistSection() {
     const body = {
       name: editing.name,
       role: editing.role || 'therapist',
+      specialisms: editing.specialisms ?? null,
       active: editing.active !== false,
     };
     if (editing.pin) body.pin = String(editing.pin);
@@ -59,6 +60,7 @@ export default function TherapistSection() {
               <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)' }}>
                 <th style={{ padding: '6px 4px' }}>Name</th>
                 <th style={{ padding: '6px 4px' }}>Role</th>
+                <th style={{ padding: '6px 4px' }}>Specialisms</th>
                 <th />
               </tr>
             </thead>
@@ -67,6 +69,7 @@ export default function TherapistSection() {
                 <tr key={t.id} style={{ borderBottom: '1px solid var(--border)' }}>
                   <td style={{ padding: '6px 4px' }}>{t.name}</td>
                   <td style={{ padding: '6px 4px' }}>{t.role}</td>
+                  <td style={{ padding: '6px 4px' }} className="muted">{t.specialisms || '—'}</td>
                   <td style={{ padding: '6px 4px', textAlign: 'right' }}>
                     <button onClick={() => openAvail(t)}>Availability</button>{' '}
                     <button onClick={() => setEdit({ ...t })}>Edit</button>
@@ -93,6 +96,14 @@ export default function TherapistSection() {
                   <option value="manager">Manager</option>
                   <option value="admin">Admin</option>
                 </select>
+              </div>
+              <div>
+                <label>Specialisms <span className="muted" style={{ fontSize: 12 }}>(shown on the public booking widget)</span></label>
+                <input
+                  value={editing.specialisms || ''}
+                  placeholder="e.g. Deep tissue, Hot stone"
+                  onChange={(e) => setEdit({ ...editing, specialisms: e.target.value })}
+                />
               </div>
               {editing.id && (
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
