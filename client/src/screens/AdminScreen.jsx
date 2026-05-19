@@ -10,17 +10,19 @@ import RoomSection            from './admin/RoomSection.jsx';
 import BookingSettingsSection from './admin/BookingSettingsSection.jsx';
 import EmbedCodesSection      from './admin/EmbedCodesSection.jsx';
 import SettingsSection        from './admin/SettingsSection.jsx';
+import RotaSection            from './admin/RotaSection.jsx';
 
 const TABS = [
-  { k: 'trading',   t: 'Trading',          C: TradingSection },
-  { k: 'reports',   t: 'Reports',          C: ReportsSection },
-  { k: 'zreport',   t: 'Z Report',         C: ZReportSection },
-  { k: 'menu',      t: 'Treatment Menu',   C: TreatmentMenuSection },
+  { k: 'trading',    t: 'Trading',         C: TradingSection },
+  { k: 'reports',    t: 'Reports',         C: ReportsSection },
+  { k: 'zreport',    t: 'Z Report',        C: ZReportSection },
+  { k: 'menu',       t: 'Treatment Menu',  C: TreatmentMenuSection },
   { k: 'therapists', t: 'Therapists',      C: TherapistSection },
-  { k: 'rooms',     t: 'Rooms',            C: RoomSection },
-  { k: 'booking',   t: 'Booking',          C: BookingSettingsSection },
-  { k: 'embed',     t: 'Embed Codes',      C: EmbedCodesSection },
-  { k: 'settings',  t: 'Settings',         C: SettingsSection },
+  { k: 'rota',       t: 'Rota',            C: RotaSection },
+  { k: 'rooms',      t: 'Rooms',           C: RoomSection },
+  { k: 'booking',    t: 'Booking',         C: BookingSettingsSection },
+  { k: 'embed',      t: 'Embed Codes',     C: EmbedCodesSection },
+  { k: 'settings',   t: 'Settings',        C: SettingsSection },
 ];
 
 export default function AdminScreen() {

@@ -1,5 +1,7 @@
 // Compute bookable slots for a given treatment + date.
 // Used by both /api/appointments/availability (staff) and /api/widget/availability (public).
+// SPA-ROTA-001: now checks therapist_availability (weekly rota) AND
+// therapist_rota_overrides (date-specific) before returning slots.
 
 const { pool } = require('../db/database');
 
@@ -17,6 +19,42 @@ function buildAt(dateStr, timeStr) {
   return d;
 }
 
+// Returns a working window { start, end } in ms, or null if the therapist
+// is off that day. Resolution order: override > weekly rota > full-day fallback.
+function resolveTherapistWindow(therapistId, dateStr, dayOfWeek, weeklyRota, overrides, openAtMs, closeAtMs) {
+  // 1 — date-specific override
+  const override = overrides.find(
+    (o) => o.therapist_id === therapistId && o.date === dateStr,
+  );
+  if (override) {
+    if (!override.is_working) return null; // day off
+    return {
+      start: override.start_time ? buildAt(dateStr, override.start_time).getTime() : openAtMs,
+      end:   override.end_time   ? buildAt(dateStr, override.end_time).getTime()   : closeAtMs,
+    };
+  }
+
+  // 2 — weekly rota for this therapist
+  const todaySlots = weeklyRota.filter(
+    (r) => r.therapist_id === therapistId && r.day_of_week === dayOfWeek,
+  );
+
+  const hasAnyRotaForTherapist = weeklyRota.some((r) => r.therapist_id === therapistId);
+  if (!hasAnyRotaForTherapist) {
+    // No rota set at all → backwards-compatible: assume working full day
+    return { start: openAtMs, end: closeAtMs };
+  }
+  if (todaySlots.length === 0) {
+    // Rota exists but no slot for today → day off
+    return null;
+  }
+
+  // Use earliest start / latest end from their rota slots for the day
+  const starts = todaySlots.map((s) => buildAt(dateStr, s.start_time).getTime());
+  const ends   = todaySlots.map((s) => buildAt(dateStr, s.end_time).getTime());
+  return { start: Math.min(...starts), end: Math.max(...ends) };
+}
+
 async function computeAvailability({ treatment_id, date, therapist_id }) {
   const tr = await pool.query(
     'SELECT id, duration_minutes FROM treatments WHERE id = $1 AND active = TRUE',
@@ -30,28 +68,63 @@ async function computeAvailability({ treatment_id, date, therapist_id }) {
      WHERE key IN ('opening_time','closing_time','booking_slot_minutes')`,
   );
   const settings = Object.fromEntries(settingsRes.rows.map((r) => [r.key, r.value]));
-  const openTime = settings.opening_time || '10:00';
-  const closeTime = settings.closing_time || '20:00';
-  const slotMin = Number(settings.booking_slot_minutes || 15);
+  const openTime  = settings.opening_time       || '10:00';
+  const closeTime = settings.closing_time       || '20:00';
+  const slotMin   = Number(settings.booking_slot_minutes || 15);
 
-  const openAt = buildAt(date, openTime);
-  const closeAt = buildAt(date, closeTime);
+  const openAtMs  = buildAt(date, openTime).getTime();
+  const closeAtMs = buildAt(date, closeTime).getTime();
 
+  // day_of_week: 0=Sun … 6=Sat (matches JS Date.getDay())
+  const dayOfWeek = new Date(date + 'T12:00:00').getDay();
+
+  // Fetch therapists
   const therapistsRes = therapist_id
     ? await pool.query('SELECT id FROM therapists WHERE id = $1 AND active = TRUE', [therapist_id])
     : await pool.query('SELECT id FROM therapists WHERE active = TRUE');
-  const therapists = therapistsRes.rows.map((r) => r.id);
-  if (!therapists.length) return [];
+  const allTherapists = therapistsRes.rows.map((r) => r.id);
+  if (!allTherapists.length) return [];
 
   const roomsRes = await pool.query('SELECT id FROM rooms WHERE active = TRUE');
   const rooms = roomsRes.rows.map((r) => r.id);
   if (!rooms.length) return [];
 
-  // Pull every non-cancelled appointment that overlaps the day so we can
-  // check conflicts in memory (cheaper than one SQL per slot).
+  // SPA-ROTA-001 — load weekly rota for all therapists
+  const rotaRes = await pool.query(
+    `SELECT therapist_id, day_of_week, start_time, end_time
+     FROM therapist_availability WHERE therapist_id = ANY($1)`,
+    [allTherapists],
+  );
+  const weeklyRota = rotaRes.rows.map((r) => ({
+    therapist_id: r.therapist_id,
+    day_of_week:  r.day_of_week,
+    start_time:   String(r.start_time).slice(0, 5),
+    end_time:     String(r.end_time).slice(0, 5),
+  }));
+
+  // SPA-ROTA-001 — load date-specific overrides for this date
+  const overrideRes = await pool.query(
+    `SELECT therapist_id, date::text AS date, is_working, start_time, end_time
+     FROM therapist_rota_overrides
+     WHERE therapist_id = ANY($1) AND date = $2`,
+    [allTherapists, date],
+  );
+  const overrides = overrideRes.rows;
+
+  // Resolve each therapist's working window for today
+  const therapistWindows = {};
+  for (const id of allTherapists) {
+    const window = resolveTherapistWindow(id, date, dayOfWeek, weeklyRota, overrides, openAtMs, closeAtMs);
+    if (window) therapistWindows[id] = window;
+  }
+
+  const workingTherapists = Object.keys(therapistWindows).map(Number);
+  if (!workingTherapists.length) return [];
+
+  // Pull existing appointments for conflict checking
   const dayStart = new Date(date + 'T00:00:00');
-  const dayEnd = new Date(date + 'T23:59:59');
-  const apptRes = await pool.query(
+  const dayEnd   = new Date(date + 'T23:59:59');
+  const apptRes  = await pool.query(
     `SELECT therapist_id, room_id, starts_at, ends_at
      FROM appointments
      WHERE status NOT IN ('cancelled','no_show')
@@ -60,27 +133,32 @@ async function computeAvailability({ treatment_id, date, therapist_id }) {
   );
   const busy = apptRes.rows.map((r) => ({
     therapist_id: r.therapist_id,
-    room_id: r.room_id,
-    start: new Date(r.starts_at).getTime(),
-    end: new Date(r.ends_at).getTime(),
+    room_id:      r.room_id,
+    start:        new Date(r.starts_at).getTime(),
+    end:          new Date(r.ends_at).getTime(),
   }));
 
   const slots = [];
-  for (let t = openAt.getTime(); t + duration * 60_000 <= closeAt.getTime(); t += slotMin * 60_000) {
+  for (let t = openAtMs; t + duration * 60_000 <= closeAtMs; t += slotMin * 60_000) {
     const startMs = t;
-    const endMs = t + duration * 60_000;
-    const freeTherapists = therapists.filter(
-      (id) => !busy.some((b) => b.therapist_id === id && b.start < endMs && b.end > startMs),
-    );
+    const endMs   = t + duration * 60_000;
+
+    const freeTherapists = workingTherapists.filter((id) => {
+      const w = therapistWindows[id];
+      if (startMs < w.start || endMs > w.end) return false; // outside rota hours
+      return !busy.some((b) => b.therapist_id === id && b.start < endMs && b.end > startMs);
+    });
+
     const freeRooms = rooms.filter(
       (id) => !busy.some((b) => b.room_id === id && b.start < endMs && b.end > startMs),
     );
+
     if (freeTherapists.length && freeRooms.length) {
       slots.push({
-        starts_at: new Date(startMs).toISOString(),
-        ends_at: new Date(endMs).toISOString(),
+        starts_at:  new Date(startMs).toISOString(),
+        ends_at:    new Date(endMs).toISOString(),
         therapists: freeTherapists,
-        rooms: freeRooms,
+        rooms:      freeRooms,
       });
     }
   }

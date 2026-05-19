@@ -222,6 +222,26 @@ async function initSchema() {
     ALTER TABLE therapists ADD COLUMN IF NOT EXISTS specialisms TEXT;
   `);
 
+  // ── SPA-ROTA-001 — therapist rota overrides ─────────────────────────────
+  // Date-specific schedule changes: day off, or different start/end hours.
+  // is_working=FALSE means the therapist is off that day entirely.
+  // is_working=TRUE with start_time/end_time overrides the weekly template.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS therapist_rota_overrides (
+      id            SERIAL PRIMARY KEY,
+      therapist_id  INT  NOT NULL REFERENCES therapists(id) ON DELETE CASCADE,
+      date          DATE NOT NULL,
+      is_working    BOOLEAN NOT NULL DEFAULT FALSE,
+      start_time    TIME,
+      end_time      TIME,
+      note          TEXT,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (therapist_id, date)
+    );
+    CREATE INDEX IF NOT EXISTS idx_rota_overrides_therapist_date
+      ON therapist_rota_overrides (therapist_id, date);
+  `);
+
   console.log('[db] schema ready');
 }
 

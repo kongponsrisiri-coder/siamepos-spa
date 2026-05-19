@@ -11,7 +11,7 @@ const BASE = 'http://localhost:5050';
 // Generate a dev JWT directly (avoids needing a known PIN).
 // Uses the same secret as middleware/auth.js default.
 const jwt = require('jsonwebtoken');
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-change-me';
+const JWT_SECRET = process.env.JWT_SECRET || 'a7f3c9e2b84d1f6a0e5c7b2d9f4a8e1c3b6d0f2a9e4c7b1d8f3a6c0e2b5d9f4';
 const adminToken  = jwt.sign({ sub: 9001, name: '__TestAdmin',   role: 'admin'     }, JWT_SECRET, { expiresIn: '1h' });
 const managerToken= jwt.sign({ sub: 9002, name: '__TestManager', role: 'manager'   }, JWT_SECRET, { expiresIn: '1h' });
 const staffToken  = jwt.sign({ sub: 9003, name: '__TestStaff',   role: 'therapist' }, JWT_SECRET, { expiresIn: '1h' });

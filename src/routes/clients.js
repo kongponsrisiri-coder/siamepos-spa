@@ -135,6 +135,17 @@ router.put('/:id/medical', async (req, res) => {
     'recent_surgery','bone_fracture','skin_condition','varicose_veins','osteoporosis','lymphoedema',
     'medications','allergies','areas_to_avoid','skin_conditions_detail','digital_signature',
   ];
+  // BUG-SPA-001 fix — the schema marks the boolean columns NOT NULL DEFAULT FALSE
+  // and blood_pressure NOT NULL DEFAULT 'none'. Passing an explicit NULL bypasses
+  // the DEFAULT and hits the NOT NULL constraint, so when the medical record is
+  // being INSERTed (no prior row) we COALESCE the placeholder to the same value
+  // the schema would have used. Anything not listed here is nullable TEXT.
+  const insertDefaults = {
+    pregnancy: 'FALSE', heart_condition: 'FALSE', blood_pressure: "'none'",
+    diabetes: 'FALSE', epilepsy: 'FALSE', cancer: 'FALSE', dvt: 'FALSE',
+    recent_surgery: 'FALSE', bone_fracture: 'FALSE', skin_condition: 'FALSE',
+    varicose_veins: 'FALSE', osteoporosis: 'FALSE', lymphoedema: 'FALSE',
+  };
   const values = cols.map((k) => b[k] ?? null);
   try {
     const exists = await pool.query('SELECT id FROM client_medical WHERE client_id = $1 LIMIT 1', [id]);
@@ -148,7 +159,10 @@ router.put('/:id/medical', async (req, res) => {
       );
       return res.json({ medical: rows[0] });
     }
-    const placeholders = cols.map((_, i) => `$${i + 2}`).join(', ');
+    const placeholders = cols.map((c, i) => {
+      const ph = `$${i + 2}`;
+      return insertDefaults[c] ? `COALESCE(${ph}, ${insertDefaults[c]})` : ph;
+    }).join(', ');
     const { rows } = await pool.query(
       `INSERT INTO client_medical (client_id, ${cols.join(', ')}, signed_at)
        VALUES ($1, ${placeholders}, CASE WHEN $${cols.length + 2}::text IS NOT NULL THEN now() ELSE NULL END)
