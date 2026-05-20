@@ -37,8 +37,15 @@ router.get('/:id', async (req, res) => {
     if (!c.rows[0]) return res.status(404).json({ error: 'not found' });
     const m = await pool.query('SELECT * FROM client_medical WHERE client_id = $1 ORDER BY updated_at DESC LIMIT 1', [id]);
     const a = await pool.query(
-      `SELECT a.*, t.name AS treatment_name
-       FROM appointments a LEFT JOIN treatments t ON t.id = a.treatment_id
+      `SELECT a.*, t.name AS treatment_name, th.name AS therapist_name,
+              b.payment_method, b.total AS bill_total
+       FROM appointments a
+       LEFT JOIN treatments t  ON t.id  = a.treatment_id
+       LEFT JOIN therapists th ON th.id = a.therapist_id
+       LEFT JOIN LATERAL (
+         SELECT payment_method, total FROM bills
+         WHERE appointment_id = a.id ORDER BY id DESC LIMIT 1
+       ) b ON TRUE
        WHERE a.client_id = $1
        ORDER BY a.starts_at DESC LIMIT 50`,
       [id],

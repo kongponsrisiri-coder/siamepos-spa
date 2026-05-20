@@ -25,6 +25,26 @@ function isWorkingOn(therapistId, dateStr, weeklyRota, overrides) {
   return !hasAnyRota;
 }
 
+// Returns custom work hours { start: 'HH:MM', end: 'HH:MM' } for a therapist on a date,
+// or null if they work the full day / no restriction applies.
+function getWorkHours(therapistId, dateStr, weeklyRota, overrides) {
+  const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay();
+  const override = overrides.find(o => o.therapist_id === therapistId && o.date?.slice(0, 10) === dateStr);
+  if (override && override.is_working && override.start_time && override.end_time) {
+    return { start: String(override.start_time).slice(0, 5), end: String(override.end_time).slice(0, 5) };
+  }
+  const entry = weeklyRota.find(r => r.therapist_id === therapistId && r.day_of_week === dayOfWeek);
+  if (entry && entry.start_time && entry.end_time) {
+    return { start: String(entry.start_time).slice(0, 5), end: String(entry.end_time).slice(0, 5) };
+  }
+  return null;
+}
+
+// Payment method → colour
+const PAYMENT_COLOR = { cash: '#16a34a', card: '#2563eb', voucher: '#7c3aed', other: '#6b7280' };
+function pmColor(method) { return PAYMENT_COLOR[method] || PAYMENT_COLOR.other; }
+function pmLabel(method) { return method ? method.charAt(0).toUpperCase() + method.slice(1) : ''; }
+
 // ── Timeline constants ────────────────────────────────────────────────────────
 const COL_W     = 154;
 const LBL_W     = 52;
@@ -163,7 +183,23 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
           </div>
 
           {/* Columns */}
-          {columns.map((col, ci) => (
+          {columns.map((col, ci) => {
+            // Compute blocked-hours bands for custom rota times (#29)
+            let blockedBands = [];
+            if (!col.isOff && col.workStart && col.workEnd) {
+              const [wsh, wsm] = col.workStart.split(':').map(Number);
+              const [weh, wem] = col.workEnd.split(':').map(Number);
+              const workStartMins = wsh * 60 + wsm;
+              const workEndMins   = weh * 60 + wem;
+              if (workStartMins > DAY_START * 60) {
+                blockedBands.push({ top: 0, height: minsToPx(workStartMins), borderSide: 'bottom' });
+              }
+              if (workEndMins < DAY_END * 60) {
+                blockedBands.push({ top: minsToPx(workEndMins), height: totalH - minsToPx(workEndMins), borderSide: 'top' });
+              }
+            }
+
+            return (
             <div key={col.id}
               style={{
                 width: COL_W, flexShrink: 0, position: 'relative', height: totalH,
@@ -174,13 +210,18 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   : 'white',
               }}
               onClick={col.isOff ? undefined : e => {
-                // Only fire when clicking the column background, not on a block
                 if (e.target !== e.currentTarget) return;
                 if (!onSlotClick) return;
                 const rect = e.currentTarget.getBoundingClientRect();
                 const clickY = e.clientY - rect.top;
                 const rawMins = (clickY / HOUR_H) * 60 + DAY_START * 60;
                 const mins = Math.round(rawMins / 15) * 15;
+                // Block clicks outside custom work hours (#29)
+                if (col.workStart && col.workEnd) {
+                  const [wsh, wsm] = col.workStart.split(':').map(Number);
+                  const [weh, wem] = col.workEnd.split(':').map(Number);
+                  if (mins < wsh * 60 + wsm || mins >= weh * 60 + wem) return;
+                }
                 const h = Math.floor(mins / 60);
                 const m = mins % 60;
                 onSlotClick({ therapistId: col.id, therapistName: col.name, time: `${pad(h)}:${pad(m)}` });
@@ -193,6 +234,17 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                 </div>
               ))}
 
+              {/* Blocked-hours overlay — outside custom rota start/end (#29) */}
+              {blockedBands.map((band, bi) => (
+                <div key={bi} style={{
+                  position: 'absolute', top: band.top, left: 0, right: 0, height: band.height,
+                  background: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.035) 0px, rgba(0,0,0,0.035) 7px, transparent 7px, transparent 14px)',
+                  borderTop: band.borderSide === 'top' ? '1.5px dashed #d1d5db' : 'none',
+                  borderBottom: band.borderSide === 'bottom' ? '1.5px dashed #d1d5db' : 'none',
+                  pointerEvents: 'none', zIndex: 2,
+                }} />
+              ))}
+
               {/* Appointment blocks — single click selects, double-click edits */}
               {col.appts.map(a => {
                 const startM = toLocalMins(a.starts_at);
@@ -201,11 +253,17 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                 const height = Math.max(minsToPx(endM) - minsToPx(startM) - 3, 26);
                 const isSel  = selected?.id === a.id;
                 const s      = STATUS_STYLE[a.status] || STATUS_STYLE.booked;
+                const hasPm  = Boolean(a.payment_method);  // #30
+                const isReq  = Boolean(a.therapist_requested); // #31
                 return (
                   <div key={a.id}
                     onClick={e => { e.stopPropagation(); onSelect(isSel ? null : a); }}
                     onDoubleClick={e => { e.stopPropagation(); onEditClick && onEditClick(a); }}
-                    title="Click to select · Double-click to edit"
+                    title={[
+                      'Click to select · Double-click to edit',
+                      isReq ? '⭐ Therapist requested' : '',
+                      hasPm ? `💳 Paid by ${a.payment_method}` : '',
+                    ].filter(Boolean).join(' · ')}
                     style={{
                       position: 'absolute', left: 4, right: 4, top, height,
                       borderRadius: 7, cursor: 'pointer',
@@ -215,7 +273,9 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                       boxShadow: isSel ? '0 4px 14px rgba(0,0,0,0.22)' : '0 1px 4px rgba(0,0,0,0.07)',
                       zIndex: isSel ? 8 : 4, transition: 'all 0.12s',
                     }}>
+                    {/* Client name + therapist-requested star (#31) */}
                     <div style={{ fontSize: 12, fontWeight: 700, color: isSel ? 'white' : s.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {isReq && <span title="Client requested this therapist" style={{ marginRight: 3, fontSize: 10 }}>⭐</span>}
                       {a.client_name || 'Walk-in'}
                     </div>
                     {height > 38 && (
@@ -233,6 +293,18 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                         🚪 {a.room_name}
                       </div>
                     )}
+                    {/* Payment method badge (#30) — shown when paid */}
+                    {hasPm && height > 46 && (
+                      <div style={{
+                        position: 'absolute', bottom: 4, right: 5,
+                        fontSize: 9, fontWeight: 700, lineHeight: 1,
+                        background: isSel ? 'rgba(255,255,255,0.25)' : pmColor(a.payment_method),
+                        color: 'white',
+                        padding: '2px 5px', borderRadius: 3,
+                      }}>
+                        {pmLabel(a.payment_method)}
+                      </div>
+                    )}
                     {/* Edit hint on selected */}
                     {isSel && height > 46 && (
                       <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>✏ dbl-click to edit</div>
@@ -241,7 +313,8 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                 );
               })}
             </div>
-          ))}
+            );
+          })}
 
           {/* Now line */}
           {showNow && (
@@ -256,11 +329,21 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
       </div>
 
       {/* Legend */}
-      <div style={{ padding: '8px 12px', background: '#fafafa', borderTop: '1px solid var(--border)', display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+      <div style={{ padding: '8px 12px', background: '#fafafa', borderTop: '1px solid var(--border)', display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
         {Object.entries(STATUS_STYLE).map(([status, s]) => (
           <span key={status} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}`, display: 'inline-block' }} />
             <span style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>{status.replace('_', ' ')}</span>
+          </span>
+        ))}
+        <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
+        <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 10 }}>⭐</span> Therapist requested
+        </span>
+        {Object.entries(PAYMENT_COLOR).slice(0,3).map(([method, color]) => (
+          <span key={method} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ background: color, color: 'white', fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3 }}>{pmLabel(method)}</span>
+            <span style={{ color: 'var(--muted)' }}>paid</span>
           </span>
         ))}
       </div>
@@ -300,10 +383,14 @@ export default function AppointmentScreen() {
       .catch(() => {}); // silently ignore — falls back to appointment-derived columns
   }, [month, rotaMonth]);
 
-  // All therapists shown on timeline; isOff flag drives the greyed-out column style
+  // All therapists shown on timeline; isOff + workStart/workEnd drive column visual state
   const therapistColumns = allTherapists
     .filter(t => t.role === 'therapist')
-    .map(t => ({ ...t, isOff: !isWorkingOn(t.id, date, weeklyRota, rotaOverrides) }));
+    .map(t => {
+      const isOff = !isWorkingOn(t.id, date, weeklyRota, rotaOverrides);
+      const hours = isOff ? null : getWorkHours(t.id, date, weeklyRota, rotaOverrides);
+      return { ...t, isOff, workStart: hours?.start || null, workEnd: hours?.end || null };
+    });
 
   // Keep backwards-compat: workingTherapists still used for "no staff" fallback message
   const workingTherapists = therapistColumns.filter(t => !t.isOff);

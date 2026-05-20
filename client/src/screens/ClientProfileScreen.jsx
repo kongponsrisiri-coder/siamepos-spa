@@ -117,10 +117,19 @@ export default function ClientProfileScreen() {
           {appointments.length === 0 && <div className="muted">No past appointments.</div>}
           {appointments.map((a) => (
             <div key={a.id} className="card" style={{ padding: 10 }}>
-              <div className="row" style={{ justifyContent: 'space-between' }}>
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
-                  <div>{new Date(a.starts_at).toLocaleString('en-GB')}</div>
-                  <div className="muted" style={{ fontSize: 13 }}>{a.treatment_name || '—'}</div>
+                  <div style={{ fontWeight: 600 }}>{new Date(a.starts_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}</div>
+                  <div className="muted" style={{ fontSize: 13 }}>
+                    {a.treatment_name || '—'}
+                    {a.therapist_name && <span> · <span style={{ color: '#1e3a6e', fontWeight: 500 }}>👤 {a.therapist_name}</span></span>}
+                  </div>
+                  {a.payment_method && (
+                    <div style={{ fontSize: 12, marginTop: 3, color: a.payment_method === 'cash' ? '#16a34a' : a.payment_method === 'card' ? '#2563eb' : '#6b7280' }}>
+                      💳 {a.payment_method.charAt(0).toUpperCase() + a.payment_method.slice(1)}
+                      {a.bill_total ? ` · £${Number(a.bill_total).toFixed(2)}` : ''}
+                    </div>
+                  )}
                 </div>
                 <span className={`status-pill status-${a.status}`}>{a.status.replace('_', ' ')}</span>
               </div>

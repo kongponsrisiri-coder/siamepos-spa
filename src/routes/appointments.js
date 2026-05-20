@@ -26,12 +26,17 @@ router.get('/', async (req, res) => {
               t.name AS treatment_name, t.duration_minutes,
               c.name AS client_name, c.phone AS client_phone,
               th.name AS therapist_name,
-              r.name AS room_name
+              r.name AS room_name,
+              b.payment_method, b.payment_status AS bill_status, b.total AS bill_total
        FROM appointments a
        LEFT JOIN treatments t  ON t.id  = a.treatment_id
        LEFT JOIN clients    c  ON c.id  = a.client_id
        LEFT JOIN therapists th ON th.id = a.therapist_id
        LEFT JOIN rooms      r  ON r.id  = a.room_id
+       LEFT JOIN LATERAL (
+         SELECT payment_method, payment_status, total FROM bills
+         WHERE appointment_id = a.id ORDER BY id DESC LIMIT 1
+       ) b ON TRUE
        ${where}
        ORDER BY a.starts_at ASC`,
       params,
@@ -65,7 +70,7 @@ router.get('/availability', async (req, res) => {
 // POST /api/appointments
 // body: { client_id, treatment_id, therapist_id?, room_id?, starts_at, notes?, source? }
 router.post('/', async (req, res) => {
-  const { client_id, treatment_id, therapist_id, room_id, starts_at, notes, source } = req.body || {};
+  const { client_id, treatment_id, therapist_id, room_id, starts_at, notes, source, therapist_requested } = req.body || {};
   if (!treatment_id || !starts_at) {
     return res.status(400).json({ error: 'treatment_id + starts_at required' });
   }
@@ -88,9 +93,9 @@ router.post('/', async (req, res) => {
 
     const { rows } = await pool.query(
       `INSERT INTO appointments
-         (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at, status, source, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,'booked',$7,$8) RETURNING *`,
-      [client_id || null, treatment_id, therapist_id || null, room_id || null, starts_at, ends_at, source || 'walkin', notes || null],
+         (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at, status, source, notes, therapist_requested)
+       VALUES ($1,$2,$3,$4,$5,$6,'booked',$7,$8,$9) RETURNING *`,
+      [client_id || null, treatment_id, therapist_id || null, room_id || null, starts_at, ends_at, source || 'walkin', notes || null, !!therapist_requested],
     );
     const appt = rows[0];
     req.app.get('io')?.emit('new_appointment', appt);
@@ -104,7 +109,7 @@ router.post('/', async (req, res) => {
 // PUT /api/appointments/:id  — reschedule / reassign / edit any field
 router.put('/:id', async (req, res) => {
   const id = Number(req.params.id);
-  const { therapist_id, room_id, starts_at, notes, treatment_id, client_id, status } = req.body || {};
+  const { therapist_id, room_id, starts_at, notes, treatment_id, client_id, status, therapist_requested } = req.body || {};
   try {
     // Recompute ends_at if starts_at or treatment changed.
     let newEnds = null;
@@ -129,16 +134,17 @@ router.put('/:id', async (req, res) => {
 
     const { rows } = await pool.query(
       `UPDATE appointments SET
-         therapist_id = COALESCE($2, therapist_id),
-         room_id      = COALESCE($3, room_id),
-         starts_at    = COALESCE($4, starts_at),
-         ends_at      = COALESCE($5, ends_at),
-         treatment_id = COALESCE($6, treatment_id),
-         notes        = COALESCE($7, notes),
-         client_id    = COALESCE($8, client_id),
-         status       = COALESCE($9, status)
+         therapist_id         = COALESCE($2, therapist_id),
+         room_id              = COALESCE($3, room_id),
+         starts_at            = COALESCE($4, starts_at),
+         ends_at              = COALESCE($5, ends_at),
+         treatment_id         = COALESCE($6, treatment_id),
+         notes                = COALESCE($7, notes),
+         client_id            = COALESCE($8, client_id),
+         status               = COALESCE($9, status),
+         therapist_requested  = COALESCE($10, therapist_requested)
        WHERE id = $1 RETURNING *`,
-      [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus],
+      [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     req.app.get('io')?.emit('appointment_updated', rows[0]);

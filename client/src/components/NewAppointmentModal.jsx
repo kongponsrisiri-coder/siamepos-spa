@@ -44,6 +44,7 @@ export default function NewAppointmentModal({
     appointment?.therapist_id || defaultTherapistId || null
   );
   const [roomId, setRoomId] = useState(appointment?.room_id || null);
+  const [therapistRequested, setTherapistRequested] = useState(appointment?.therapist_requested || false);
 
   // Date + time stored separately for easy editing
   const initDate = appointment
@@ -120,25 +121,27 @@ export default function NewAppointmentModal({
 
       if (isEdit) {
         const body = {
-          client_id:    useClientId || null,
-          treatment_id: Number(treatmentId),
-          therapist_id: therapistId ? Number(therapistId) : null,
-          room_id:      roomId      ? Number(roomId)      : null,
+          client_id:           useClientId || null,
+          treatment_id:        Number(treatmentId),
+          therapist_id:        therapistId ? Number(therapistId) : null,
+          room_id:             roomId      ? Number(roomId)      : null,
           starts_at,
-          notes:  notes || null,
+          notes:               notes || null,
           status,
+          therapist_requested: therapistId ? therapistRequested : false,
         };
         const r = await api.put(`/appointments/${appointment.id}`, body);
         handleSaved(r.appointment);
       } else {
         const body = {
-          client_id:    useClientId || null,
-          treatment_id: Number(treatmentId),
-          therapist_id: therapistId ? Number(therapistId) : null,
-          room_id:      roomId      ? Number(roomId)      : null,
+          client_id:           useClientId || null,
+          treatment_id:        Number(treatmentId),
+          therapist_id:        therapistId ? Number(therapistId) : null,
+          room_id:             roomId      ? Number(roomId)      : null,
           starts_at,
-          notes:  notes || null,
-          source: 'walkin',
+          notes:               notes || null,
+          source:              'walkin',
+          therapist_requested: therapistId ? therapistRequested : false,
         };
         const r = await api.post('/appointments', body);
         handleSaved(r.appointment);
@@ -284,6 +287,14 @@ export default function NewAppointmentModal({
                 {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
               </select>
             </div>
+          )}
+
+          {/* ── Therapist requested ── */}
+          {therapistId && (
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', padding: '6px 10px', background: therapistRequested ? 'rgba(201,168,76,0.12)' : '#f9fafb', borderRadius: 8, border: `1px solid ${therapistRequested ? '#C9A84C' : 'var(--border)'}` }}>
+              <input type="checkbox" style={{ width: 'auto', accentColor: '#C9A84C' }} checked={therapistRequested} onChange={e => setTherapistRequested(e.target.checked)} />
+              <span style={{ fontSize: 13 }}>⭐ Client specifically requested this therapist</span>
+            </label>
           )}
 
           {/* ── Notes ── */}

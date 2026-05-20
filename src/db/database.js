@@ -144,6 +144,11 @@ async function initSchema() {
     );
   `);
 
+  // ── appointments new columns ────────────────────────────────────────────
+  await pool.query(`
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS therapist_requested BOOLEAN NOT NULL DEFAULT FALSE;
+  `);
+
   // Indexes for common queries.
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_appointments_starts_at    ON appointments (starts_at);
