@@ -247,6 +247,43 @@ async function initSchema() {
       ON therapist_rota_overrides (therapist_id, date);
   `);
 
+  // ── SPA-VOUCHER-001 — gift vouchers ─────────────────────────────────────
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vouchers (
+      id              SERIAL PRIMARY KEY,
+      code            TEXT NOT NULL UNIQUE,
+      initial_value   NUMERIC(10,2) NOT NULL,
+      remaining_value NUMERIC(10,2) NOT NULL,
+      purchased_by    TEXT,
+      purchased_for   TEXT,
+      client_id       INT REFERENCES clients(id) ON DELETE SET NULL,
+      purchased_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at      DATE,
+      status          TEXT NOT NULL DEFAULT 'active',
+      notes           TEXT,
+      sold_by         INT REFERENCES therapists(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS voucher_redemptions (
+      id            SERIAL PRIMARY KEY,
+      voucher_id    INT NOT NULL REFERENCES vouchers(id) ON DELETE CASCADE,
+      bill_id       INT REFERENCES bills(id) ON DELETE SET NULL,
+      amount_used   NUMERIC(10,2) NOT NULL,
+      redeemed_by   INT REFERENCES therapists(id) ON DELETE SET NULL,
+      redeemed_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      notes         TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_vouchers_code      ON vouchers (code);
+    CREATE INDEX IF NOT EXISTS idx_vouchers_client_id ON vouchers (client_id);
+    CREATE INDEX IF NOT EXISTS idx_voucher_redemptions_voucher_id ON voucher_redemptions (voucher_id);
+  `);
+
+  // ── vouchers migration (existing DBs) ────────────────────────────────────
+  await pool.query(`
+    ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS sold_by INT REFERENCES therapists(id) ON DELETE SET NULL;
+  `);
+
   console.log('[db] schema ready');
 }
 

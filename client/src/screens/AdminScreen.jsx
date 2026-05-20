@@ -12,6 +12,7 @@ import EmbedCodesSection      from './admin/EmbedCodesSection.jsx';
 import SettingsSection        from './admin/SettingsSection.jsx';
 import RotaSection            from './admin/RotaSection.jsx';
 import BillsSection           from './admin/BillsSection.jsx';
+import VouchersSection        from './admin/VouchersSection.jsx';
 
 // ── Sandy: AdminScreen — left sidebar, matches EPOS admin layout ──
 // Slate Navy #1e3a6e sidebar · Thai Gold #C9A84C active state
@@ -21,6 +22,7 @@ const NAV = [
   { k: 'reports',    label: '📈 Reports' },
   { k: 'zreport',    label: '🔐 Z Report' },
   { k: 'bills',      label: '🧾 Bills' },
+  { k: 'vouchers',   label: '🎁 Vouchers' },
   { k: 'menu',       label: '💆 Treatments' },
   { k: 'therapists', label: '👥 Therapists' },
   { k: 'rota',       label: '📅 Rota' },
@@ -35,6 +37,7 @@ const SECTIONS = {
   reports:    ReportsSection,
   zreport:    ZReportSection,
   bills:      BillsSection,
+  vouchers:   VouchersSection,
   menu:       TreatmentMenuSection,
   therapists: TherapistSection,
   rota:       RotaSection,

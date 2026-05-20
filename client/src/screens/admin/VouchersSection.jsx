@@ -1,0 +1,348 @@
+// Admin → Vouchers — sell gift vouchers, track redemptions, link to clients
+import React, { useEffect, useState, useCallback } from 'react';
+import { api, getStaff } from '../../api.js';
+
+function fmtMoney(n) { return `£${Number(n || 0).toFixed(2)}`; }
+function fmtDate(d)  { return d ? new Date(d).toLocaleDateString('en-GB') : '—'; }
+
+const STATUS_STYLE = {
+  active:    { bg: '#dcfce7', color: '#14532d', label: 'Active' },
+  used:      { bg: '#e0e7ff', color: '#3730a3', label: 'Used' },
+  expired:   { bg: '#fee2e2', color: '#991b1b', label: 'Expired' },
+  cancelled: { bg: '#f3f4f6', color: '#4b5563', label: 'Cancelled' },
+};
+
+export default function VouchersSection() {
+  const [vouchers, setVouchers]   = useState([]);
+  const [search, setSearch]       = useState('');
+  const [filter, setFilter]       = useState('');
+  const [modal, setModal]         = useState(null);  // null | 'create' | { voucher }
+  const [detail, setDetail]       = useState(null);  // { voucher, redemptions }
+
+  const load = useCallback(async () => {
+    const params = new URLSearchParams();
+    if (search) params.set('q', search);
+    if (filter) params.set('status', filter);
+    const r = await api.get(`/vouchers?${params}`);
+    setVouchers(r.vouchers || []);
+  }, [search, filter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function openDetail(v) {
+    const r = await api.get(`/vouchers/${v.id}`);
+    setDetail(r);
+  }
+
+  const totalActive = vouchers.filter(v => v.status === 'active').reduce((s, v) => s + Number(v.remaining_value), 0);
+
+  return (
+    <div className="col" style={{ gap: 16 }}>
+      {/* Header */}
+      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <div>
+          <h2 style={{ margin: 0 }}>🎁 Gift Vouchers</h2>
+          <div className="muted" style={{ fontSize: 13 }}>
+            {vouchers.filter(v => v.status === 'active').length} active · {fmtMoney(totalActive)} outstanding balance
+          </div>
+        </div>
+        <button className="primary" onClick={() => setModal('create')}>+ Sell Voucher</button>
+      </div>
+
+      {/* Filters */}
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <input
+          placeholder="Search code, buyer, recipient…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ flex: 1, minWidth: 200 }}
+        />
+        <select value={filter} onChange={e => setFilter(e.target.value)} style={{ width: 140 }}>
+          <option value="">All statuses</option>
+          <option value="active">Active</option>
+          <option value="used">Used</option>
+          <option value="expired">Expired</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+      </div>
+
+      {/* Voucher list */}
+      <div className="col" style={{ gap: 8 }}>
+        {vouchers.length === 0 && <div className="muted" style={{ padding: 20, textAlign: 'center' }}>No vouchers found.</div>}
+        {vouchers.map(v => {
+          const ss = STATUS_STYLE[v.status] || STATUS_STYLE.active;
+          const pct = Math.round((Number(v.remaining_value) / Number(v.initial_value)) * 100);
+          return (
+            <div key={v.id} className="card" style={{ padding: 14, cursor: 'pointer' }} onClick={() => openDetail(v)}>
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                <div>
+                  <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+                    <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, letterSpacing: 1, color: '#1e3a6e' }}>{v.code}</span>
+                    <span style={{ fontSize: 11, background: ss.bg, color: ss.color, padding: '2px 8px', borderRadius: 12, fontWeight: 600 }}>{ss.label}</span>
+                  </div>
+                  <div className="muted" style={{ fontSize: 13, marginTop: 3 }}>
+                    {v.purchased_by && <span>Bought by <strong>{v.purchased_by}</strong></span>}
+                    {v.purchased_for && <span> · For <strong>{v.purchased_for}</strong></span>}
+                    {v.client_name && <span> · Linked to {v.client_name}</span>}
+                    {v.sold_by_name && <span> · Sold by {v.sold_by_name}</span>}
+                  </div>
+                  {v.expires_at && (
+                    <div style={{ fontSize: 12, color: new Date(v.expires_at) < new Date() ? 'var(--danger)' : 'var(--muted)', marginTop: 2 }}>
+                      Expires {fmtDate(v.expires_at)}
+                    </div>
+                  )}
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontWeight: 700, fontSize: 18, color: '#1e3a6e' }}>{fmtMoney(v.remaining_value)}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>of {fmtMoney(v.initial_value)}</div>
+                  {/* Balance bar */}
+                  <div style={{ width: 80, height: 4, background: '#e5e7eb', borderRadius: 2, marginTop: 4, marginLeft: 'auto' }}>
+                    <div style={{ width: `${pct}%`, height: '100%', background: v.status === 'active' ? '#C9A84C' : '#9ca3af', borderRadius: 2 }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Create modal */}
+      {modal === 'create' && (
+        <CreateVoucherModal
+          onClose={() => setModal(null)}
+          onSaved={() => { setModal(null); load(); }}
+        />
+      )}
+
+      {/* Detail / redemption history modal */}
+      {detail && (
+        <VoucherDetailModal
+          detail={detail}
+          onClose={() => setDetail(null)}
+          onUpdated={() => { load(); openDetail(detail.voucher); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Create voucher modal ──────────────────────────────────────────────────────
+function CreateVoucherModal({ onClose, onSaved }) {
+  const [value, setValue]           = useState('');
+  const [purchasedBy, setPurchasedBy] = useState('');
+  const [purchasedFor, setPurchasedFor] = useState('');
+  const [expiresAt, setExpiresAt]   = useState('');
+  const [notes, setNotes]           = useState('');
+  const [busy, setBusy]             = useState(false);
+  const [error, setError]           = useState('');
+  const [created, setCreated]       = useState(null);
+
+  // Quick-value presets
+  const PRESETS = [25, 50, 75, 100, 150];
+
+  async function submit() {
+    if (!value || Number(value) <= 0) { setError('Please enter a value.'); return; }
+    setBusy(true); setError('');
+    try {
+      const r = await api.post('/vouchers', {
+        value: Number(value),
+        purchased_by: purchasedBy.trim() || null,
+        purchased_for: purchasedFor.trim() || null,
+        expires_at: expiresAt || null,
+        notes: notes.trim() || null,
+      });
+      setCreated(r.voucher);
+    } catch (e) {
+      setError(e.message || 'Failed to create voucher');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ margin: 0 }}>🎁 Sell Gift Voucher</h3>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {created ? (
+          // Success state — show the code to print/hand over
+          <div className="col" style={{ gap: 16, textAlign: 'center' }}>
+            <div style={{ fontSize: 40 }}>🎉</div>
+            <div style={{ fontWeight: 700, fontSize: 18 }}>Voucher Created!</div>
+            <div style={{ background: '#1e3a6e', color: 'white', borderRadius: 12, padding: '20px 28px' }}>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginBottom: 4 }}>Voucher Code</div>
+              <div style={{ fontFamily: 'monospace', fontSize: 28, fontWeight: 700, letterSpacing: 3, color: '#C9A84C' }}>{created.code}</div>
+              <div style={{ fontSize: 20, fontWeight: 700, marginTop: 10 }}>£{Number(created.initial_value).toFixed(2)}</div>
+              {created.purchased_for && <div style={{ fontSize: 14, marginTop: 4, opacity: 0.8 }}>For {created.purchased_for}</div>}
+              {created.expires_at && <div style={{ fontSize: 12, marginTop: 2, opacity: 0.65 }}>Expires {fmtDate(created.expires_at)}</div>}
+            </div>
+            <div className="muted" style={{ fontSize: 13 }}>Hand this code to the customer. They present it at checkout to redeem.</div>
+            <button className="primary" onClick={onSaved} style={{ width: '100%' }}>Done</button>
+          </div>
+        ) : (
+          <div className="col" style={{ gap: 14 }}>
+            {/* Value */}
+            <div>
+              <label>Voucher value *</label>
+              <div className="row" style={{ gap: 6, marginBottom: 6 }}>
+                {PRESETS.map(p => (
+                  <button key={p} onClick={() => setValue(String(p))} className={value === String(p) ? 'primary' : ''} style={{ padding: '6px 12px', fontSize: 13 }}>£{p}</button>
+                ))}
+              </div>
+              <input type="number" min="1" step="0.01" placeholder="Or enter custom amount…" value={value} onChange={e => setValue(e.target.value)} />
+            </div>
+
+            <div className="row" style={{ gap: 10 }}>
+              <div style={{ flex: 1 }}>
+                <label>Purchased by</label>
+                <input placeholder="Buyer's name" value={purchasedBy} onChange={e => setPurchasedBy(e.target.value)} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label>Gift for</label>
+                <input placeholder="Recipient's name" value={purchasedFor} onChange={e => setPurchasedFor(e.target.value)} />
+              </div>
+            </div>
+
+            <div>
+              <label>Expiry date (optional)</label>
+              <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
+            </div>
+
+            <div>
+              <label>Notes (optional)</label>
+              <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any notes…" />
+            </div>
+
+            {error && <div style={{ color: 'var(--danger)', fontSize: 13, background: '#fee2e2', padding: '8px 12px', borderRadius: 6 }}>{error}</div>}
+
+            <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
+              <button onClick={onClose}>Cancel</button>
+              <button className="primary" onClick={submit} disabled={busy}>{busy ? 'Creating…' : 'Create Voucher'}</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Voucher detail + redemption history modal ─────────────────────────────────
+function VoucherDetailModal({ detail, onClose, onUpdated }) {
+  const { voucher: v, redemptions } = detail;
+  const ss = STATUS_STYLE[v.status] || STATUS_STYLE.active;
+  const staff = getStaff();
+  const isAdmin = ['admin', 'manager'].includes(staff?.role);
+
+  // Client search for linking
+  const [clientQuery, setClientQuery] = useState('');
+  const [clientResults, setClientResults] = useState([]);
+
+  useEffect(() => {
+    if (!clientQuery.trim()) { setClientResults([]); return; }
+    const t = setTimeout(() => {
+      api.get(`/clients?q=${encodeURIComponent(clientQuery)}`).then(r => setClientResults(r.clients || []));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [clientQuery]);
+
+  async function linkClient(client) {
+    await api.put(`/vouchers/${v.id}`, { client_id: client.id });
+    setClientQuery(''); setClientResults([]);
+    onUpdated();
+  }
+
+  async function cancelVoucher() {
+    if (!confirm(`Cancel voucher ${v.code}? This cannot be undone.`)) return;
+    await api.del(`/vouchers/${v.id}`);
+    onClose();
+    onUpdated();
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 540 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h3 style={{ margin: 0 }}>🎁 {v.code}</h3>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {/* Summary bar */}
+        <div style={{ background: '#1e3a6e', borderRadius: 10, padding: '16px 20px', color: 'white', marginBottom: 16 }}>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Remaining</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#C9A84C' }}>{fmtMoney(v.remaining_value)}</div>
+              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>of {fmtMoney(v.initial_value)} original</div>
+            </div>
+            <span style={{ fontSize: 11, background: ss.bg, color: ss.color, padding: '4px 12px', borderRadius: 12, fontWeight: 700 }}>{ss.label}</span>
+          </div>
+        </div>
+
+        <div className="col" style={{ gap: 10 }}>
+          {/* Meta */}
+          <div className="card col" style={{ padding: 12, gap: 6 }}>
+            {v.purchased_by && <div style={{ fontSize: 13 }}><span className="muted">Bought by </span><strong>{v.purchased_by}</strong></div>}
+            {v.purchased_for && <div style={{ fontSize: 13 }}><span className="muted">Gift for </span><strong>{v.purchased_for}</strong></div>}
+            {v.sold_by_name && <div style={{ fontSize: 13 }}><span className="muted">Sold by </span>{v.sold_by_name}</div>}
+            <div style={{ fontSize: 13 }}><span className="muted">Sold </span>{fmtDate(v.purchased_at)}</div>
+            {v.expires_at && <div style={{ fontSize: 13, color: new Date(v.expires_at) < new Date() ? 'var(--danger)' : 'inherit' }}><span className="muted">Expires </span>{fmtDate(v.expires_at)}</div>}
+            {v.notes && <div style={{ fontSize: 13 }}><span className="muted">Notes </span>{v.notes}</div>}
+          </div>
+
+          {/* Link to client */}
+          <div>
+            <label style={{ fontSize: 13 }}>Linked client: <strong>{v.client_name || 'None'}</strong></label>
+            <input
+              placeholder="Search to link a client…"
+              value={clientQuery}
+              onChange={e => setClientQuery(e.target.value)}
+              style={{ marginTop: 4 }}
+            />
+            {clientResults.length > 0 && (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, marginTop: 4, background: 'white', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+                {clientResults.map(c => (
+                  <div key={c.id} onClick={() => linkClient(c)}
+                    style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 14, borderBottom: '1px solid var(--border)' }}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f0f9ff'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                  >{c.name}{c.phone && <span className="muted"> · {c.phone}</span>}</div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Redemption history */}
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>Redemption History</div>
+            {redemptions.length === 0 ? (
+              <div className="muted" style={{ fontSize: 13, padding: '8px 0' }}>Not yet redeemed.</div>
+            ) : (
+              <div className="col" style={{ gap: 6 }}>
+                {redemptions.map(r => (
+                  <div key={r.id} style={{ padding: '8px 12px', background: '#f9fafb', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13 }}>
+                    <div className="row" style={{ justifyContent: 'space-between' }}>
+                      <strong style={{ color: '#1e3a6e' }}>{fmtMoney(r.amount_used)} used</strong>
+                      <span className="muted">{new Date(r.redeemed_at).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                    </div>
+                    {r.redeemed_by_name && <div className="muted">By {r.redeemed_by_name}{r.bill_id ? ` · Bill #${r.bill_id}` : ''}</div>}
+                    {r.notes && <div className="muted">{r.notes}</div>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Actions */}
+          {isAdmin && v.status === 'active' && (
+            <div className="row" style={{ justifyContent: 'flex-end', paddingTop: 4 }}>
+              <button className="danger" onClick={cancelVoucher}>Cancel Voucher</button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

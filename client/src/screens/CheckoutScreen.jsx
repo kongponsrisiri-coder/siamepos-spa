@@ -16,6 +16,10 @@ export default function CheckoutScreen() {
   const [busy, setBusy]         = useState(false);
   const [error, setError]       = useState('');
   const [showStripe, setShowStripe] = useState(false);
+  const [voucherCode, setVoucherCode] = useState('');
+  const [voucherLookup, setVoucherLookup] = useState(null);   // { voucher } or null
+  const [voucherError, setVoucherError]   = useState('');
+  const [showVoucher, setShowVoucher]     = useState(false);
 
   const load = useCallback(async () => {
     setError('');
@@ -61,6 +65,45 @@ export default function CheckoutScreen() {
       navigate('/', { replace: true });
     } catch (e) {
       setError(e.message);
+      setBusy(false);
+    }
+  }
+
+  async function lookupVoucher() {
+    if (!voucherCode.trim()) return;
+    setVoucherError('');
+    try {
+      const r = await api.get(`/vouchers/lookup?code=${encodeURIComponent(voucherCode.trim().toUpperCase())}`);
+      if (r.voucher.status !== 'active') {
+        setVoucherError(`Voucher is ${r.voucher.status}`);
+        setVoucherLookup(null);
+      } else {
+        setVoucherLookup(r);
+        setVoucherError('');
+      }
+    } catch (e) {
+      setVoucherError(e.message || 'Voucher not found');
+      setVoucherLookup(null);
+    }
+  }
+
+  async function payWithVoucher() {
+    if (!voucherLookup) return;
+    const v = voucherLookup.voucher;
+    const amountToUse = Math.min(Number(v.remaining_value), total);
+    setBusy(true); setError('');
+    try {
+      // Redeem against the voucher
+      await api.post(`/vouchers/${v.id}/redeem`, {
+        amount: amountToUse,
+        bill_id: bill.id,
+        notes: `Checkout for appointment #${appointmentId}`,
+      });
+      // Mark the bill as paid by voucher
+      await api.post(`/bills/${bill.id}/pay`, { method: 'voucher' });
+      navigate('/', { replace: true });
+    } catch (e) {
+      setError(e.message || 'Voucher redemption failed');
       setBusy(false);
     }
   }
@@ -123,16 +166,59 @@ export default function CheckoutScreen() {
 
             <div>
               <label>Payment method</label>
-              <div className="row">
-                <button onClick={() => pay('cash')} disabled={busy} style={{ flex: 1, padding: 14 }}>Cash</button>
-                <button onClick={() => pay('card')} disabled={busy} className="primary" style={{ flex: 1, padding: 14 }}>Card</button>
-                <button onClick={() => pay('split')} disabled={busy} style={{ flex: 1, padding: 14 }}>Split</button>
+              <div className="row" style={{ flexWrap: 'wrap' }}>
+                <button onClick={() => pay('cash')} disabled={busy} style={{ flex: 1, padding: 14, minWidth: 80 }}>Cash</button>
+                <button onClick={() => pay('card')} disabled={busy} className="primary" style={{ flex: 1, padding: 14, minWidth: 80 }}>Card</button>
+                <button onClick={() => pay('split')} disabled={busy} style={{ flex: 1, padding: 14, minWidth: 80 }}>Split</button>
+                <button onClick={() => setShowVoucher(v => !v)} disabled={busy} style={{ flex: 1, padding: 14, minWidth: 80, background: showVoucher ? '#C9A84C' : undefined, color: showVoucher ? '#1e3a6e' : undefined, fontWeight: showVoucher ? 700 : undefined }}>🎁 Voucher</button>
               </div>
               <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
                 Card payments go via Stripe. Set <code>STRIPE_PUBLISHABLE_KEY</code> and
                 <code> STRIPE_SECRET_KEY</code> on the backend to enable.
               </div>
             </div>
+
+            {/* Voucher redemption panel */}
+            {showVoucher && (
+              <div style={{ background: '#fffbeb', border: '1px solid #C9A84C', borderRadius: 10, padding: 14 }} className="col">
+                <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, color: '#1e3a6e' }}>🎁 Redeem Gift Voucher</div>
+                <div className="row" style={{ gap: 8 }}>
+                  <input
+                    placeholder="Voucher code e.g. SPA-A1B2C3D4"
+                    value={voucherCode}
+                    onChange={e => { setVoucherCode(e.target.value.toUpperCase()); setVoucherLookup(null); setVoucherError(''); }}
+                    style={{ flex: 1, fontFamily: 'monospace', letterSpacing: 1 }}
+                    onKeyDown={e => e.key === 'Enter' && lookupVoucher()}
+                  />
+                  <button onClick={lookupVoucher} disabled={!voucherCode.trim()}>Check</button>
+                </div>
+                {voucherError && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 6 }}>{voucherError}</div>}
+                {voucherLookup && (
+                  <div style={{ marginTop: 10 }} className="col">
+                    <div style={{ background: '#1e3a6e', color: 'white', borderRadius: 8, padding: '12px 16px' }}>
+                      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontFamily: 'monospace', fontWeight: 700, color: '#C9A84C', letterSpacing: 1 }}>{voucherLookup.voucher.code}</div>
+                          {voucherLookup.voucher.purchased_for && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>For {voucherLookup.voucher.purchased_for}</div>}
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontSize: 20, fontWeight: 700, color: '#C9A84C' }}>£{Number(voucherLookup.voucher.remaining_value).toFixed(2)}</div>
+                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>available</div>
+                        </div>
+                      </div>
+                    </div>
+                    {Number(voucherLookup.voucher.remaining_value) < total && (
+                      <div style={{ fontSize: 13, color: '#b45309', background: '#fef3c7', padding: '8px 12px', borderRadius: 8, marginTop: 8 }}>
+                        ⚠️ Voucher covers £{Number(voucherLookup.voucher.remaining_value).toFixed(2)} of £{total.toFixed(2)} — remainder will be waived in this transaction.
+                      </div>
+                    )}
+                    <button className="primary" onClick={payWithVoucher} disabled={busy} style={{ width: '100%', padding: 14, marginTop: 8, background: '#C9A84C', color: '#1e3a6e', fontWeight: 700 }}>
+                      {busy ? 'Processing…' : `Redeem £${Math.min(Number(voucherLookup.voucher.remaining_value), total).toFixed(2)} & Close Bill`}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
 

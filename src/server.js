@@ -23,6 +23,7 @@ const clientRoutes      = require('./routes/clients');
 const billRoutes        = require('./routes/bills');
 const reportRoutes      = require('./routes/reports');
 const settingsRoutes    = require('./routes/settings');
+const voucherRoutes     = require('./routes/vouchers');
 const widgetRoutes      = require('./routes/widget');
 const { router: stripeRouter, webhookHandler: stripeWebhookHandler } = require('./routes/stripe');
 
@@ -82,6 +83,7 @@ app.use('/api/bills',        requireAuth, billRoutes);
 app.use('/api/stripe',       requireAuth, stripeRouter);
 app.use('/api/reports',      requireAuth, reportRoutes);
 app.use('/api/settings',     requireAuth, settingsRoutes);
+app.use('/api/vouchers',     requireAuth, voucherRoutes);
 
 // 404 for any unmatched /api/* request.
 app.use('/api', (_req, res) => res.status(404).json({ error: 'not found' }));

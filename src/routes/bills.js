@@ -61,7 +61,7 @@ router.put('/:id/tip', async (req, res) => {
 router.post('/:id/pay', async (req, res) => {
   const id = Number(req.params.id);
   const { method } = req.body || {};
-  if (!['cash', 'card', 'split'].includes(method)) {
+  if (!['cash', 'card', 'split', 'voucher'].includes(method)) {
     return res.status(400).json({ error: 'invalid method' });
   }
   try {
