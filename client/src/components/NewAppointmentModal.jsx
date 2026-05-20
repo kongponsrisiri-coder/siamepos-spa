@@ -46,10 +46,11 @@ export default function NewAppointmentModal({
   const [roomId, setRoomId] = useState(appointment?.room_id || null);
   const [therapistRequested, setTherapistRequested] = useState(appointment?.therapist_requested || false);
 
-  // Date + time stored separately for easy editing
+  // Date + time stored separately for easy editing.
+  // Always use LOCAL date/time components so BST (UTC+1) displays correctly.
   const initDate = appointment
-    ? new Date(appointment.starts_at).toISOString().slice(0, 10)
-    : (defaultDate || new Date().toISOString().slice(0, 10));
+    ? (() => { const d = new Date(appointment.starts_at); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; })()
+    : (defaultDate || (() => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; })());
 
   const initTime = appointment
     ? (() => { const d = new Date(appointment.starts_at); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; })()
@@ -118,7 +119,8 @@ export default function NewAppointmentModal({
         useClientId = r.client.id;
       }
 
-      const starts_at = `${date}T${time}:00`;
+      // Build a proper UTC ISO string — treat date+time as LOCAL so BST is handled correctly
+      const starts_at = new Date(`${date}T${time}:00`).toISOString();
 
       if (isEdit) {
         const body = {
@@ -162,7 +164,8 @@ export default function NewAppointmentModal({
   // Apply a suggested alternative slot
   function applySlot(iso) {
     const d = new Date(iso);
-    setDate(d.toISOString().slice(0, 10));
+    // Use LOCAL date components so BST doesn't shift the date
+    setDate(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`);
     setTime(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
     setConflict(null);
   }

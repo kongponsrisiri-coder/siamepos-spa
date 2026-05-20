@@ -5,7 +5,7 @@ import { socket } from '../socket.js';
 import NewAppointmentModal from '../components/NewAppointmentModal.jsx';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function todayISO() { return new Date().toISOString().slice(0, 10); }
+function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function pad(n) { return String(n).padStart(2, '0'); }
 function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
