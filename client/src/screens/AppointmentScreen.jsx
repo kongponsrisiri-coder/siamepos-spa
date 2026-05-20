@@ -157,7 +157,8 @@ function TimelineView({ appointments, workingTherapists, selected, onSelect, onS
 
           {/* Columns */}
           {columns.map((col, ci) => (
-            <div key={col.id} style={{ width: COL_W, flexShrink: 0, position: 'relative', height: totalH, borderLeft: '1px solid var(--border)', background: 'white' }}
+            <div key={col.id}
+              style={{ width: COL_W, flexShrink: 0, position: 'relative', height: totalH, borderLeft: '1px solid var(--border)', background: 'white', cursor: 'crosshair' }}
               onClick={e => {
                 // Only fire when clicking the column background, not on a block
                 if (e.target !== e.currentTarget) return;
@@ -170,7 +171,6 @@ function TimelineView({ appointments, workingTherapists, selected, onSelect, onS
                 const m = mins % 60;
                 onSlotClick({ therapistId: col.id, therapistName: col.name, time: `${pad(h)}:${pad(m)}` });
               }}
-              style={{ width: COL_W, flexShrink: 0, position: 'relative', height: totalH, borderLeft: '1px solid var(--border)', background: 'white', cursor: 'crosshair' }}
             >
               {/* Grid lines */}
               {hours.map(h => (
