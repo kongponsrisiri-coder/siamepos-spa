@@ -32,6 +32,7 @@ const server = http.createServer(app);
 // CORS — allow the live spa app + localhost for dev.
 const ALLOWED_ORIGINS = [
   'https://spa.siamepos.co.uk',
+  'https://siamepos-spa.netlify.app',
   'http://localhost:5173',
   'http://localhost:3000',
 ];
