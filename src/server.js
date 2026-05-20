@@ -29,8 +29,16 @@ const { router: stripeRouter, webhookHandler: stripeWebhookHandler } = require('
 const app = express();
 const server = http.createServer(app);
 
-// CORS — open for now. Lock down to spa.siamepos.co.uk before going live.
-app.use(cors({ origin: true, credentials: true }));
+// CORS — allow the live spa app + localhost for dev.
+const ALLOWED_ORIGINS = [
+  'https://spa.siamepos.co.uk',
+  'http://localhost:5173',
+  'http://localhost:3000',
+];
+app.use(cors({
+  origin: (origin, cb) => cb(null, !origin || ALLOWED_ORIGINS.includes(origin)),
+  credentials: true,
+}));
 
 // Stripe webhook needs the raw request body to verify the signature.
 // Register it BEFORE express.json() so the JSON parser doesn't consume
