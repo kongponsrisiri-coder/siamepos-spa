@@ -268,11 +268,11 @@ function OverridesTab({ data, month, setMonth, onRefresh }) {
                   if (ov &&  isOff) { bg = '#fee2e2'; border = '1px solid #ef4444'; }
                   if (isToday) border = '2px solid var(--primary)';
                   return (
-                    <div key={dstr} onClick={() => !isPast && setModal({ therapist: t, date: dstr })}
+                    <div key={dstr} onClick={() => setModal({ therapist: t, date: dstr })}
                       title={ov?.note || (isOff ? 'Day off' : 'Working')}
                       style={{ textAlign:'center', fontSize:12, padding:'5px 2px', borderRadius:5,
-                        background: bg, border, cursor: isPast ? 'default' : 'pointer',
-                        opacity: isPast ? 0.45 : 1, fontWeight: isToday ? 700 : 400, position:'relative' }}>
+                        background: bg, border, cursor: 'pointer',
+                        opacity: isPast ? 0.65 : 1, fontWeight: isToday ? 700 : 400, position:'relative' }}>
                       {d}
                       {ov && <span style={{ position:'absolute', top:1, right:2, width:4, height:4, borderRadius:'50%', background: isOff ? '#ef4444' : '#f59e0b' }} />}
                     </div>
@@ -290,7 +290,7 @@ function OverridesTab({ data, month, setMonth, onRefresh }) {
       </div>
 
       <p style={{ fontSize:12, color:'var(--muted)', marginTop:12 }}>
-        Click any future date to set a day off or custom hours for that therapist.
+        Click any date to set a day off or custom hours for that therapist.
       </p>
 
       {modal && (
