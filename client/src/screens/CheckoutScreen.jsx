@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
-import StripePayModal from '../components/StripePayModal.jsx';
 
 function fmtMoney(n) { return `£${Number(n || 0).toFixed(2)}`; }
 
@@ -15,7 +14,6 @@ export default function CheckoutScreen() {
   const [tipSuggestions, setTipSuggestions] = useState([10, 12.5, 15]);
   const [busy, setBusy]         = useState(false);
   const [error, setError]       = useState('');
-  const [showStripe, setShowStripe] = useState(false);
   const [voucherCode, setVoucherCode] = useState('');
   const [voucherLookup, setVoucherLookup] = useState(null);   // { voucher } or null
   const [voucherError, setVoucherError]   = useState('');
@@ -58,7 +56,6 @@ export default function CheckoutScreen() {
   }
 
   async function pay(method) {
-    if (method === 'card') { setShowStripe(true); return; }
     setBusy(true); setError('');
     try {
       await api.post(`/bills/${bill.id}/pay`, { method });
@@ -172,10 +169,6 @@ export default function CheckoutScreen() {
                 <button onClick={() => pay('split')} disabled={busy} style={{ flex: 1, padding: 14, minWidth: 80 }}>Split</button>
                 <button onClick={() => setShowVoucher(v => !v)} disabled={busy} style={{ flex: 1, padding: 14, minWidth: 80, background: showVoucher ? '#C9A84C' : undefined, color: showVoucher ? '#1e3a6e' : undefined, fontWeight: showVoucher ? 700 : undefined }}>🎁 Voucher</button>
               </div>
-              <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-                Card payments go via Stripe. Set <code>STRIPE_PUBLISHABLE_KEY</code> and
-                <code> STRIPE_SECRET_KEY</code> on the backend to enable.
-              </div>
             </div>
 
             {/* Voucher redemption panel */}
@@ -232,13 +225,6 @@ export default function CheckoutScreen() {
         {error && <div style={{ color: 'var(--danger)', fontSize: 14 }}>{error}</div>}
       </div>
 
-      {showStripe && (
-        <StripePayModal
-          bill={bill}
-          onClose={() => setShowStripe(false)}
-          onPaid={() => { setShowStripe(false); navigate('/', { replace: true }); }}
-        />
-      )}
     </div>
   );
 }

@@ -81,10 +81,12 @@ function toLocalMins(iso) { const d = new Date(iso); return d.getHours() * 60 + 
 // ══════════════════════════════════════════════════════════════════════════════
 // VERTICAL TIMELINE
 // ══════════════════════════════════════════════════════════════════════════════
-function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick }) {
+function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder }) {
   const nowRef       = useRef(null);
   const containerRef = useRef(null);
   const [containerH, setContainerH] = useState(0);
+  const [dragSrc,  setDragSrc]  = useState(null);  // column index being dragged
+  const [dragOver, setDragOver] = useState(null);  // column index being hovered
 
   // Measure the container and recompute HOUR_H whenever it resizes
   useEffect(() => {
@@ -170,14 +172,51 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
           <div style={{ width: LBL_W, flexShrink: 0 }} />
           {columns.map((col, ci) => {
             const activeAppts = col.appts.filter(a => !['cancelled','no_show'].includes(a.status));
+            // Hours worked = sum of non-cancelled appointment durations
+            const workedMins = activeAppts.reduce((sum, a) =>
+              sum + (new Date(a.ends_at) - new Date(a.starts_at)) / 60000, 0);
+            const workedLabel = workedMins >= 60
+              ? `${Math.floor(workedMins / 60)}h${workedMins % 60 ? ` ${workedMins % 60}m` : ''}`
+              : workedMins > 0 ? `${workedMins}m` : '';
+            const isDragTarget = dragOver === ci && dragSrc !== null && dragSrc !== ci;
             return (
-              <div key={col.id} style={{ width: COL_W, flexShrink: 0, padding: '10px 8px', textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.18)', opacity: col.isOff ? 0.55 : 1 }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: col.isOff ? 'rgba(255,255,255,0.6)' : 'white' }}>{col.name}</div>
-                <div style={{ fontSize: 11, marginTop: 2, color: col.isOff ? 'rgba(255,200,100,0.55)' : '#f5c07a' }}>
+              <div key={col.id}
+                draggable
+                onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragSrc(ci); }}
+                onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(ci); }}
+                onDragLeave={() => setDragOver(null)}
+                onDrop={e => {
+                  e.preventDefault();
+                  if (dragSrc !== null && dragSrc !== ci) onColumnReorder?.(dragSrc, ci);
+                  setDragSrc(null); setDragOver(null);
+                }}
+                onDragEnd={() => { setDragSrc(null); setDragOver(null); }}
+                style={{
+                  width: COL_W, flexShrink: 0, padding: '8px 8px', textAlign: 'center',
+                  borderLeft: isDragTarget ? '2px solid #C9A84C' : '1px solid rgba(255,255,255,0.18)',
+                  opacity: col.isOff ? 0.55 : dragSrc === ci ? 0.4 : 1,
+                  cursor: 'grab',
+                  background: isDragTarget ? 'rgba(201,168,76,0.2)' : 'transparent',
+                  transition: 'background 0.1s, border-color 0.1s',
+                  userSelect: 'none',
+                }}>
+                {/* Grip + name row */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: '-1px' }}>⠿</span>
+                  <span style={{ fontWeight: 700, fontSize: 13, color: col.isOff ? 'rgba(255,255,255,0.6)' : 'white' }}>{col.name}</span>
+                </div>
+                {/* Appt count */}
+                <div style={{ fontSize: 11, marginTop: 1, color: col.isOff ? 'rgba(255,200,100,0.55)' : '#f5c07a' }}>
                   {col.isOff
                     ? 'Off today'
                     : activeAppts.length === 0 ? 'free' : `${activeAppts.length} appt${activeAppts.length !== 1 ? 's' : ''}`}
                 </div>
+                {/* Hours worked */}
+                {!col.isOff && workedLabel && (
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>
+                    {workedLabel} booked
+                  </div>
+                )}
               </div>
             );
           })}
@@ -383,6 +422,8 @@ export default function AppointmentScreen() {
   const [weeklyRota, setWeeklyRota]       = useState([]);
   const [rotaOverrides, setRotaOverrides] = useState([]);
   const [rotaMonth, setRotaMonth]         = useState('');
+  // Column order — persisted per-date in localStorage so reception can set arrival order
+  const [columnOrder, setColumnOrder]     = useState(null);
   const navigate = useNavigate();
 
   // Load rota data when the month changes
@@ -399,6 +440,12 @@ export default function AppointmentScreen() {
       .catch(() => {}); // silently ignore — falls back to appointment-derived columns
   }, [month, rotaMonth]);
 
+  // Load saved column order when date changes
+  useEffect(() => {
+    const saved = localStorage.getItem(`spa_col_order_${date}`);
+    setColumnOrder(saved ? JSON.parse(saved) : null);
+  }, [date]);
+
   // All therapists shown on timeline; isOff + workStart/workEnd drive column visual state
   const therapistColumns = allTherapists
     .filter(t => t.role === 'therapist')
@@ -408,8 +455,30 @@ export default function AppointmentScreen() {
       return { ...t, isOff, workStart: hours?.start || null, workEnd: hours?.end || null };
     });
 
+  // Apply saved column order (per-date, set by reception)
+  const orderedTherapistColumns = columnOrder
+    ? [...therapistColumns].sort((a, b) => {
+        const ai = columnOrder.indexOf(a.id);
+        const bi = columnOrder.indexOf(b.id);
+        return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+      })
+    : therapistColumns;
+
+  function handleColumnReorder(fromIdx, toIdx) {
+    const ids = orderedTherapistColumns.map(t => t.id);
+    const [moved] = ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, moved);
+    setColumnOrder(ids);
+    localStorage.setItem(`spa_col_order_${date}`, JSON.stringify(ids));
+  }
+
+  function resetColumnOrder() {
+    setColumnOrder(null);
+    localStorage.removeItem(`spa_col_order_${date}`);
+  }
+
   // Keep backwards-compat: workingTherapists still used for "no staff" fallback message
-  const workingTherapists = therapistColumns.filter(t => !t.isOff);
+  const workingTherapists = orderedTherapistColumns.filter(t => !t.isOff);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -492,14 +561,21 @@ export default function AppointmentScreen() {
           </div>
         ) : (
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {columnOrder && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, fontSize: 12, color: 'var(--muted)' }}>
+                <span>⠿ Column order saved for {friendlyDate}</span>
+                <button onClick={resetColumnOrder} style={{ fontSize: 11, padding: '2px 8px' }}>Reset to default</button>
+              </div>
+            )}
             <TimelineView
               appointments={appointments}
-              therapistColumns={therapistColumns}
+              therapistColumns={orderedTherapistColumns}
               workingTherapists={workingTherapists}
               selected={selected}
               onSelect={setSelected}
               onSlotClick={({ therapistId, time }) => setModal({ therapistId, time })}
               onEditClick={appt => setModal({ appointment: appt })}
+              onColumnReorder={handleColumnReorder}
             />
             {/* Action bar when an appointment is selected */}
             {selected && (
