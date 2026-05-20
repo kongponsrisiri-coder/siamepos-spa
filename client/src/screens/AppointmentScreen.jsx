@@ -48,7 +48,7 @@ function toLocalMins(iso) { const d = new Date(iso); return d.getHours() * 60 + 
 // ══════════════════════════════════════════════════════════════════════════════
 // VERTICAL TIMELINE
 // ══════════════════════════════════════════════════════════════════════════════
-function TimelineView({ appointments, workingTherapists, selected, onSelect, onSlotClick, onEditClick }) {
+function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick }) {
   const nowRef       = useRef(null);
   const containerRef = useRef(null);
   const [containerH, setContainerH] = useState(0);
@@ -86,15 +86,20 @@ function TimelineView({ appointments, workingTherapists, selected, onSelect, onS
   });
 
   let columns;
-  if (workingTherapists && workingTherapists.length > 0) {
-    // Show every therapist on shift, even those with no bookings yet
-    columns = workingTherapists.map(t => ({ id: t.id, name: t.name, appts: apptMap[t.id] || [] }));
-    // Also include any appointments assigned to therapists not in the rota (safety net)
+  const sourceList = therapistColumns && therapistColumns.length > 0
+    ? therapistColumns
+    : workingTherapists && workingTherapists.length > 0
+      ? workingTherapists
+      : null;
+  if (sourceList) {
+    // Show every therapist (with isOff flag), plus any appointments from therapists not in rota
+    columns = sourceList.map(t => ({ id: t.id, name: t.name, isOff: !!t.isOff, appts: apptMap[t.id] || [] }));
+    // Safety net: also include appointments assigned to therapists not in the rota list
     Object.keys(apptMap).forEach(tid => {
       const id = Number(tid);
       if (!columns.find(c => c.id === id)) {
         const name = visibleAppts.find(a => a.therapist_id === id)?.therapist_name || 'Unassigned';
-        columns.push({ id, name, appts: apptMap[tid] });
+        columns.push({ id, name, isOff: false, appts: apptMap[tid] });
       }
     });
   } else {
@@ -133,10 +138,12 @@ function TimelineView({ appointments, workingTherapists, selected, onSelect, onS
           {columns.map((col, ci) => {
             const activeAppts = col.appts.filter(a => !['cancelled','no_show'].includes(a.status));
             return (
-              <div key={col.id} style={{ width: COL_W, flexShrink: 0, padding: '10px 8px', textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.18)' }}>
-                <div style={{ fontWeight: 700, fontSize: 13, color: 'white' }}>{col.name}</div>
-                <div style={{ fontSize: 11, color: '#f5c07a', marginTop: 2 }}>
-                  {activeAppts.length === 0 ? 'free' : `${activeAppts.length} appt${activeAppts.length !== 1 ? 's' : ''}`}
+              <div key={col.id} style={{ width: COL_W, flexShrink: 0, padding: '10px 8px', textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.18)', opacity: col.isOff ? 0.55 : 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: col.isOff ? 'rgba(255,255,255,0.6)' : 'white' }}>{col.name}</div>
+                <div style={{ fontSize: 11, marginTop: 2, color: col.isOff ? 'rgba(255,200,100,0.55)' : '#f5c07a' }}>
+                  {col.isOff
+                    ? 'Off today'
+                    : activeAppts.length === 0 ? 'free' : `${activeAppts.length} appt${activeAppts.length !== 1 ? 's' : ''}`}
                 </div>
               </div>
             );
@@ -158,8 +165,15 @@ function TimelineView({ appointments, workingTherapists, selected, onSelect, onS
           {/* Columns */}
           {columns.map((col, ci) => (
             <div key={col.id}
-              style={{ width: COL_W, flexShrink: 0, position: 'relative', height: totalH, borderLeft: '1px solid var(--border)', background: 'white', cursor: 'crosshair' }}
-              onClick={e => {
+              style={{
+                width: COL_W, flexShrink: 0, position: 'relative', height: totalH,
+                borderLeft: '1px solid var(--border)',
+                cursor: col.isOff ? 'default' : 'crosshair',
+                background: col.isOff
+                  ? 'repeating-linear-gradient(135deg, #f5f5f5 0px, #f5f5f5 8px, #ececec 8px, #ececec 16px)'
+                  : 'white',
+              }}
+              onClick={col.isOff ? undefined : e => {
                 // Only fire when clicking the column background, not on a block
                 if (e.target !== e.currentTarget) return;
                 if (!onSlotClick) return;
@@ -286,10 +300,13 @@ export default function AppointmentScreen() {
       .catch(() => {}); // silently ignore — falls back to appointment-derived columns
   }, [month, rotaMonth]);
 
-  // Only show therapist-role staff on the timeline (not reception, manager, etc.)
-  const workingTherapists = allTherapists.filter(t =>
-    t.role === 'therapist' && isWorkingOn(t.id, date, weeklyRota, rotaOverrides)
-  );
+  // All therapists shown on timeline; isOff flag drives the greyed-out column style
+  const therapistColumns = allTherapists
+    .filter(t => t.role === 'therapist')
+    .map(t => ({ ...t, isOff: !isWorkingOn(t.id, date, weeklyRota, rotaOverrides) }));
+
+  // Keep backwards-compat: workingTherapists still used for "no staff" fallback message
+  const workingTherapists = therapistColumns.filter(t => !t.isOff);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -374,6 +391,7 @@ export default function AppointmentScreen() {
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
             <TimelineView
               appointments={appointments}
+              therapistColumns={therapistColumns}
               workingTherapists={workingTherapists}
               selected={selected}
               onSelect={setSelected}
