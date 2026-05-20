@@ -38,7 +38,12 @@ async function request(method, path, body) {
     throw new Error('unauthenticated');
   }
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || res.statusText);
+  if (!res.ok) {
+    const err = new Error(data.error || res.statusText);
+    err.status = res.status;
+    err.data   = data;  // full body — lets callers read conflict details, alternatives etc.
+    throw err;
+  }
   return data;
 }
 

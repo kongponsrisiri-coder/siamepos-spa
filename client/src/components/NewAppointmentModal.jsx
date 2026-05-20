@@ -64,8 +64,9 @@ export default function NewAppointmentModal({
   const [slots, setSlots]   = useState([]);
   const [useSlotPicker, setUseSlotPicker] = useState(!isEdit);
 
-  const [busy, setBusy]   = useState(false);
-  const [error, setError] = useState('');
+  const [busy, setBusy]         = useState(false);
+  const [error, setError]       = useState('');
+  const [conflict, setConflict] = useState(null); // { conflicting, alternative_slots, alternative_therapists }
 
   // ── Load reference data ───────────────────────────────────────────────────
   useEffect(() => {
@@ -108,7 +109,7 @@ export default function NewAppointmentModal({
     if (!treatmentId) { setError('Please choose a treatment.'); return; }
     if (!date || !time)  { setError('Please set a date and time.'); return; }
 
-    setBusy(true); setError('');
+    setBusy(true); setError(''); setConflict(null);
     try {
       // Create new client if needed
       let useClientId = clientId;
@@ -147,10 +148,29 @@ export default function NewAppointmentModal({
         handleSaved(r.appointment);
       }
     } catch (e) {
-      setError(e.message || 'Failed to save');
+      if (e.status === 409 && e.data?.conflicting) {
+        // Rich conflict — show alternatives panel instead of plain error
+        setConflict(e.data);
+      } else {
+        setError(e.message || 'Failed to save');
+      }
     } finally {
       setBusy(false);
     }
+  }
+
+  // Apply a suggested alternative slot
+  function applySlot(iso) {
+    const d = new Date(iso);
+    setDate(d.toISOString().slice(0, 10));
+    setTime(`${pad(d.getHours())}:${pad(d.getMinutes())}`);
+    setConflict(null);
+  }
+
+  // Apply a suggested alternative therapist
+  function applyTherapist(id, name) {
+    setTherapistId(String(id));
+    setConflict(null);
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -304,6 +324,83 @@ export default function NewAppointmentModal({
           </div>
 
           {error && <div style={{ color: 'var(--danger)', fontSize: 13, background: '#fee2e2', padding: '8px 12px', borderRadius: 6 }}>{error}</div>}
+
+          {/* ── Conflict panel ── */}
+          {conflict && (
+            <div style={{ background: '#fff7ed', border: '2px solid #f97316', borderRadius: 10, overflow: 'hidden' }}>
+              {/* Header */}
+              <div style={{ background: '#f97316', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 18 }}>⚠️</span>
+                <div style={{ color: 'white', fontWeight: 700, fontSize: 14 }}>
+                  Time slot already booked
+                </div>
+              </div>
+              <div style={{ padding: '12px 14px' }} className="col">
+                {/* Conflicting booking details */}
+                <div style={{ fontSize: 13, color: '#92400e', background: '#fef3c7', borderRadius: 7, padding: '8px 12px', marginBottom: 10 }}>
+                  <strong>{conflict.conflicting.therapist_name || 'This therapist'}</strong> is booked{' '}
+                  <strong>
+                    {new Date(conflict.conflicting.starts_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                    {' – '}
+                    {new Date(conflict.conflicting.ends_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                  </strong>
+                  {conflict.conflicting.client_name && <> with <strong>{conflict.conflicting.client_name}</strong></>}
+                  {conflict.conflicting.treatment_name && <> ({conflict.conflicting.treatment_name})</>}.
+                </div>
+
+                {/* Alternative time slots for same therapist */}
+                {conflict.alternative_slots?.length > 0 && (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1e3a6e', marginBottom: 6 }}>
+                      Next available times for {conflict.conflicting.therapist_name || 'same therapist'}:
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {conflict.alternative_slots.map(s => {
+                        const d = new Date(s.starts_at);
+                        const isToday = d.toISOString().slice(0,10) === date;
+                        const label = isToday
+                          ? `${pad(d.getHours())}:${pad(d.getMinutes())}`
+                          : `${d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric' })} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                        return (
+                          <button key={s.starts_at}
+                            onClick={() => applySlot(s.starts_at)}
+                            style={{ padding: '6px 12px', fontSize: 13, background: '#1e3a6e', color: 'white', border: 'none', borderRadius: 7, cursor: 'pointer', fontWeight: 600 }}>
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Alternative therapists free at requested time */}
+                {conflict.alternative_therapists?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: '#1e3a6e', marginBottom: 6 }}>
+                      Free therapists at {time}:
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {conflict.alternative_therapists.map(t => (
+                        <button key={t.id}
+                          onClick={() => applyTherapist(t.id, t.name)}
+                          style={{ padding: '6px 12px', fontSize: 13, background: '#16a34a', color: 'white', border: 'none', borderRadius: 7, cursor: 'pointer', fontWeight: 600 }}>
+                          👤 {t.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {conflict.alternative_slots?.length === 0 && conflict.alternative_therapists?.length === 0 && (
+                  <div style={{ fontSize: 13, color: '#92400e' }}>No alternatives found for this date. Please choose a different day.</div>
+                )}
+
+                <button onClick={() => setConflict(null)} style={{ alignSelf: 'flex-end', marginTop: 6, fontSize: 12, background: 'transparent', border: '1px solid #f97316', color: '#c2410c', borderRadius: 6, padding: '4px 10px', cursor: 'pointer' }}>
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
             <button onClick={onClose}>Cancel</button>

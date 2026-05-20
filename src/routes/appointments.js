@@ -81,15 +81,84 @@ router.post('/', async (req, res) => {
 
     // Conflict check: same therapist OR same room overlapping.
     const conflict = await pool.query(
-      `SELECT id FROM appointments
-       WHERE status NOT IN ('cancelled','no_show')
-         AND ( ($1::int IS NOT NULL AND therapist_id = $1)
-            OR ($2::int IS NOT NULL AND room_id      = $2) )
-         AND NOT (ends_at <= $3 OR starts_at >= $4)
+      `SELECT a.id, a.starts_at, a.ends_at,
+              c.name AS client_name, t.name AS treatment_name, th.name AS therapist_name
+       FROM appointments a
+       LEFT JOIN clients    c  ON c.id  = a.client_id
+       LEFT JOIN treatments t  ON t.id  = a.treatment_id
+       LEFT JOIN therapists th ON th.id = a.therapist_id
+       WHERE a.status NOT IN ('cancelled','no_show')
+         AND ( ($1::int IS NOT NULL AND a.therapist_id = $1)
+            OR ($2::int IS NOT NULL AND a.room_id      = $2) )
+         AND NOT (a.ends_at <= $3 OR a.starts_at >= $4)
        LIMIT 1`,
       [therapist_id || null, room_id || null, starts_at, ends_at],
     );
-    if (conflict.rows[0]) return res.status(409).json({ error: 'time slot conflicts with another appointment' });
+    if (conflict.rows[0]) {
+      const conflicting = conflict.rows[0];
+      const duration    = tr.rows[0].duration_minutes;
+
+      // ── Alternative slots for same therapist (up to 5, same day then next day) ──
+      const altSlots = [];
+      const searchFrom = new Date(conflicting.ends_at); // start looking after the blocking appt
+      for (let dayOffset = 0; dayOffset <= 1 && altSlots.length < 5; dayOffset++) {
+        const dayEnd = new Date(searchFrom);
+        dayEnd.setDate(dayEnd.getDate() + dayOffset);
+        dayEnd.setHours(21, 0, 0, 0);
+
+        // Fetch all bookings for this therapist on this search day
+        const dayAppts = await pool.query(
+          `SELECT starts_at, ends_at FROM appointments
+           WHERE therapist_id = $1
+             AND status NOT IN ('cancelled','no_show')
+             AND starts_at::date = $2::date
+           ORDER BY starts_at`,
+          [therapist_id, searchFrom],
+        );
+
+        let cursor = dayOffset === 0
+          ? searchFrom.getTime()
+          : (() => { const d = new Date(searchFrom); d.setDate(d.getDate() + dayOffset); d.setHours(9, 0, 0, 0); return d.getTime(); })();
+
+        while (cursor + duration * 60_000 <= dayEnd.getTime() && altSlots.length < 5) {
+          const slotStart = new Date(cursor);
+          const slotEnd   = new Date(cursor + duration * 60_000);
+          const blocked   = dayAppts.rows.some(a => {
+            const as = new Date(a.starts_at), ae = new Date(a.ends_at);
+            return !(ae <= slotStart || as >= slotEnd);
+          });
+          if (!blocked) {
+            altSlots.push({ starts_at: slotStart.toISOString() });
+            cursor = slotEnd.getTime(); // jump past this slot
+          } else {
+            cursor += 15 * 60_000; // try next 15-min window
+          }
+        }
+      }
+
+      // ── Alternative therapists free at the requested time ──
+      const altTherapists = await pool.query(
+        `SELECT th.id, th.name
+         FROM therapists th
+         WHERE th.active = TRUE
+           AND th.id != $1
+           AND NOT EXISTS (
+             SELECT 1 FROM appointments a
+             WHERE a.therapist_id = th.id
+               AND a.status NOT IN ('cancelled','no_show')
+               AND NOT (a.ends_at <= $2 OR a.starts_at >= $3)
+           )
+         ORDER BY th.name`,
+        [therapist_id || 0, starts_at, ends_at.toISOString()],
+      );
+
+      return res.status(409).json({
+        error: 'conflict',
+        conflicting,
+        alternative_slots: altSlots,
+        alternative_therapists: altTherapists.rows,
+      });
+    }
 
     const { rows } = await pool.query(
       `INSERT INTO appointments
