@@ -101,10 +101,10 @@ router.post('/', async (req, res) => {
   }
 });
 
-// PUT /api/appointments/:id  — reschedule / reassign
+// PUT /api/appointments/:id  — reschedule / reassign / edit any field
 router.put('/:id', async (req, res) => {
   const id = Number(req.params.id);
-  const { therapist_id, room_id, starts_at, notes, treatment_id } = req.body || {};
+  const { therapist_id, room_id, starts_at, notes, treatment_id, client_id, status } = req.body || {};
   try {
     // Recompute ends_at if starts_at or treatment changed.
     let newEnds = null;
@@ -124,6 +124,9 @@ router.put('/:id', async (req, res) => {
       newEnds = new Date(new Date(useStart).getTime() + dur * 60_000);
     }
 
+    const allowed_statuses = ['booked', 'in_progress', 'completed', 'cancelled', 'no_show'];
+    const safeStatus = allowed_statuses.includes(status) ? status : null;
+
     const { rows } = await pool.query(
       `UPDATE appointments SET
          therapist_id = COALESCE($2, therapist_id),
@@ -131,9 +134,11 @@ router.put('/:id', async (req, res) => {
          starts_at    = COALESCE($4, starts_at),
          ends_at      = COALESCE($5, ends_at),
          treatment_id = COALESCE($6, treatment_id),
-         notes        = COALESCE($7, notes)
+         notes        = COALESCE($7, notes),
+         client_id    = COALESCE($8, client_id),
+         status       = COALESCE($9, status)
        WHERE id = $1 RETURNING *`,
-      [id, therapist_id, room_id, starts_at, newEnds, treatment_id, notes],
+      [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     req.app.get('io')?.emit('appointment_updated', rows[0]);

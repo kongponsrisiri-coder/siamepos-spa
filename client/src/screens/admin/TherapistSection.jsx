@@ -51,7 +51,7 @@ export default function TherapistSection() {
     <div className="col">
       <div className="card col">
         <div className="row" style={{ justifyContent: 'space-between' }}>
-          <h3 style={{ margin: 0 }}>Therapists</h3>
+          <h3 style={{ margin: 0 }}>Staff</h3>
           <button className="primary" onClick={() => setEdit({ name: '', pin: '', role: 'therapist' })}>+ New</button>
         </div>
         {list.length === 0 ? <div className="muted">No therapists yet.</div> : (
@@ -84,7 +84,7 @@ export default function TherapistSection() {
       {editing && (
         <div className="modal-backdrop" onClick={() => setEdit(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ marginTop: 0 }}>{editing.id ? 'Edit therapist' : 'New therapist'}</h3>
+            <h3 style={{ marginTop: 0 }}>{editing.id ? 'Edit staff' : 'New staff'}</h3>
             <div className="col">
               <div><label>Name</label><input value={editing.name} onChange={(e) => setEdit({ ...editing, name: e.target.value })} /></div>
               <div><label>PIN {editing.id && '(leave blank to keep current)'}</label>
@@ -93,6 +93,7 @@ export default function TherapistSection() {
               <div><label>Role</label>
                 <select value={editing.role || 'therapist'} onChange={(e) => setEdit({ ...editing, role: e.target.value })}>
                   <option value="therapist">Therapist</option>
+                  <option value="reception">Reception</option>
                   <option value="manager">Manager</option>
                   <option value="admin">Admin</option>
                 </select>

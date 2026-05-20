@@ -1,5 +1,6 @@
 const express = require('express');
 const { pool } = require('../db/database');
+const { requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -110,6 +111,32 @@ router.get('/', async (req, res) => {
     console.error('[bills] list', err);
     res.status(500).json({ error: 'server error' });
   }
+});
+
+// DELETE /api/bills/:id  — admin/manager only, resets appointment to booked
+router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
+  const id = Number(req.params.id);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT * FROM bills WHERE id = $1', [id]);
+    if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Bill not found' }); }
+    const bill = rows[0];
+    // Reset the linked appointment back to 'booked' so it can be re-processed
+    if (bill.appointment_id) {
+      await client.query(
+        `UPDATE appointments SET status = 'booked' WHERE id = $1`,
+        [bill.appointment_id],
+      );
+    }
+    await client.query('DELETE FROM bills WHERE id = $1', [id]);
+    await client.query('COMMIT');
+    res.json({ ok: true });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('[bills] delete', err);
+    res.status(500).json({ error: 'server error' });
+  } finally { client.release(); }
 });
 
 module.exports = router;

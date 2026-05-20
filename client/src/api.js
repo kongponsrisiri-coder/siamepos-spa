@@ -48,3 +48,16 @@ export const api = {
   put:  (p, b) => request('PUT',    p, b),
   del:  (p)    => request('DELETE', p),
 };
+
+// Validates a PIN without changing the current session token.
+// Returns the staff object ({ id, name, role }) or throws on failure.
+export async function loginPin(pin) {
+  const res = await fetch(`${API_BASE}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pin }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Invalid PIN');
+  return data.staff;
+}

@@ -1,7 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const { pool } = require('../db/database');
-const { requireRole } = require('../middleware/auth');
+const { requireRole, requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -110,8 +110,8 @@ router.put('/:id/availability', requireRole('admin', 'manager'), async (req, res
 // ── SPA-ROTA-001 — bulk rota overview ─────────────────────────────────────
 // GET /api/therapists/rota?month=YYYY-MM
 // Returns { therapists, weekly_rota, overrides } for the given month.
-// Used by RotaSection to render the weekly grid + override calendar.
-router.get('/rota', requireRole('admin', 'manager'), async (req, res) => {
+// Used by RotaSection (admin) + AppointmentScreen (any staff) to know who's working.
+router.get('/rota', requireAuth, async (req, res) => {
   try {
     const month = req.query.month || new Date().toISOString().slice(0, 7); // YYYY-MM
     const monthStart = `${month}-01`;
@@ -119,7 +119,7 @@ router.get('/rota', requireRole('admin', 'manager'), async (req, res) => {
     const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
 
     const [therapistsRes, rotaRes, overridesRes] = await Promise.all([
-      pool.query('SELECT id, name, specialisms FROM therapists WHERE active = TRUE ORDER BY name'),
+      pool.query('SELECT id, name, role, specialisms FROM therapists WHERE active = TRUE ORDER BY name'),
       pool.query(
         `SELECT therapist_id, day_of_week, start_time, end_time
          FROM therapist_availability ORDER BY therapist_id, day_of_week`,
