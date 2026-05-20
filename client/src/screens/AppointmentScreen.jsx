@@ -56,10 +56,23 @@ const HEADER_H  = 52;   // sticky therapist-name header height
 const STATUS_STYLE = {
   booked:      { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },
   in_progress: { bg: '#dcfce7', border: '#22c55e', text: '#14532d' },
-  completed:   { bg: '#e0e7ff', border: '#8b5cf6', text: '#4c1d95' },
+  completed:   { bg: '#f3f4f6', border: '#9ca3af', text: '#4b5563' }, // fallback when no payment method
   cancelled:   { bg: '#f3f4f6', border: '#9ca3af', text: '#4b5563' },
   no_show:     { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' },
 };
+// Completed appointments use payment method colour instead of generic purple
+const PAYMENT_STYLE = {
+  cash:    { bg: '#dcfce7', border: '#16a34a', text: '#14532d' },
+  card:    { bg: '#dbeafe', border: '#2563eb', text: '#1e40af' },
+  voucher: { bg: '#ede9fe', border: '#7c3aed', text: '#4c1d95' },
+  split:   { bg: '#fef9c3', border: '#ca8a04', text: '#713f12' },
+};
+function apptStyle(a) {
+  if (a.status === 'completed' && a.payment_method) {
+    return PAYMENT_STYLE[a.payment_method] || { bg: '#e0e7ff', border: '#8b5cf6', text: '#4c1d95' };
+  }
+  return STATUS_STYLE[a.status] || STATUS_STYLE.booked;
+}
 // Selected-block highlight colours — navy shades so they feel on-brand
 const COL_COLORS = ['#1e3a6e','#2a4f8f','#142952','#1a3d7a','#243d6b','#1e4a8a'];
 
@@ -113,7 +126,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
       : null;
   if (sourceList) {
     // Show every therapist (with isOff flag), plus any appointments from therapists not in rota
-    columns = sourceList.map(t => ({ id: t.id, name: t.name, isOff: !!t.isOff, appts: apptMap[t.id] || [] }));
+    columns = sourceList.map(t => ({ id: t.id, name: t.name, isOff: !!t.isOff, workStart: t.workStart || null, workEnd: t.workEnd || null, appts: apptMap[t.id] || [] }));
     // Safety net: also include appointments assigned to therapists not in the rota list
     Object.keys(apptMap).forEach(tid => {
       const id = Number(tid);
@@ -252,7 +265,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                 const top    = minsToPx(startM);
                 const height = Math.max(minsToPx(endM) - minsToPx(startM) - 3, 26);
                 const isSel  = selected?.id === a.id;
-                const s      = STATUS_STYLE[a.status] || STATUS_STYLE.booked;
+                const s      = apptStyle(a);
                 const hasPm  = Boolean(a.payment_method);  // #30
                 const isReq  = Boolean(a.therapist_requested); // #31
                 return (
@@ -329,23 +342,26 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
       </div>
 
       {/* Legend */}
-      <div style={{ padding: '8px 12px', background: '#fafafa', borderTop: '1px solid var(--border)', display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-        {Object.entries(STATUS_STYLE).map(([status, s]) => (
+      <div style={{ padding: '8px 12px', background: '#fafafa', borderTop: '1px solid var(--border)', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+        {/* Status colours — exclude 'completed' since it's replaced by payment colours */}
+        {Object.entries(STATUS_STYLE).filter(([s]) => s !== 'completed').map(([status, s]) => (
           <span key={status} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ width: 10, height: 10, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}`, display: 'inline-block' }} />
             <span style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>{status.replace('_', ' ')}</span>
           </span>
         ))}
         <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
+        {/* Paid = completed with payment method colour */}
+        {Object.entries(PAYMENT_STYLE).map(([method, s]) => (
+          <span key={method} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 10, height: 10, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}`, display: 'inline-block' }} />
+            <span style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>Paid · {method}</span>
+          </span>
+        ))}
+        <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
         <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
           <span style={{ fontSize: 10 }}>⭐</span> Therapist requested
         </span>
-        {Object.entries(PAYMENT_COLOR).slice(0,3).map(([method, color]) => (
-          <span key={method} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ background: color, color: 'white', fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 3 }}>{pmLabel(method)}</span>
-            <span style={{ color: 'var(--muted)' }}>paid</span>
-          </span>
-        ))}
       </div>
     </div>
   );
