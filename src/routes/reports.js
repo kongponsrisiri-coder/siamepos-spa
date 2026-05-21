@@ -46,10 +46,28 @@ router.get('/trading', async (req, res) => {
        LIMIT 10`,
       [date],
     );
+    // Split-aware payment-method aggregation: a bill paid by 'split'
+    // contributes its split_payments[] entries to their underlying
+    // methods (e.g. £30 cash + £20 card), so the owner sees real
+    // cash/card totals instead of a generic "split" line.
     const byMethod = await pool.query(
-      `SELECT payment_method, COUNT(*)::int AS n, COALESCE(SUM(total),0)::numeric AS revenue
-       FROM bills WHERE closed_at::date = $1::date
-       GROUP BY payment_method`,
+      `WITH non_split AS (
+         SELECT payment_method, total::numeric AS amount
+         FROM bills
+         WHERE closed_at::date = $1::date AND payment_method != 'split'
+       ),
+       splits AS (
+         SELECT (elem->>'method')::text AS payment_method,
+                (elem->>'amount')::numeric AS amount
+         FROM bills b, LATERAL jsonb_array_elements(COALESCE(b.split_payments, '[]'::jsonb)) elem
+         WHERE b.closed_at::date = $1::date AND b.payment_method = 'split'
+       )
+       SELECT payment_method,
+              COUNT(*)::int AS n,
+              COALESCE(SUM(amount), 0)::numeric AS revenue
+       FROM (SELECT * FROM non_split UNION ALL SELECT * FROM splits) all_payments
+       GROUP BY payment_method
+       ORDER BY revenue DESC`,
       [date],
     );
     // SPA-003 — source split: how many of today's appointments came from
@@ -156,10 +174,28 @@ router.get('/z-report', async (req, res) => {
        FROM bills WHERE closed_at::date = $1::date`,
       [date],
     );
+    // Split-aware payment-method aggregation: a bill paid by 'split'
+    // contributes its split_payments[] entries to their underlying
+    // methods (e.g. £30 cash + £20 card), so the owner sees real
+    // cash/card totals instead of a generic "split" line.
     const byMethod = await pool.query(
-      `SELECT payment_method, COUNT(*)::int AS n, COALESCE(SUM(total),0)::numeric AS revenue
-       FROM bills WHERE closed_at::date = $1::date
-       GROUP BY payment_method`,
+      `WITH non_split AS (
+         SELECT payment_method, total::numeric AS amount
+         FROM bills
+         WHERE closed_at::date = $1::date AND payment_method != 'split'
+       ),
+       splits AS (
+         SELECT (elem->>'method')::text AS payment_method,
+                (elem->>'amount')::numeric AS amount
+         FROM bills b, LATERAL jsonb_array_elements(COALESCE(b.split_payments, '[]'::jsonb)) elem
+         WHERE b.closed_at::date = $1::date AND b.payment_method = 'split'
+       )
+       SELECT payment_method,
+              COUNT(*)::int AS n,
+              COALESCE(SUM(amount), 0)::numeric AS revenue
+       FROM (SELECT * FROM non_split UNION ALL SELECT * FROM splits) all_payments
+       GROUP BY payment_method
+       ORDER BY revenue DESC`,
       [date],
     );
     const closed = await pool.query(

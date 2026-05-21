@@ -57,7 +57,14 @@ router.put('/:id/tip', async (req, res) => {
   }
 });
 
-// POST /api/bills/:id/pay  body: { method: 'cash'|'card'|'split'|'voucher'|'treatwell' }
+// POST /api/bills/:id/pay
+//   body: { method, split_payments? }
+//
+//   method 'split' takes an additional body field split_payments — an
+//   array of { method: 'cash'|'card'|'voucher', amount } whose amounts
+//   must sum to the bill total (±£0.01 for float jitter). The breakdown
+//   is stored on the bill row so reports can attribute the underlying
+//   cash/card portions correctly instead of lumping into "split".
 //
 // 'treatwell' means the booking was paid through the Treatwell marketplace —
 // the customer's card was charged by Treatwell, who'll settle (minus
@@ -66,18 +73,43 @@ router.put('/:id/tip', async (req, res) => {
 // direct revenue so they don't double-count cash flow.
 router.post('/:id/pay', async (req, res) => {
   const id = Number(req.params.id);
-  const { method } = req.body || {};
+  const { method, split_payments } = req.body || {};
   if (!['cash', 'card', 'split', 'voucher', 'treatwell'].includes(method)) {
     return res.status(400).json({ error: 'invalid method' });
+  }
+  let splitJson = null;
+  if (method === 'split') {
+    if (!Array.isArray(split_payments) || split_payments.length === 0) {
+      return res.status(400).json({ error: 'split_payments required when method=split' });
+    }
+    const ALLOWED = ['cash', 'card', 'voucher'];
+    const clean = [];
+    for (const p of split_payments) {
+      const m = String(p.method || '').toLowerCase();
+      const a = Number(p.amount);
+      if (!ALLOWED.includes(m)) return res.status(400).json({ error: `split_payments: bad method "${p.method}"` });
+      if (!isFinite(a) || a <= 0)  return res.status(400).json({ error: `split_payments: amount must be > 0` });
+      clean.push({ method: m, amount: +a.toFixed(2) });
+    }
+    // Validate sum against the bill total
+    const totalRes = await pool.query('SELECT total FROM bills WHERE id = $1', [id]);
+    if (!totalRes.rows[0]) return res.status(404).json({ error: 'not found' });
+    const billTotal = Number(totalRes.rows[0].total);
+    const sum = +clean.reduce((s, p) => s + p.amount, 0).toFixed(2);
+    if (Math.abs(sum - billTotal) > 0.01) {
+      return res.status(400).json({ error: `split_payments sum £${sum.toFixed(2)} does not match bill total £${billTotal.toFixed(2)}` });
+    }
+    splitJson = JSON.stringify(clean);
   }
   try {
     const { rows } = await pool.query(
       `UPDATE bills SET
          payment_method = $2,
+         split_payments = $3::jsonb,
          payment_status = 'paid',
          closed_at      = now()
        WHERE id = $1 RETURNING *`,
-      [id, method],
+      [id, method, splitJson],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     // Mark the appointment completed as a side-effect of taking payment.

@@ -347,6 +347,12 @@ async function initSchema() {
     -- record it here. NULL is allowed for legacy rows; new sales are
     -- required to set this (enforced in the API + admin form).
     ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS payment_method TEXT;
+
+    -- SPA-SPLIT-001: per-method breakdown on a split-paid bill so the
+    -- daily report can attribute the cash portion to "cash" and the
+    -- card portion to "card" instead of dumping the whole thing in a
+    -- "split" bucket. JSONB array of { method, amount }.
+    ALTER TABLE bills ADD COLUMN IF NOT EXISTS split_payments JSONB;
   `);
 
   console.log('[db] schema ready');
