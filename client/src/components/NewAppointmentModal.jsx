@@ -68,8 +68,17 @@ export default function NewAppointmentModal({
   const [clientId, setClientId]         = useState(appointment?.client_id || null);
   const [clientName, setClientName]     = useState('');  // display name once selected
   const [clientQuery, setClientQuery]   = useState('');
-  const [newClientName, setNewClientName]   = useState('');
-  const [newClientPhone, setNewClientPhone] = useState('');
+  // New-client form — full intake so the appointment links to a proper
+  // client record (not a name+phone stub). Mirrors ClientSearchScreen's
+  // New Client modal field list.
+  const [newClient, setNewClient] = useState({
+    name: '', phone: '', email: '', date_of_birth: '',
+    emergency_contact_name: '', emergency_contact_phone: '',
+    gp_name: '', gp_surgery: '',
+    gdpr_consent: true, marketing_consent: false, notes: '',
+  });
+  const setNew = (k, v) => setNewClient((s) => ({ ...s, [k]: v }));
+  const [showNewClient, setShowNewClient] = useState(false);
 
   const [treatmentId, setTreatmentId] = useState(appointment?.treatment_id || null);
   const [therapistId, setTherapistId] = useState(
@@ -165,10 +174,24 @@ export default function NewAppointmentModal({
 
     setBusy(true); setError(''); setConflict(null);
     try {
-      // Create new client if needed
+      // Create new client if needed — sends the full intake body so the
+      // appointment ties to a proper client record, not a name+phone stub.
       let useClientId = clientId;
-      if (!useClientId && newClientName.trim()) {
-        const r = await api.post('/clients', { name: newClientName.trim(), phone: newClientPhone.trim() || null });
+      if (!useClientId && newClient.name.trim()) {
+        const body = {
+          name: newClient.name.trim(),
+          phone:                   newClient.phone.trim() || null,
+          email:                   newClient.email.trim() || null,
+          date_of_birth:           newClient.date_of_birth || null,
+          emergency_contact_name:  newClient.emergency_contact_name.trim() || null,
+          emergency_contact_phone: newClient.emergency_contact_phone.trim() || null,
+          gp_name:                 newClient.gp_name.trim() || null,
+          gp_surgery:              newClient.gp_surgery.trim() || null,
+          gdpr_consent:            !!newClient.gdpr_consent,
+          marketing_consent:       !!newClient.marketing_consent,
+          notes:                   newClient.notes.trim() || null,
+        };
+        const r = await api.post('/clients', body);
         useClientId = r.client.id;
       }
 
@@ -268,11 +291,78 @@ export default function NewAppointmentModal({
                     ))}
                   </div>
                 )}
-                <details style={{ marginTop: 6 }}>
-                  <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--muted)' }}>+ Walk-in / new client</summary>
-                  <div className="col" style={{ marginTop: 6, gap: 6 }}>
-                    <input placeholder="Name" value={newClientName} onChange={e => setNewClientName(e.target.value)} />
-                    <input placeholder="Phone (optional)" value={newClientPhone} onChange={e => setNewClientPhone(e.target.value)} />
+                <details
+                  open={showNewClient || undefined}
+                  onToggle={e => setShowNewClient(e.currentTarget.open)}
+                  style={{ marginTop: 6 }}
+                >
+                  <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--muted)' }}>
+                    + New client / walk-in (full details)
+                  </summary>
+                  <div className="col" style={{ marginTop: 10, gap: 8, padding: 12, background: 'var(--gold-light, #fdf6e9)', border: '1px solid rgba(201,168,76,0.35)', borderRadius: 8 }}>
+                    <div>
+                      <label style={{ fontSize: 12 }}>Full name *</label>
+                      <input value={newClient.name} onChange={e => setNew('name', e.target.value)} />
+                    </div>
+                    <div className="row" style={{ gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 12 }}>Phone</label>
+                        <input type="tel" value={newClient.phone} onChange={e => setNew('phone', e.target.value)} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 12 }}>Email</label>
+                        <input type="email" value={newClient.email} onChange={e => setNew('email', e.target.value)} />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 12 }}>Date of birth</label>
+                      <input type="date" value={newClient.date_of_birth} onChange={e => setNew('date_of_birth', e.target.value)} />
+                    </div>
+                    <div className="row" style={{ gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 12 }}>Emergency contact name</label>
+                        <input value={newClient.emergency_contact_name} onChange={e => setNew('emergency_contact_name', e.target.value)} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 12 }}>Emergency phone</label>
+                        <input type="tel" value={newClient.emergency_contact_phone} onChange={e => setNew('emergency_contact_phone', e.target.value)} />
+                      </div>
+                    </div>
+                    <div className="row" style={{ gap: 8 }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 12 }}>GP name</label>
+                        <input value={newClient.gp_name} onChange={e => setNew('gp_name', e.target.value)} />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: 12 }}>GP surgery</label>
+                        <input value={newClient.gp_surgery} onChange={e => setNew('gp_surgery', e.target.value)} />
+                      </div>
+                    </div>
+                    <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontSize: 13 }}>
+                      <input
+                        type="checkbox"
+                        style={{ width: 'auto' }}
+                        checked={!!newClient.gdpr_consent}
+                        onChange={e => setNew('gdpr_consent', e.target.checked)}
+                      />
+                      <span>GDPR consent obtained (required to record medical data)</span>
+                    </label>
+                    <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', fontSize: 13 }}>
+                      <input
+                        type="checkbox"
+                        style={{ width: 'auto' }}
+                        checked={!!newClient.marketing_consent}
+                        onChange={e => setNew('marketing_consent', e.target.checked)}
+                      />
+                      <span>Marketing email opt-in</span>
+                    </label>
+                    <div>
+                      <label style={{ fontSize: 12 }}>Client notes (allergies, preferences…)</label>
+                      <textarea rows={2} value={newClient.notes} onChange={e => setNew('notes', e.target.value)} />
+                    </div>
+                    <div className="muted" style={{ fontSize: 11, lineHeight: 1.5 }}>
+                      A new client record is created when you save this booking. Open their profile later to add a full medical questionnaire.
+                    </div>
                   </div>
                 </details>
               </>
