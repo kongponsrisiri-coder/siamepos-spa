@@ -140,16 +140,16 @@ export default function AdminScreen() {
               key={item.k}
               onClick={() => setTab(item.k)}
               style={{
-                background: active ? 'rgba(201,168,76,0.14)' : 'transparent',
+                background: active ? 'rgba(201,168,76,0.22)' : 'transparent',
                 border: 'none',
-                borderLeft: active ? '3px solid #C9A84C' : '3px solid transparent',
-                color: active ? '#C9A84C' : 'rgba(255,255,255,0.70)',
-                padding: '10px 20px',
-                paddingLeft: 17,
+                borderLeft: active ? '4px solid #C9A84C' : '4px solid transparent',
+                color: active ? '#ffffff' : 'rgba(255,255,255,0.70)',
+                padding: '11px 20px',
+                paddingLeft: 16,
                 textAlign: 'left',
                 cursor: 'pointer',
-                fontSize: 13,
-                fontWeight: active ? 600 : 400,
+                fontSize: 13.5,
+                fontWeight: active ? 700 : 400,
                 fontFamily: 'Inter, sans-serif',
                 transition: 'background 0.12s, color 0.12s',
                 width: '100%',
