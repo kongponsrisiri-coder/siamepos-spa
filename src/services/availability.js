@@ -167,4 +167,57 @@ async function computeAvailability({ treatment_id, date, therapist_id }) {
   return slots;
 }
 
-module.exports = { computeAvailability };
+// Single-therapist rota lookup — used by POST + PUT /api/appointments
+// to reject bookings that fall outside a therapist's working window.
+// Returns { start, end } in ms, or null if they're off that day.
+async function getTherapistWorkingWindow(therapist_id, date) {
+  const settingsRes = await pool.query(
+    `SELECT key, value FROM settings WHERE key IN ('opening_time','closing_time')`,
+  );
+  const settings = Object.fromEntries(settingsRes.rows.map((r) => [r.key, r.value]));
+  const openAtMs  = buildAt(date, settings.opening_time  || '10:00').getTime();
+  const closeAtMs = buildAt(date, settings.closing_time || '20:00').getTime();
+  const dayOfWeek = new Date(date + 'T12:00:00').getDay();
+
+  const rotaRes = await pool.query(
+    `SELECT therapist_id, day_of_week, start_time, end_time
+     FROM therapist_availability WHERE therapist_id = $1`,
+    [therapist_id],
+  );
+  const weeklyRota = rotaRes.rows.map((r) => ({
+    therapist_id: r.therapist_id,
+    day_of_week:  r.day_of_week,
+    start_time:   String(r.start_time).slice(0, 5),
+    end_time:     String(r.end_time).slice(0, 5),
+  }));
+
+  const overrideRes = await pool.query(
+    `SELECT therapist_id, date::text AS date, is_working, start_time, end_time
+     FROM therapist_rota_overrides
+     WHERE therapist_id = $1 AND date = $2`,
+    [therapist_id, date],
+  );
+
+  return resolveTherapistWindow(
+    therapist_id, date, dayOfWeek,
+    weeklyRota, overrideRes.rows,
+    openAtMs, closeAtMs,
+  );
+}
+
+// True if the therapist's rota window contains [starts_at, ends_at).
+// Returns { working, window } so the caller can build a helpful message
+// (e.g. "Anong works 14:00–18:00 on Tuesdays" or "Anong is off today").
+async function isTherapistWorking(therapist_id, starts_at, ends_at) {
+  const date = String(starts_at).slice(0, 10);
+  const window = await getTherapistWorkingWindow(therapist_id, date);
+  if (!window) return { working: false, window: null };
+  const startMs = new Date(starts_at).getTime();
+  const endMs   = new Date(ends_at).getTime();
+  if (startMs < window.start || endMs > window.end) {
+    return { working: false, window };
+  }
+  return { working: true, window };
+}
+
+module.exports = { computeAvailability, getTherapistWorkingWindow, isTherapistWorking };

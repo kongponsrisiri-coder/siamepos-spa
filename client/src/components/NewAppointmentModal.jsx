@@ -150,7 +150,7 @@ export default function NewAppointmentModal({
         handleSaved(r.appointment);
       }
     } catch (e) {
-      if (e.status === 409 && e.data?.conflicting) {
+      if (e.status === 409 && (e.data?.conflicting || e.data?.rota_conflict)) {
         // Rich conflict — show alternatives panel instead of plain error
         setConflict(e.data);
       } else {
@@ -328,18 +328,39 @@ export default function NewAppointmentModal({
 
           {error && <div style={{ color: 'var(--danger)', fontSize: 13, background: '#fee2e2', padding: '8px 12px', borderRadius: 6 }}>{error}</div>}
 
-          {/* ── Conflict panel ── */}
+          {/* ── Conflict panel ── (handles both time-conflict + rota-conflict) */}
           {conflict && (
             <div style={{ background: '#fff7ed', border: '2px solid #f97316', borderRadius: 10, overflow: 'hidden' }}>
-              {/* Header */}
+              {/* Header — branches on the conflict variant */}
               <div style={{ background: '#f97316', padding: '10px 14px', display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{ fontSize: 18 }}>⚠️</span>
                 <div style={{ color: 'white', fontWeight: 700, fontSize: 14 }}>
-                  Time slot already booked
+                  {conflict.rota_conflict ? 'Therapist not on shift' : 'Time slot already booked'}
                 </div>
               </div>
               <div style={{ padding: '12px 14px' }} className="col">
-                {/* Conflicting booking details */}
+                {/* Body — rota-conflict variant */}
+                {conflict.rota_conflict && (
+                  <div style={{ fontSize: 13, color: '#92400e', background: '#fef3c7', borderRadius: 7, padding: '8px 12px', marginBottom: 10 }}>
+                    {conflict.rota_conflict.working_window ? (
+                      <>
+                        <strong>{conflict.rota_conflict.therapist_name || 'This therapist'}</strong> only works{' '}
+                        <strong>
+                          {new Date(conflict.rota_conflict.working_window.start).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                          {' – '}
+                          {new Date(conflict.rota_conflict.working_window.end).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
+                        </strong>{' '}
+                        on this date. The chosen time is outside their rota.
+                      </>
+                    ) : (
+                      <>
+                        <strong>{conflict.rota_conflict.therapist_name || 'This therapist'}</strong> is <strong>off</strong> on this date.
+                      </>
+                    )}
+                  </div>
+                )}
+                {/* Body — time-conflict variant */}
+                {conflict.conflicting && (
                 <div style={{ fontSize: 13, color: '#92400e', background: '#fef3c7', borderRadius: 7, padding: '8px 12px', marginBottom: 10 }}>
                   <strong>{conflict.conflicting.therapist_name || 'This therapist'}</strong> is booked{' '}
                   <strong>
@@ -350,12 +371,13 @@ export default function NewAppointmentModal({
                   {conflict.conflicting.client_name && <> with <strong>{conflict.conflicting.client_name}</strong></>}
                   {conflict.conflicting.treatment_name && <> ({conflict.conflicting.treatment_name})</>}.
                 </div>
+                )}
 
                 {/* Alternative time slots for same therapist */}
                 {conflict.alternative_slots?.length > 0 && (
                   <div style={{ marginBottom: 10 }}>
                     <div style={{ fontSize: 12, fontWeight: 600, color: '#1e3a6e', marginBottom: 6 }}>
-                      Next available times for {conflict.conflicting.therapist_name || 'same therapist'}:
+                      Next available times for {conflict.rota_conflict?.therapist_name || conflict.conflicting?.therapist_name || 'same therapist'}:
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       {conflict.alternative_slots.map(s => {

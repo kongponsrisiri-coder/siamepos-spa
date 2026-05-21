@@ -1,6 +1,84 @@
 const express = require('express');
 const { pool } = require('../db/database');
-const { computeAvailability } = require('../services/availability');
+const { computeAvailability, isTherapistWorking } = require('../services/availability');
+
+// Build the rich rota-conflict 409 body. Same alternatives shape as the
+// time-conflict response so the modal can render one panel that
+// branches on whether `conflicting` or `rota_conflict` is present.
+async function buildRotaConflictResponse({ therapist_id, starts_at, ends_at, duration_minutes, working_window, exclude_id }) {
+  const therapist = await pool.query(`SELECT name FROM therapists WHERE id = $1`, [therapist_id]);
+
+  // Suggest alternative slots: same therapist later in their working window
+  // today, then tomorrow if they're on shift.
+  const altSlots = [];
+  if (working_window) {
+    const duration = duration_minutes || 60;
+    let cursor = Math.max(new Date(starts_at).getTime(), working_window.start);
+    // Pull the therapist's bookings within today to avoid suggesting busy slots.
+    const date = String(starts_at).slice(0, 10);
+    const dayAppts = await pool.query(
+      `SELECT starts_at, ends_at FROM appointments
+       WHERE therapist_id = $1
+         AND starts_at::date = $2::date
+         AND ($3::int IS NULL OR id != $3)
+         AND status NOT IN ('cancelled','no_show')
+       ORDER BY starts_at`,
+      [therapist_id, date, exclude_id || null],
+    );
+    while (cursor + duration * 60_000 <= working_window.end && altSlots.length < 5) {
+      const slotStart = new Date(cursor);
+      const slotEnd   = new Date(cursor + duration * 60_000);
+      const blocked   = dayAppts.rows.some((a) => {
+        const as = new Date(a.starts_at), ae = new Date(a.ends_at);
+        return !(ae <= slotStart || as >= slotEnd);
+      });
+      if (!blocked) {
+        altSlots.push({ starts_at: slotStart.toISOString() });
+        cursor = slotEnd.getTime();
+      } else {
+        cursor += 15 * 60_000;
+      }
+    }
+  }
+
+  // Suggest alternative therapists free at the originally requested time —
+  // only those whose rota covers the slot AND who aren't already booked.
+  const candidatesRes = await pool.query(
+    `SELECT th.id, th.name
+     FROM therapists th
+     WHERE th.active = TRUE
+       AND th.role = 'therapist'
+       AND th.id != $1
+       AND NOT EXISTS (
+         SELECT 1 FROM appointments a
+         WHERE a.therapist_id = th.id
+           AND ($4::int IS NULL OR a.id != $4)
+           AND a.status NOT IN ('cancelled','no_show')
+           AND NOT (a.ends_at <= $2 OR a.starts_at >= $3)
+       )
+     ORDER BY th.name`,
+    [therapist_id || 0, starts_at, ends_at, exclude_id || null],
+  );
+  const altTherapists = [];
+  for (const cand of candidatesRes.rows) {
+    const check = await isTherapistWorking(cand.id, starts_at, ends_at);
+    if (check.working) altTherapists.push(cand);
+  }
+
+  return {
+    error: 'rota_conflict',
+    rota_conflict: {
+      therapist_id,
+      therapist_name: therapist.rows[0]?.name || null,
+      working_window: working_window
+        ? { start: new Date(working_window.start).toISOString(),
+            end:   new Date(working_window.end).toISOString() }
+        : null, // null = off entirely on this day
+    },
+    alternative_slots: altSlots,
+    alternative_therapists: altTherapists,
+  };
+}
 
 const router = express.Router();
 
@@ -78,6 +156,22 @@ router.post('/', async (req, res) => {
     const tr = await pool.query('SELECT duration_minutes FROM treatments WHERE id = $1', [treatment_id]);
     if (!tr.rows[0]) return res.status(400).json({ error: 'treatment not found' });
     const ends_at = new Date(new Date(starts_at).getTime() + tr.rows[0].duration_minutes * 60_000);
+
+    // Rota check — if a specific therapist is requested, they must be on
+    // shift for the full duration. The timeline already blocks off-shift
+    // clicks; this enforces the same rule on the booking form, which
+    // otherwise lets the receptionist type any time + pick any therapist.
+    if (therapist_id) {
+      const rotaCheck = await isTherapistWorking(therapist_id, starts_at, ends_at.toISOString());
+      if (!rotaCheck.working) {
+        return res.status(409).json(await buildRotaConflictResponse({
+          therapist_id, starts_at, ends_at: ends_at.toISOString(),
+          duration_minutes: tr.rows[0].duration_minutes,
+          working_window: rotaCheck.window,
+          exclude_id: null,
+        }));
+      }
+    }
 
     // Conflict check: same therapist OR same room overlapping.
     const conflict = await pool.query(
@@ -222,6 +316,24 @@ router.put('/:id', async (req, res) => {
       const checkRoom      = room_id      !== undefined ? room_id      : cur.rows[0].room_id;
       const checkStart     = effectiveStart || cur.rows[0].starts_at;
       const checkEnd       = newEnds || cur.rows[0].ends_at;
+
+      // Rota check on edit too. Skip if no therapist is assigned (Treatwell
+      // imports that haven't been allocated yet, or "Any available" edits).
+      if (checkTherapist) {
+        const startIso = checkStart instanceof Date ? checkStart.toISOString() : String(checkStart);
+        const endIso   = checkEnd   instanceof Date ? checkEnd.toISOString()   : String(checkEnd);
+        const rotaCheck = await isTherapistWorking(checkTherapist, startIso, endIso);
+        if (!rotaCheck.working) {
+          return res.status(409).json(await buildRotaConflictResponse({
+            therapist_id: checkTherapist,
+            starts_at: startIso,
+            ends_at: endIso,
+            duration_minutes: effectiveDuration || cur.rows[0].duration_minutes,
+            working_window: rotaCheck.window,
+            exclude_id: id,
+          }));
+        }
+      }
 
       const conflict = await pool.query(
         `SELECT a.id, a.starts_at, a.ends_at,
