@@ -439,19 +439,31 @@ export default function AppointmentScreen() {
   const [columnOrder, setColumnOrder]     = useState(null);
   const navigate = useNavigate();
 
-  // Load rota data when the month changes
+  // Load rota data when the month changes — also exposed as a callback so
+  // the socket listener below can force a refetch when an override is
+  // added/edited elsewhere (Admin → Rota). Without this, the per-month
+  // cache (rotaMonth === month) kept the timeline showing the old window.
   const month = date.slice(0, 7);
+  const refreshRota = useCallback(async (m) => {
+    try {
+      const r = await api.get(`/therapists/rota?month=${m}`);
+      setAllTherapists(r.therapists || []);
+      setWeeklyRota(r.weekly_rota || []);
+      setRotaOverrides(r.overrides || []);
+      setRotaMonth(m);
+    } catch { /* fall back to appointment-derived columns */ }
+  }, []);
+
   useEffect(() => {
-    if (month === rotaMonth) return;
-    api.get(`/therapists/rota?month=${month}`)
-      .then(r => {
-        setAllTherapists(r.therapists || []);
-        setWeeklyRota(r.weekly_rota || []);
-        setRotaOverrides(r.overrides || []);
-        setRotaMonth(month);
-      })
-      .catch(() => {}); // silently ignore — falls back to appointment-derived columns
-  }, [month, rotaMonth]);
+    if (month !== rotaMonth) refreshRota(month);
+  }, [month, rotaMonth, refreshRota]);
+
+  // Live refresh when the rota or any override changes elsewhere.
+  useEffect(() => {
+    const onRotaUpdated = () => refreshRota(month);
+    socket.on('rota_updated', onRotaUpdated);
+    return () => socket.off('rota_updated', onRotaUpdated);
+  }, [month, refreshRota]);
 
   // Load saved column order when date changes
   useEffect(() => {

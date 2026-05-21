@@ -27,10 +27,12 @@ router.get('/', async (req, res) => {
     const { rows } = await pool.query(
       `SELECT v.*,
               c.name  AS client_name,
-              th.name AS sold_by_name
+              th.name AS sold_by_name,
+              t.name  AS treatment_name
        FROM vouchers v
        LEFT JOIN clients    c  ON c.id  = v.client_id
        LEFT JOIN therapists th ON th.id = v.sold_by
+       LEFT JOIN treatments t  ON t.id  = v.treatment_id
        ${where}
        ORDER BY v.purchased_at DESC
        LIMIT 200`,
@@ -49,9 +51,10 @@ router.get('/lookup', async (req, res) => {
   if (!code) return res.status(400).json({ error: 'code required' });
   try {
     const { rows } = await pool.query(
-      `SELECT v.*, c.name AS client_name
+      `SELECT v.*, c.name AS client_name, t.name AS treatment_name
        FROM vouchers v
-       LEFT JOIN clients c ON c.id = v.client_id
+       LEFT JOIN clients   c ON c.id = v.client_id
+       LEFT JOIN treatments t ON t.id = v.treatment_id
        WHERE v.code = $1`,
       [code],
     );
@@ -74,10 +77,11 @@ router.get('/:id', async (req, res) => {
   const id = Number(req.params.id);
   try {
     const v = await pool.query(
-      `SELECT v.*, c.name AS client_name, th.name AS sold_by_name
+      `SELECT v.*, c.name AS client_name, th.name AS sold_by_name, t.name AS treatment_name
        FROM vouchers v
        LEFT JOIN clients    c  ON c.id  = v.client_id
        LEFT JOIN therapists th ON th.id = v.sold_by
+       LEFT JOIN treatments t  ON t.id  = v.treatment_id
        WHERE v.id = $1`,
       [id],
     );
@@ -98,10 +102,27 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /api/vouchers  — sell a voucher
-// body: { value, purchased_by, purchased_for, client_id?, expires_at?, notes?, sold_by? }
+// body (monetary, existing):
+//   { value, purchased_by, purchased_for, client_id?, expires_at?, notes?, sold_by? }
+// body (sessions, new):
+//   { voucher_type:'sessions', value (sale price), total_sessions, treatment_id?, ... }
+//   — treatment_id NULL means "any treatment in the menu".
 router.post('/', async (req, res) => {
-  const { value, purchased_by, purchased_for, client_id, expires_at, notes, sold_by } = req.body || {};
+  const {
+    value, purchased_by, purchased_for, client_id, expires_at, notes, sold_by,
+    voucher_type, total_sessions, treatment_id,
+  } = req.body || {};
+  const isSessions = voucher_type === 'sessions';
   if (!value || Number(value) <= 0) return res.status(400).json({ error: 'value required' });
+  if (isSessions) {
+    if (!total_sessions || Number(total_sessions) <= 0) {
+      return res.status(400).json({ error: 'total_sessions required for a sessions voucher' });
+    }
+    if (treatment_id) {
+      const t = await pool.query('SELECT id FROM treatments WHERE id = $1 AND active = TRUE', [Number(treatment_id)]);
+      if (!t.rows[0]) return res.status(400).json({ error: 'treatment not found' });
+    }
+  }
   try {
     // Ensure unique code
     let code;
@@ -110,14 +131,25 @@ router.post('/', async (req, res) => {
       const exists = await pool.query('SELECT id FROM vouchers WHERE code = $1', [code]);
       if (!exists.rows[0]) break;
     }
+    // For session vouchers, remaining_value still tracks "what's left of
+    // what they paid" (sale_price × sessions_remaining / total_sessions),
+    // so the existing accounting / outstanding-balance display still
+    // makes sense — but it's recomputed on each redemption rather than
+    // taking real deductions.
     const { rows } = await pool.query(
       `INSERT INTO vouchers
          (code, initial_value, remaining_value, purchased_by, purchased_for,
-          client_id, expires_at, notes, sold_by)
-       VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [code, Number(value), purchased_by || null, purchased_for || null,
-       client_id || null, expires_at || null, notes || null,
-       sold_by || req.staff?.id || null],
+          client_id, expires_at, notes, sold_by,
+          voucher_type, total_sessions, sessions_remaining, treatment_id)
+       VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11) RETURNING *`,
+      [
+        code, Number(value), purchased_by || null, purchased_for || null,
+        client_id || null, expires_at || null, notes || null,
+        sold_by || req.staff?.id || null,
+        isSessions ? 'sessions' : 'monetary',
+        isSessions ? Number(total_sessions) : null,
+        isSessions ? (treatment_id ? Number(treatment_id) : null) : null,
+      ],
     );
     res.status(201).json({ voucher: rows[0] });
   } catch (err) {
@@ -153,13 +185,16 @@ router.put('/:id', async (req, res) => {
 });
 
 // POST /api/vouchers/:id/redeem
-// body: { amount, bill_id?, notes? }
-// Deducts amount from remaining_value, records who redeemed it.
+//
+// Monetary voucher:  body { amount, bill_id?, notes? }  → deducts amount.
+// Sessions voucher:  body { bill_id, treatment_id, notes? } → consumes 1
+//   session if the treatment matches the voucher's treatment_id (or the
+//   voucher accepts any). The amount written to voucher_redemptions is
+//   the value of one session (initial_value / total_sessions) so reports
+//   still see the £ that was used.
 router.post('/:id/redeem', async (req, res) => {
   const id = Number(req.params.id);
-  const { amount, bill_id, notes } = req.body || {};
-  const amtNum = Number(amount);
-  if (!amtNum || amtNum <= 0) return res.status(400).json({ error: 'amount required' });
+  const { amount, bill_id, notes, treatment_id } = req.body || {};
 
   const client = await pool.connect();
   try {
@@ -179,6 +214,59 @@ router.post('/:id/redeem', async (req, res) => {
       await client.query("UPDATE vouchers SET status = 'expired' WHERE id = $1", [id]);
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Voucher has expired' });
+    }
+
+    // ── Sessions voucher path ────────────────────────────────────────
+    if (v.voucher_type === 'sessions') {
+      const sessionsLeft = Number(v.sessions_remaining || 0);
+      if (sessionsLeft <= 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'No sessions remaining on this voucher' });
+      }
+      // Treatment match check — only enforced when the voucher is tied
+      // to a specific treatment. Voucher with treatment_id = NULL is a
+      // "any treatment" bundle.
+      if (v.treatment_id && treatment_id && Number(treatment_id) !== Number(v.treatment_id)) {
+        await client.query('ROLLBACK');
+        const tName = await pool.query('SELECT name FROM treatments WHERE id = $1', [v.treatment_id]);
+        return res.status(400).json({
+          error: `This voucher is valid only for ${tName.rows[0]?.name || 'a specific treatment'}`,
+        });
+      }
+      const sessionsValue = Number(v.total_sessions) > 0
+        ? +(Number(v.initial_value) / Number(v.total_sessions)).toFixed(2)
+        : 0;
+      const newSessionsLeft = sessionsLeft - 1;
+      const newRemainingValue = +(sessionsValue * newSessionsLeft).toFixed(2);
+      const newStatus = newSessionsLeft <= 0 ? 'used' : 'active';
+
+      await client.query(
+        `UPDATE vouchers
+         SET sessions_remaining = $2, remaining_value = $3, status = $4
+         WHERE id = $1`,
+        [id, newSessionsLeft, newRemainingValue, newStatus],
+      );
+      const { rows: rRows } = await client.query(
+        `INSERT INTO voucher_redemptions
+           (voucher_id, bill_id, amount_used, sessions_used, redeemed_by, notes)
+         VALUES ($1,$2,$3,1,$4,$5) RETURNING *`,
+        [id, bill_id || null, sessionsValue, req.staff?.id || null, notes || null],
+      );
+      await client.query('COMMIT');
+      return res.json({
+        redemption: rRows[0],
+        sessions_used: 1,
+        sessions_remaining: newSessionsLeft,
+        amount_used: sessionsValue,
+        remaining_value: newRemainingValue,
+      });
+    }
+
+    // ── Monetary voucher path (existing) ─────────────────────────────
+    const amtNum = Number(amount);
+    if (!amtNum || amtNum <= 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'amount required' });
     }
     const deduct = Math.min(amtNum, Number(v.remaining_value));
     const newRemaining = +(Number(v.remaining_value) - deduct).toFixed(2);

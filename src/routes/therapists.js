@@ -98,6 +98,7 @@ router.put('/:id/availability', requireRole('admin', 'manager'), async (req, res
       );
     }
     await client.query('COMMIT');
+    req.app.get('io')?.emit('rota_updated', { therapist_id: id, kind: 'weekly' });
     res.json({ ok: true, count: slots.length });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -186,6 +187,7 @@ router.put('/:id/overrides', requireRole('admin', 'manager'), async (req, res) =
        RETURNING id, date::text AS date, is_working, start_time, end_time, note`,
       [id, date, is_working ?? false, start_time || null, end_time || null, note || null],
     );
+    req.app.get('io')?.emit('rota_updated', { therapist_id: id, date, kind: 'override' });
     res.json({ override: rows[0] });
   } catch (err) {
     console.error('[therapists] overrides PUT', err);
@@ -202,6 +204,7 @@ router.delete('/:id/overrides/:date', requireRole('admin', 'manager'), async (re
       'DELETE FROM therapist_rota_overrides WHERE therapist_id = $1 AND date = $2',
       [id, date],
     );
+    req.app.get('io')?.emit('rota_updated', { therapist_id: id, date, kind: 'override_deleted' });
     res.json({ ok: true });
   } catch (err) {
     console.error('[therapists] overrides DELETE', err);

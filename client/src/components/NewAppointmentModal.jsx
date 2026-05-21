@@ -19,6 +19,32 @@ const STATUSES = ['booked', 'in_progress', 'completed'];
 
 function pad(n) { return String(n).padStart(2, '0'); }
 
+// Rota helpers — mirror AppointmentScreen so this dropdown shows the same
+// "who's actually on shift today" picture as the timeline.
+function isWorkingOn(therapistId, dateStr, weeklyRota, overrides) {
+  if (!dateStr) return true;
+  const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay();
+  const override = overrides.find(o => o.therapist_id === therapistId && String(o.date).slice(0, 10) === dateStr);
+  if (override) return Boolean(override.is_working);
+  if (weeklyRota.some(r => r.therapist_id === therapistId && r.day_of_week === dayOfWeek)) return true;
+  // Backwards compat: a therapist with NO rota at all is treated as available
+  // (full-day), matching availability.js / AppointmentScreen.
+  return !weeklyRota.some(r => r.therapist_id === therapistId);
+}
+function workHoursOn(therapistId, dateStr, weeklyRota, overrides) {
+  if (!dateStr) return null;
+  const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay();
+  const override = overrides.find(o => o.therapist_id === therapistId && String(o.date).slice(0, 10) === dateStr);
+  if (override && override.is_working && override.start_time && override.end_time) {
+    return `${String(override.start_time).slice(0, 5)}–${String(override.end_time).slice(0, 5)}`;
+  }
+  const entry = weeklyRota.find(r => r.therapist_id === therapistId && r.day_of_week === dayOfWeek);
+  if (entry && entry.start_time && entry.end_time) {
+    return `${String(entry.start_time).slice(0, 5)}–${String(entry.end_time).slice(0, 5)}`;
+  }
+  return null;
+}
+
 export default function NewAppointmentModal({
   appointment,
   defaultDate,
@@ -75,6 +101,11 @@ export default function NewAppointmentModal({
   const [error, setError]       = useState('');
   const [conflict, setConflict] = useState(null); // { conflicting, alternative_slots, alternative_therapists }
 
+  // Rota state — drives the on-shift filter for the therapist dropdown.
+  const [weeklyRota, setWeeklyRota]       = useState([]);
+  const [rotaOverrides, setRotaOverrides] = useState([]);
+  const [rotaMonth, setRotaMonth]         = useState(null);
+
   // ── Load reference data ───────────────────────────────────────────────────
   useEffect(() => {
     Promise.all([
@@ -93,6 +124,22 @@ export default function NewAppointmentModal({
         .catch(() => {});
     }
   }, []);
+
+  // ── Load rota for the selected month so the therapist dropdown can
+  // filter to "actually on shift on this date". Reuses the same endpoint
+  // and helpers as AppointmentScreen.
+  useEffect(() => {
+    if (!date) return;
+    const m = date.slice(0, 7);
+    if (m === rotaMonth) return;
+    api.get(`/therapists/rota?month=${m}`)
+      .then((r) => {
+        setWeeklyRota(r.weekly_rota || []);
+        setRotaOverrides(r.overrides || []);
+        setRotaMonth(m);
+      })
+      .catch(() => {});
+  }, [date, rotaMonth]);
 
   // ── Client search ─────────────────────────────────────────────────────────
   useEffect(() => {
@@ -247,10 +294,43 @@ export default function NewAppointmentModal({
           <div className="row" style={{ gap: 10 }}>
             <div style={{ flex: 1 }}>
               <label>Therapist</label>
-              <select value={therapistId || ''} onChange={e => setTherapistId(e.target.value || null)}>
-                <option value="">Any available</option>
-                {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
+              {(() => {
+                // Filter to (a) role='therapist' and (b) on-shift for the
+                // selected date. The currently-selected therapist is kept
+                // in the list as a one-off if they're off — so editing
+                // legacy bookings doesn't blank the field.
+                const onShift = therapists
+                  .filter(t => t.role === 'therapist')
+                  .filter(t => isWorkingOn(t.id, date, weeklyRota, rotaOverrides));
+                const selectedTherapistId = therapistId ? Number(therapistId) : null;
+                const selectedAlreadyIn = selectedTherapistId && onShift.some(t => t.id === selectedTherapistId);
+                const selectedOff = selectedTherapistId && !selectedAlreadyIn
+                  ? therapists.find(t => t.id === selectedTherapistId)
+                  : null;
+                return (
+                  <select value={therapistId || ''} onChange={e => setTherapistId(e.target.value || null)}>
+                    <option value="">Any available</option>
+                    {onShift.map(t => {
+                      const hours = workHoursOn(t.id, date, weeklyRota, rotaOverrides);
+                      return (
+                        <option key={t.id} value={t.id}>
+                          {t.name}{hours ? ` · ${hours}` : ''}
+                        </option>
+                      );
+                    })}
+                    {selectedOff && (
+                      <option key={selectedOff.id} value={selectedOff.id}>
+                        {selectedOff.name} · (off this date)
+                      </option>
+                    )}
+                  </select>
+                );
+              })()}
+              {date && therapists.length > 0 && therapists.filter(t => t.role === 'therapist' && isWorkingOn(t.id, date, weeklyRota, rotaOverrides)).length === 0 && (
+                <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                  No therapists on shift on this date.
+                </div>
+              )}
             </div>
             <div style={{ flex: 1 }}>
               <label>Room</label>

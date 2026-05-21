@@ -87,15 +87,26 @@ export default function CheckoutScreen() {
   async function payWithVoucher() {
     if (!voucherLookup) return;
     const v = voucherLookup.voucher;
-    const amountToUse = Math.min(Number(v.remaining_value), total);
     setBusy(true); setError('');
     try {
-      // Redeem against the voucher
-      await api.post(`/vouchers/${v.id}/redeem`, {
-        amount: amountToUse,
-        bill_id: bill.id,
-        notes: `Checkout for appointment #${appointmentId}`,
-      });
+      if (v.voucher_type === 'sessions') {
+        // Session voucher — one session consumed per redemption.
+        // Server validates treatment match (if voucher is tied to a
+        // specific treatment) and returns 400 if mismatched.
+        await api.post(`/vouchers/${v.id}/redeem`, {
+          bill_id: bill.id,
+          treatment_id: appt.treatment_id,
+          notes: `Checkout for appointment #${appointmentId}`,
+        });
+      } else {
+        // Monetary voucher — deduct min(remaining, total).
+        const amountToUse = Math.min(Number(v.remaining_value), total);
+        await api.post(`/vouchers/${v.id}/redeem`, {
+          amount: amountToUse,
+          bill_id: bill.id,
+          notes: `Checkout for appointment #${appointmentId}`,
+        });
+      }
       // Mark the bill as paid by voucher
       await api.post(`/bills/${bill.id}/pay`, { method: 'voucher' });
       navigate('/', { replace: true });
@@ -197,30 +208,65 @@ export default function CheckoutScreen() {
                   <button onClick={lookupVoucher} disabled={!voucherCode.trim()}>Check</button>
                 </div>
                 {voucherError && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 6 }}>{voucherError}</div>}
-                {voucherLookup && (
+                {voucherLookup && (() => {
+                  const v = voucherLookup.voucher;
+                  const isSessions = v.voucher_type === 'sessions';
+                  // Treatment match warning for session vouchers — only block
+                  // if the voucher is tied to a specific treatment AND it
+                  // doesn't match this appointment's treatment.
+                  const treatmentMismatch = isSessions && v.treatment_id && Number(v.treatment_id) !== Number(appt.treatment_id);
+                  return (
                   <div style={{ marginTop: 10 }} className="col">
                     <div style={{ background: '#1e3a6e', color: 'white', borderRadius: 8, padding: '12px 16px' }}>
                       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
-                          <div style={{ fontFamily: 'monospace', fontWeight: 700, color: '#C9A84C', letterSpacing: 1 }}>{voucherLookup.voucher.code}</div>
-                          {voucherLookup.voucher.purchased_for && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>For {voucherLookup.voucher.purchased_for}</div>}
+                          <div style={{ fontFamily: 'monospace', fontWeight: 700, color: '#C9A84C', letterSpacing: 1 }}>{v.code}</div>
+                          {v.purchased_for && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>For {v.purchased_for}</div>}
+                          {isSessions && (
+                            <div style={{ fontSize: 11, marginTop: 4, background: '#fef3c7', color: '#854d0e', padding: '1px 8px', borderRadius: 10, display: 'inline-block', fontWeight: 600 }}>
+                              🎟 {v.treatment_name || 'Any treatment'}
+                            </div>
+                          )}
                         </div>
                         <div style={{ textAlign: 'right' }}>
-                          <div style={{ fontSize: 20, fontWeight: 700, color: '#C9A84C' }}>£{Number(voucherLookup.voucher.remaining_value).toFixed(2)}</div>
-                          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>available</div>
+                          {isSessions ? (
+                            <>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: '#C9A84C' }}>{Number(v.sessions_remaining || 0)} / {Number(v.total_sessions || 0)}</div>
+                              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>sessions left</div>
+                            </>
+                          ) : (
+                            <>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: '#C9A84C' }}>£{Number(v.remaining_value).toFixed(2)}</div>
+                              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>available</div>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
-                    {Number(voucherLookup.voucher.remaining_value) < total && (
-                      <div style={{ fontSize: 13, color: '#b45309', background: '#fef3c7', padding: '8px 12px', borderRadius: 8, marginTop: 8 }}>
-                        ⚠️ Voucher covers £{Number(voucherLookup.voucher.remaining_value).toFixed(2)} of £{total.toFixed(2)} — remainder will be waived in this transaction.
+                    {treatmentMismatch && (
+                      <div style={{ fontSize: 13, color: '#991b1b', background: '#fee2e2', padding: '8px 12px', borderRadius: 8, marginTop: 8 }}>
+                        ❌ This voucher is valid for <strong>{v.treatment_name}</strong> only — this appointment is a different treatment.
                       </div>
                     )}
-                    <button className="primary" onClick={payWithVoucher} disabled={busy} style={{ width: '100%', padding: 14, marginTop: 8, background: '#C9A84C', color: '#1e3a6e', fontWeight: 700 }}>
-                      {busy ? 'Processing…' : `Redeem £${Math.min(Number(voucherLookup.voucher.remaining_value), total).toFixed(2)} & Close Bill`}
+                    {!isSessions && Number(v.remaining_value) < total && (
+                      <div style={{ fontSize: 13, color: '#b45309', background: '#fef3c7', padding: '8px 12px', borderRadius: 8, marginTop: 8 }}>
+                        ⚠️ Voucher covers £{Number(v.remaining_value).toFixed(2)} of £{total.toFixed(2)} — remainder will be waived in this transaction.
+                      </div>
+                    )}
+                    <button
+                      className="primary"
+                      onClick={payWithVoucher}
+                      disabled={busy || treatmentMismatch}
+                      style={{ width: '100%', padding: 14, marginTop: 8, background: '#C9A84C', color: '#1e3a6e', fontWeight: 700 }}
+                    >
+                      {busy ? 'Processing…'
+                        : isSessions
+                          ? `Use 1 session & close bill (${Number(v.sessions_remaining || 0) - 1} left)`
+                          : `Redeem £${Math.min(Number(v.remaining_value), total).toFixed(2)} & Close Bill`}
                     </button>
                   </div>
-                )}
+                  );
+                })()}
               </div>
             )}
           </>

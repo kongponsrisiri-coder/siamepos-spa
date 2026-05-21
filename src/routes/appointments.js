@@ -231,7 +231,10 @@ router.post('/', async (req, res) => {
       }
 
       // ── Alternative therapists free at the requested time ──
-      const altTherapists = await pool.query(
+      // First narrow by SQL: active, role='therapist', no booking conflict
+      // at the requested slot. Then post-filter through isTherapistWorking
+      // so we never suggest someone whose rota / override has them off.
+      const candidatesRes = await pool.query(
         `SELECT th.id, th.name
          FROM therapists th
          WHERE th.active = TRUE
@@ -246,12 +249,17 @@ router.post('/', async (req, res) => {
          ORDER BY th.name`,
         [therapist_id || 0, starts_at, ends_at.toISOString()],
       );
+      const altTherapists = [];
+      for (const cand of candidatesRes.rows) {
+        const check = await isTherapistWorking(cand.id, starts_at, ends_at.toISOString());
+        if (check.working) altTherapists.push(cand);
+      }
 
       return res.status(409).json({
         error: 'conflict',
         conflicting,
         alternative_slots: altSlots,
-        alternative_therapists: altTherapists.rows,
+        alternative_therapists: altTherapists,
       });
     }
 
@@ -391,7 +399,7 @@ router.put('/:id', async (req, res) => {
           }
         }
 
-        const altTherapists = await pool.query(
+        const candidatesRes = await pool.query(
           `SELECT th.id, th.name
            FROM therapists th
            WHERE th.active = TRUE
@@ -407,12 +415,21 @@ router.put('/:id', async (req, res) => {
            ORDER BY th.name`,
           [checkTherapist || 0, checkStart, checkEnd, id],
         );
+        // Same rota filter as POST: drop anyone whose rota/override has
+        // them off at the requested slot.
+        const startIsoForRota = checkStart instanceof Date ? checkStart.toISOString() : String(checkStart);
+        const endIsoForRota   = checkEnd   instanceof Date ? checkEnd.toISOString()   : String(checkEnd);
+        const altTherapists = [];
+        for (const cand of candidatesRes.rows) {
+          const check = await isTherapistWorking(cand.id, startIsoForRota, endIsoForRota);
+          if (check.working) altTherapists.push(cand);
+        }
 
         return res.status(409).json({
           error: 'conflict',
           conflicting,
           alternative_slots: altSlots,
-          alternative_therapists: altTherapists.rows,
+          alternative_therapists: altTherapists,
         });
       }
     }

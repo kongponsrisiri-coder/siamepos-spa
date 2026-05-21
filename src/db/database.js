@@ -319,6 +319,25 @@ async function initSchema() {
     ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS sold_by INT REFERENCES therapists(id) ON DELETE SET NULL;
   `);
 
+  // ── SPA-VOUCHER-002 — session-based vouchers ─────────────────────────────
+  // Shops sell "10-session Thai Massage" bundles alongside money vouchers.
+  // voucher_type='monetary' (default) keeps existing behaviour: spend the
+  // £ balance against any bill. voucher_type='sessions' consumes one
+  // session per redemption regardless of the bill amount; the bill is
+  // closed via method='voucher' without taking cash.
+  //
+  // treatment_id NULL = "any treatment" (multi-treatment bundle).
+  // initial_value still represents what the customer PAID — useful for
+  // accounting + the sales report — even for session vouchers.
+  await pool.query(`
+    ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS voucher_type        TEXT NOT NULL DEFAULT 'monetary';
+    ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS total_sessions      INT;
+    ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS sessions_remaining  INT;
+    ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS treatment_id        INT REFERENCES treatments(id) ON DELETE SET NULL;
+
+    ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS sessions_used INT NOT NULL DEFAULT 0;
+  `);
+
   console.log('[db] schema ready');
 }
 

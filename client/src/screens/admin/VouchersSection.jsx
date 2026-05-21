@@ -71,14 +71,22 @@ export default function VouchersSection() {
         {vouchers.length === 0 && <div className="muted" style={{ padding: 20, textAlign: 'center' }}>No vouchers found.</div>}
         {vouchers.map(v => {
           const ss = STATUS_STYLE[v.status] || STATUS_STYLE.active;
-          const pct = Math.round((Number(v.remaining_value) / Number(v.initial_value)) * 100);
+          const isSessions = v.voucher_type === 'sessions';
+          const pct = isSessions
+            ? (Number(v.total_sessions) > 0 ? Math.round((Number(v.sessions_remaining || 0) / Number(v.total_sessions)) * 100) : 0)
+            : Math.round((Number(v.remaining_value) / Number(v.initial_value)) * 100);
           return (
             <div key={v.id} className="card" style={{ padding: 14, cursor: 'pointer' }} onClick={() => openDetail(v)}>
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
                 <div>
-                  <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+                  <div className="row" style={{ gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                     <span style={{ fontFamily: 'monospace', fontSize: 15, fontWeight: 700, letterSpacing: 1, color: '#1e3a6e' }}>{v.code}</span>
                     <span style={{ fontSize: 11, background: ss.bg, color: ss.color, padding: '2px 8px', borderRadius: 12, fontWeight: 600 }}>{ss.label}</span>
+                    {isSessions && (
+                      <span style={{ fontSize: 11, background: '#fef3c7', color: '#854d0e', padding: '2px 8px', borderRadius: 12, fontWeight: 600 }}>
+                        🎟 Sessions
+                      </span>
+                    )}
                   </div>
                   <div className="muted" style={{ fontSize: 13, marginTop: 3 }}>
                     {v.purchased_by && <span>Bought by <strong>{v.purchased_by}</strong></span>}
@@ -93,8 +101,21 @@ export default function VouchersSection() {
                   )}
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontWeight: 700, fontSize: 18, color: '#1e3a6e' }}>{fmtMoney(v.remaining_value)}</div>
-                  <div className="muted" style={{ fontSize: 12 }}>of {fmtMoney(v.initial_value)}</div>
+                  {isSessions ? (
+                    <>
+                      <div style={{ fontWeight: 700, fontSize: 18, color: '#1e3a6e' }}>
+                        {Number(v.sessions_remaining || 0)} / {Number(v.total_sessions || 0)} sessions
+                      </div>
+                      <div className="muted" style={{ fontSize: 12 }}>
+                        {v.treatment_name || 'Any treatment'} · paid {fmtMoney(v.initial_value)}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontWeight: 700, fontSize: 18, color: '#1e3a6e' }}>{fmtMoney(v.remaining_value)}</div>
+                      <div className="muted" style={{ fontSize: 12 }}>of {fmtMoney(v.initial_value)}</div>
+                    </>
+                  )}
                   {/* Balance bar */}
                   <div style={{ width: 80, height: 4, background: '#e5e7eb', borderRadius: 2, marginTop: 4, marginLeft: 'auto' }}>
                     <div style={{ width: `${pct}%`, height: '100%', background: v.status === 'active' ? '#C9A84C' : '#9ca3af', borderRadius: 2 }} />
@@ -128,7 +149,11 @@ export default function VouchersSection() {
 
 // ── Create voucher modal ──────────────────────────────────────────────────────
 function CreateVoucherModal({ onClose, onSaved }) {
-  const [value, setValue]           = useState('');
+  const [type, setType]             = useState('monetary');          // 'monetary' | 'sessions'
+  const [value, setValue]           = useState('');                  // money: amount; sessions: sale price
+  const [sessions, setSessions]     = useState('');                  // sessions only
+  const [treatmentId, setTreatmentId] = useState('');                // sessions only ('' = any)
+  const [treatments, setTreatments] = useState([]);
   const [purchasedBy, setPurchasedBy] = useState('');
   const [purchasedFor, setPurchasedFor] = useState('');
   const [expiresAt, setExpiresAt]   = useState('');
@@ -137,20 +162,47 @@ function CreateVoucherModal({ onClose, onSaved }) {
   const [error, setError]           = useState('');
   const [created, setCreated]       = useState(null);
 
-  // Quick-value presets
+  // Quick-value presets for monetary
   const PRESETS = [25, 50, 75, 100, 150];
+  const SESSION_PRESETS = [3, 5, 10];
+
+  // Load treatments for the session picker (lazy — only when needed)
+  useEffect(() => {
+    if (type !== 'sessions' || treatments.length) return;
+    api.get('/treatments').then((r) => setTreatments(r.treatments || [])).catch(() => {});
+  }, [type, treatments.length]);
+
+  // Auto-fill sale price when picking treatment + sessions count.
+  // Operator can still override afterwards (e.g. for a bundle discount).
+  function autofillSessionsValue(nextTreatmentId, nextSessions) {
+    const tid = nextTreatmentId !== undefined ? nextTreatmentId : treatmentId;
+    const n   = nextSessions    !== undefined ? nextSessions    : sessions;
+    if (!tid || !n) return;
+    const t = treatments.find((x) => String(x.id) === String(tid));
+    if (!t) return;
+    setValue(String((Number(t.price) * Number(n)).toFixed(2)));
+  }
 
   async function submit() {
-    if (!value || Number(value) <= 0) { setError('Please enter a value.'); return; }
+    if (!value || Number(value) <= 0) { setError('Please enter a sale price.'); return; }
+    if (type === 'sessions') {
+      if (!sessions || Number(sessions) <= 0) { setError('Please enter the number of sessions.'); return; }
+    }
     setBusy(true); setError('');
     try {
-      const r = await api.post('/vouchers', {
+      const body = {
         value: Number(value),
         purchased_by: purchasedBy.trim() || null,
         purchased_for: purchasedFor.trim() || null,
         expires_at: expiresAt || null,
         notes: notes.trim() || null,
-      });
+      };
+      if (type === 'sessions') {
+        body.voucher_type   = 'sessions';
+        body.total_sessions = Number(sessions);
+        body.treatment_id   = treatmentId ? Number(treatmentId) : null;
+      }
+      const r = await api.post('/vouchers', body);
       setCreated(r.voucher);
     } catch (e) {
       setError(e.message || 'Failed to create voucher');
@@ -175,7 +227,21 @@ function CreateVoucherModal({ onClose, onSaved }) {
             <div style={{ background: '#1e3a6e', color: 'white', borderRadius: 12, padding: '20px 28px' }}>
               <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginBottom: 4 }}>Voucher Code</div>
               <div style={{ fontFamily: 'monospace', fontSize: 28, fontWeight: 700, letterSpacing: 3, color: '#C9A84C' }}>{created.code}</div>
-              <div style={{ fontSize: 20, fontWeight: 700, marginTop: 10 }}>£{Number(created.initial_value).toFixed(2)}</div>
+              {created.voucher_type === 'sessions' ? (
+                <>
+                  <div style={{ fontSize: 20, fontWeight: 700, marginTop: 10 }}>
+                    {created.total_sessions} session{created.total_sessions === 1 ? '' : 's'}
+                  </div>
+                  <div style={{ fontSize: 13, marginTop: 2, opacity: 0.8 }}>
+                    {created.treatment_id
+                      ? (treatments.find(t => t.id === created.treatment_id)?.name || 'a treatment')
+                      : 'any treatment'}
+                    {' · paid £'}{Number(created.initial_value).toFixed(2)}
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize: 20, fontWeight: 700, marginTop: 10 }}>£{Number(created.initial_value).toFixed(2)}</div>
+              )}
               {created.purchased_for && <div style={{ fontSize: 14, marginTop: 4, opacity: 0.8 }}>For {created.purchased_for}</div>}
               {created.expires_at && <div style={{ fontSize: 12, marginTop: 2, opacity: 0.65 }}>Expires {fmtDate(created.expires_at)}</div>}
             </div>
@@ -184,15 +250,77 @@ function CreateVoucherModal({ onClose, onSaved }) {
           </div>
         ) : (
           <div className="col" style={{ gap: 14 }}>
-            {/* Value */}
+            {/* Voucher type tabs */}
+            <div className="row" style={{ gap: 6, padding: 4, background: '#f3f4f6', borderRadius: 10 }}>
+              <button
+                onClick={() => { setType('monetary'); setValue(''); }}
+                className={type === 'monetary' ? 'primary' : ''}
+                style={{ flex: 1, padding: '10px 14px', fontSize: 13, fontWeight: 600 }}
+              >💷 Money voucher</button>
+              <button
+                onClick={() => { setType('sessions'); setValue(''); }}
+                className={type === 'sessions' ? 'primary' : ''}
+                style={{ flex: 1, padding: '10px 14px', fontSize: 13, fontWeight: 600 }}
+              >🎟 Session bundle</button>
+            </div>
+
+            {/* Sessions-only — treatment + count */}
+            {type === 'sessions' && (
+              <>
+                <div>
+                  <label>Treatment</label>
+                  <select
+                    value={treatmentId}
+                    onChange={e => { setTreatmentId(e.target.value); autofillSessionsValue(e.target.value, undefined); }}
+                  >
+                    <option value="">— Any treatment (multi-treatment bundle) —</option>
+                    {treatments.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} · {t.duration_minutes}min · £{Number(t.price).toFixed(2)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label>Sessions *</label>
+                  <div className="row" style={{ gap: 6, marginBottom: 6 }}>
+                    {SESSION_PRESETS.map(n => (
+                      <button
+                        key={n}
+                        onClick={() => { setSessions(String(n)); autofillSessionsValue(undefined, n); }}
+                        className={sessions === String(n) ? 'primary' : ''}
+                        style={{ padding: '6px 14px', fontSize: 13 }}
+                      >{n} sessions</button>
+                    ))}
+                  </div>
+                  <input
+                    type="number" min="1" step="1"
+                    placeholder="Or enter custom count…"
+                    value={sessions}
+                    onChange={e => { setSessions(e.target.value); autofillSessionsValue(undefined, e.target.value); }}
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Value — labelled differently per type */}
             <div>
-              <label>Voucher value *</label>
-              <div className="row" style={{ gap: 6, marginBottom: 6 }}>
-                {PRESETS.map(p => (
-                  <button key={p} onClick={() => setValue(String(p))} className={value === String(p) ? 'primary' : ''} style={{ padding: '6px 12px', fontSize: 13 }}>£{p}</button>
-                ))}
-              </div>
-              <input type="number" min="1" step="0.01" placeholder="Or enter custom amount…" value={value} onChange={e => setValue(e.target.value)} />
+              <label>
+                {type === 'sessions' ? 'Sale price *' : 'Voucher value *'}
+                {type === 'sessions' && treatmentId && sessions && (
+                  <span className="muted" style={{ fontSize: 12, fontWeight: 400, marginLeft: 8 }}>
+                    (auto-filled from {sessions} × treatment price — adjust for a bundle discount)
+                  </span>
+                )}
+              </label>
+              {type === 'monetary' && (
+                <div className="row" style={{ gap: 6, marginBottom: 6 }}>
+                  {PRESETS.map(p => (
+                    <button key={p} onClick={() => setValue(String(p))} className={value === String(p) ? 'primary' : ''} style={{ padding: '6px 12px', fontSize: 13 }}>£{p}</button>
+                  ))}
+                </div>
+              )}
+              <input type="number" min="1" step="0.01" placeholder={type === 'sessions' ? 'Bundle sale price (£)' : 'Or enter custom amount…'} value={value} onChange={e => setValue(e.target.value)} />
             </div>
 
             <div className="row" style={{ gap: 10 }}>
@@ -273,9 +401,24 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
         <div style={{ background: '#1e3a6e', borderRadius: 10, padding: '16px 20px', color: 'white', marginBottom: 16 }}>
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
             <div>
-              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>Remaining</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: '#C9A84C' }}>{fmtMoney(v.remaining_value)}</div>
-              <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>of {fmtMoney(v.initial_value)} original</div>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)' }}>
+                {v.voucher_type === 'sessions' ? 'Sessions remaining' : 'Remaining'}
+              </div>
+              {v.voucher_type === 'sessions' ? (
+                <>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: '#C9A84C' }}>
+                    {Number(v.sessions_remaining || 0)} / {Number(v.total_sessions || 0)}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>
+                    {v.treatment_name || 'Any treatment'} · sold for {fmtMoney(v.initial_value)}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: '#C9A84C' }}>{fmtMoney(v.remaining_value)}</div>
+                  <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>of {fmtMoney(v.initial_value)} original</div>
+                </>
+              )}
             </div>
             <span style={{ fontSize: 11, background: ss.bg, color: ss.color, padding: '4px 12px', borderRadius: 12, fontWeight: 700 }}>{ss.label}</span>
           </div>
