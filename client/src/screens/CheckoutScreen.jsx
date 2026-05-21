@@ -429,31 +429,41 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
 
   return (
     <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h3 style={{ margin: 0 }}>⇄ Split Payment</h3>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>✕</button>
-        </div>
-
-        {/* Running total */}
-        <div style={{ background: '#1e3a6e', borderRadius: 10, padding: '14px 18px', color: 'white', marginBottom: 14 }}>
-          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Bill total</div>
-              <div style={{ fontSize: 24, fontWeight: 700, color: '#C9A84C' }}>£{total.toFixed(2)}</div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-                {balanced ? 'Balanced ✓' : remaining > 0 ? 'Remaining' : 'Over by'}
+      {/* Flex-column layout so the balance header + Confirm footer stay
+          visible on portrait mobile, while the payment-row list scrolls
+          in between. Override the default .modal padding so we can pin
+          the sticky bars edge-to-edge. */}
+      <div
+        className="modal"
+        style={{ maxWidth: 460, padding: 0, display: 'flex', flexDirection: 'column' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* ── Sticky header: title + bill total / remaining ────── */}
+        <div style={{ flexShrink: 0, padding: '16px 18px 12px', borderBottom: '1px solid var(--border)', background: 'white' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <h3 style={{ margin: 0 }}>⇄ Split Payment</h3>
+            <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>✕</button>
+          </div>
+          <div style={{ background: '#1e3a6e', borderRadius: 10, padding: '12px 16px', color: 'white' }}>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+              <div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Bill total</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: '#C9A84C' }}>£{total.toFixed(2)}</div>
               </div>
-              <div style={{ fontSize: 22, fontWeight: 700, color: balanced ? '#86efac' : remaining > 0 ? 'white' : '#fca5a5' }}>
-                £{Math.abs(remaining).toFixed(2)}
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                  {balanced ? 'Balanced ✓' : remaining > 0 ? 'Remaining' : 'Over by'}
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: balanced ? '#86efac' : remaining > 0 ? 'white' : '#fca5a5' }}>
+                  £{Math.abs(remaining).toFixed(2)}
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Payment rows */}
+        {/* ── Scrollable body: payment rows + notes ────────────── */}
+        <div style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto', padding: '12px 18px' }}>
         <div className="col" style={{ gap: 10 }}>
           {rows.map((r, i) => {
             const ms = methodStyle(r.method);
@@ -552,14 +562,16 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
         <div className="muted" style={{ fontSize: 11, marginTop: 12, lineHeight: 1.5 }}>
           The breakdown is stored on the bill so today's report attributes the cash portion to cash and the card portion to card — no money lost in a generic "split" bucket.
         </div>
+        </div>{/* end scrollable body */}
 
-        <div className="row" style={{ justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+        {/* ── Sticky footer: actions ──────────────────────────── */}
+        <div style={{ flexShrink: 0, padding: '12px 18px', borderTop: '1px solid var(--border)', background: 'white', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button onClick={onClose}>Cancel</button>
           <button
             className="primary"
             onClick={confirm}
             disabled={busy || !balanced}
-            style={{ minWidth: 180, background: balanced ? '#C9A84C' : undefined, color: balanced ? '#1e3a6e' : undefined, fontWeight: 700 }}
+            style={{ flex: 1, maxWidth: 260, background: balanced ? '#C9A84C' : undefined, color: balanced ? '#1e3a6e' : undefined, fontWeight: 700 }}
           >
             {busy ? 'Processing…' : balanced ? `Take £${total.toFixed(2)} & close bill` : 'Balance the amounts'}
           </button>
