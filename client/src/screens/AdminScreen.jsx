@@ -17,7 +17,7 @@ import ClientsSection         from './admin/ClientsSection.jsx';
 import CampaignsSection       from './admin/CampaignsSection.jsx';
 
 // ── Sandy: AdminScreen — left sidebar, SiamEPOS Spa brand CI ──────
-// Slate Navy #1e3a6e sidebar · Thai Gold #C9A84C active state
+// Slate Navy #0D1B3E sidebar · Thai Gold #C9A84C active state
 // Grouped navigation mirrors SiamEPOS admin pattern
 
 const NAV = [
@@ -91,7 +91,7 @@ export default function AdminScreen() {
       <aside style={{
         width: 200,
         minWidth: 200,
-        background: '#1e3a6e',
+        background: '#0D1B3E',
         display: 'flex',
         flexDirection: 'column',
         paddingTop: 20,

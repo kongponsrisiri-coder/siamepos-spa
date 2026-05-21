@@ -45,7 +45,7 @@ function StatCard({ label, value, color }) {
 const COLORS = {
   revenue:      '#C9A84C',   /* gold */
   tips:         '#0891b2',   /* teal */
-  bills:        '#1e3a6e',   /* navy */
+  bills:        '#0D1B3E',   /* brand navy */
   appointments: '#7c3aed',   /* violet */
   noshows:      '#f59e0b',   /* amber */
   cancelled:    '#ef4444',   /* red */

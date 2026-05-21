@@ -23,7 +23,7 @@ const LogoBrand = () => (
         <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.62" transform="rotate(144)"/>
         <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.62" transform="rotate(216)"/>
         <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.82" transform="rotate(288)"/>
-        <circle cx="0" cy="0" r="9" fill="#1e3a6e"/>
+        <circle cx="0" cy="0" r="9" fill="#0D1B3E"/>
         <circle cx="0" cy="0" r="5" fill="#C9A84C"/>
       </g>
     </svg>
@@ -68,7 +68,7 @@ function TopNav() {
   const isAdmin = staff && ['admin', 'manager'].includes(staff.role);
   return (
     <header style={{
-      background: '#1e3a6e',
+      background: '#0D1B3E',
       borderBottom: '1px solid rgba(201,168,76,0.18)',
       padding: '0 20px',
       height: 52,
