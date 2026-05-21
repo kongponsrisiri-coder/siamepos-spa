@@ -25,6 +25,7 @@ const reportRoutes      = require('./routes/reports');
 const settingsRoutes    = require('./routes/settings');
 const voucherRoutes     = require('./routes/vouchers');
 const widgetRoutes      = require('./routes/widget');
+const treatwellRoutes   = require('./routes/treatwell');
 const { router: stripeRouter, webhookHandler: stripeWebhookHandler } = require('./routes/stripe');
 
 const app = express();
@@ -70,8 +71,9 @@ app.get('/widget.js',         sendWidget);
 app.get('/booking-widget.js', sendWidget);
 
 // ---- Public routes (NO auth) ---------------------------------------------
-app.use('/api/widget', widgetRoutes);
-app.use('/api/auth',   authRoutes);
+app.use('/api/widget',    widgetRoutes);
+app.use('/api/treatwell', treatwellRoutes);
+app.use('/api/auth',      authRoutes);
 
 // ---- Protected routes (require staff token) ------------------------------
 app.use('/api/treatments',   requireAuth, treatmentRoutes);

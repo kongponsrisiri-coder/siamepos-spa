@@ -57,11 +57,17 @@ router.put('/:id/tip', async (req, res) => {
   }
 });
 
-// POST /api/bills/:id/pay  body: { method: 'cash'|'card'|'split' }
+// POST /api/bills/:id/pay  body: { method: 'cash'|'card'|'split'|'voucher'|'treatwell' }
+//
+// 'treatwell' means the booking was paid through the Treatwell marketplace —
+// the customer's card was charged by Treatwell, who'll settle (minus
+// commission) on their statement. We mark the bill paid so it closes
+// cleanly, but Reports → "by source" lets the owner see Treatwell vs
+// direct revenue so they don't double-count cash flow.
 router.post('/:id/pay', async (req, res) => {
   const id = Number(req.params.id);
   const { method } = req.body || {};
-  if (!['cash', 'card', 'split', 'voucher'].includes(method)) {
+  if (!['cash', 'card', 'split', 'voucher', 'treatwell'].includes(method)) {
     return res.status(400).json({ error: 'invalid method' });
   }
   try {

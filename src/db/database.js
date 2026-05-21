@@ -228,6 +228,18 @@ async function initSchema() {
     ALTER TABLE therapists ADD COLUMN IF NOT EXISTS photo_url   TEXT;
   `);
 
+  // ── SPA-003: Treatwell integration ──────────────────────────────────────
+  // Treatwell pushes bookings to our webhook; we dedup by their booking id
+  // so a re-delivery (Treatwell retries on non-2xx) doesn't double-book.
+  // appointments.source already exists (default 'walkin'); the new value
+  // 'treatwell' is a plain text token, no enum to extend.
+  await pool.query(`
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS treatwell_booking_id TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_appointments_treatwell_booking_id
+      ON appointments (treatwell_booking_id)
+      WHERE treatwell_booking_id IS NOT NULL;
+  `);
+
   // ── SPA-ROTA-001 — therapist rota overrides ─────────────────────────────
   // Date-specific schedule changes: day off, or different start/end hours.
   // is_working=FALSE means the therapist is off that day entirely.

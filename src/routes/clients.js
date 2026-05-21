@@ -5,6 +5,12 @@ const { requireRole } = require('../middleware/auth');
 const router = express.Router();
 
 // GET /api/clients?q=name_or_phone
+// Returns the client list enriched with visit + spend stats so both the
+// top-level Clients screen and the Admin → Clients CRM dashboard can
+// render in one round-trip. Stats come from a LEFT JOIN against
+// appointments (excluding cancelled / no-show) and bills (paid only) —
+// any client with no appointments still appears with zeros, so newly
+// created profiles aren't hidden.
 router.get('/', async (req, res) => {
   const q = (req.query.q || '').toString().trim();
   try {
@@ -12,17 +18,46 @@ router.get('/', async (req, res) => {
     let where = '';
     if (q) {
       params.push(`%${q}%`);
-      where = `WHERE name ILIKE $1 OR phone ILIKE $1 OR email ILIKE $1`;
+      where = `WHERE c.name ILIKE $1 OR c.phone ILIKE $1 OR c.email ILIKE $1`;
     }
+    // acquisition_source = the `source` of this client's earliest
+    // non-cancelled appointment. Lets the operator see who first reached
+    // them via Treatwell vs direct walk-in vs the online widget.
     const { rows } = await pool.query(
-      `SELECT id, name, phone, email, marketing_consent, created_at
-       FROM clients
+      `SELECT
+         c.id,
+         c.name,
+         c.phone,
+         c.email,
+         c.date_of_birth,
+         c.marketing_consent,
+         c.gdpr_consent,
+         c.created_at,
+         COUNT(a.id) FILTER (WHERE a.status NOT IN ('cancelled','no_show')) AS total_visits,
+         MIN(a.starts_at) FILTER (WHERE a.status NOT IN ('cancelled','no_show')) AS first_visit,
+         MAX(a.starts_at) FILTER (WHERE a.status NOT IN ('cancelled','no_show')) AS last_visit,
+         COALESCE(SUM(b.total) FILTER (WHERE b.payment_status = 'paid'), 0) AS total_spend,
+         (
+           SELECT a2.source FROM appointments a2
+           WHERE a2.client_id = c.id AND a2.status NOT IN ('cancelled','no_show')
+           ORDER BY a2.starts_at ASC NULLS LAST LIMIT 1
+         ) AS acquisition_source
+       FROM clients c
+       LEFT JOIN appointments a ON a.client_id = c.id
+       LEFT JOIN bills        b ON b.appointment_id = a.id
        ${where}
-       ORDER BY name
-       LIMIT 100`,
+       GROUP BY c.id
+       ORDER BY MAX(a.starts_at) DESC NULLS LAST, c.name ASC
+       LIMIT 500`,
       params,
     );
-    res.json({ clients: rows });
+    // Cast Postgres numerics / counts to plain JS numbers for the client.
+    const clients = rows.map((r) => ({
+      ...r,
+      total_visits: Number(r.total_visits || 0),
+      total_spend:  Number(r.total_spend  || 0),
+    }));
+    res.json({ clients });
   } catch (err) {
     console.error('[clients] list', err);
     res.status(500).json({ error: 'server error' });
