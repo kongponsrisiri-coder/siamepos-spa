@@ -11,22 +11,16 @@ function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
 
-// Given rota data, returns true if therapist is working on dateStr
 function isWorkingOn(therapistId, dateStr, weeklyRota, overrides) {
-  const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay(); // 0=Sun
-  // 1. Check date-specific override first
+  const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay();
   const override = overrides.find(o => o.therapist_id === therapistId && o.date?.slice(0, 10) === dateStr);
   if (override) return Boolean(override.is_working);
-  // 2. Check weekly rota
   const entry = weeklyRota.find(r => r.therapist_id === therapistId && r.day_of_week === dayOfWeek);
   if (entry) return true;
-  // 3. No rota at all → show (backwards compat)
   const hasAnyRota = weeklyRota.some(r => r.therapist_id === therapistId);
   return !hasAnyRota;
 }
 
-// Returns custom work hours { start: 'HH:MM', end: 'HH:MM' } for a therapist on a date,
-// or null if they work the full day / no restriction applies.
 function getWorkHours(therapistId, dateStr, weeklyRota, overrides) {
   const dayOfWeek = new Date(dateStr + 'T12:00:00').getDay();
   const override = overrides.find(o => o.therapist_id === therapistId && o.date?.slice(0, 10) === dateStr);
@@ -40,10 +34,6 @@ function getWorkHours(therapistId, dateStr, weeklyRota, overrides) {
   return null;
 }
 
-// Payment method → colour. Korakot's chosen palette:
-//   Cash → orange · Card → pink · Voucher → green · Treatwell → yellow
-// Split kept on violet so it stays visually distinct from the four named
-// methods; `other` is the grey fallback for legacy / unknown values.
 const PAYMENT_COLOR = {
   cash:      '#f97316',
   card:      '#ec4899',
@@ -56,23 +46,22 @@ function pmColor(method) { return PAYMENT_COLOR[method] || PAYMENT_COLOR.other; 
 function pmLabel(method) { return method ? method.charAt(0).toUpperCase() + method.slice(1) : ''; }
 
 // ── Timeline constants ────────────────────────────────────────────────────────
-const COL_W     = 154;
-const LBL_W     = 52;
-const DAY_START = 9;
-const DAY_END   = 21;
-const NUM_HOURS = DAY_END - DAY_START;
-const HEADER_H  = 52;   // sticky therapist-name header height
+const COL_W      = 154;   // desktop column width
+const COL_W_MOB  = 110;   // mobile column width — fits ~3 on a 375px phone
+const LBL_W      = 52;    // desktop time-label width
+const LBL_W_MOB  = 42;    // mobile time-label width
+const DAY_START  = 9;
+const DAY_END    = 21;
+const NUM_HOURS  = DAY_END - DAY_START;
+const HEADER_H   = 52;
 
 const STATUS_STYLE = {
   booked:      { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },
   in_progress: { bg: '#dcfce7', border: '#22c55e', text: '#14532d' },
-  completed:   { bg: '#f3f4f6', border: '#9ca3af', text: '#4b5563' }, // fallback when no payment method
+  completed:   { bg: '#f3f4f6', border: '#9ca3af', text: '#4b5563' },
   cancelled:   { bg: '#f3f4f6', border: '#9ca3af', text: '#4b5563' },
   no_show:     { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' },
 };
-// Completed appointments use payment method colour instead of generic purple.
-// Tints match PAYMENT_COLOR above (Korakot's mapping):
-//   Cash → orange · Card → pink · Voucher → green · Treatwell → yellow
 const PAYMENT_STYLE = {
   cash:      { bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
   card:      { bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
@@ -86,22 +75,149 @@ function apptStyle(a) {
   }
   return STATUS_STYLE[a.status] || STATUS_STYLE.booked;
 }
-// Selected-block highlight colours — navy shades so they feel on-brand
 const COL_COLORS = ['#0D1B3E','#1A2F6B','#071028','#0f2456','#162e5c','#0e2260'];
 
 function toLocalMins(iso) { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); }
 
+// ── Mobile action sheet ───────────────────────────────────────────────────────
+// Slides up from bottom when owner taps an appointment on their phone.
+// Shows full details + tap-to-call + action buttons.
+function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout }) {
+  const s = apptStyle(appt);
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        style={{
+          position: 'fixed', inset: 0, zIndex: 150,
+          background: 'rgba(13,27,62,0.5)',
+          backdropFilter: 'blur(3px)',
+          WebkitBackdropFilter: 'blur(3px)',
+        }}
+      />
+      {/* Sheet */}
+      <div style={{
+        position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 151,
+        background: 'white',
+        borderRadius: '18px 18px 0 0',
+        padding: '12px 20px',
+        paddingBottom: 'calc(80px + env(safe-area-inset-bottom, 0px))',
+        boxShadow: '0 -8px 40px rgba(13,27,62,0.22)',
+        animation: 'slideUp 0.22s ease',
+      }}>
+        {/* Drag handle */}
+        <div style={{ width: 36, height: 4, background: '#d1d5db', borderRadius: 2, margin: '0 auto 16px' }} />
+
+        {/* Status + time */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <span className={`status-pill status-${appt.status}`}>{appt.status.replace('_', ' ')}</span>
+          <span style={{ fontSize: 14, color: 'var(--muted)', fontWeight: 600 }}>
+            {fmtTime(appt.starts_at)} – {fmtTime(appt.ends_at)}
+          </span>
+        </div>
+
+        {/* Client name */}
+        <div style={{ fontSize: 22, fontWeight: 800, color: '#0D1B3E', marginBottom: 4, lineHeight: 1.2 }}>
+          {appt.client_name || 'Walk-in'}
+        </div>
+
+        {/* Treatment */}
+        <div style={{ fontSize: 15, color: '#374151', marginBottom: 6, fontWeight: 500 }}>
+          {appt.treatment_name || '—'}
+        </div>
+
+        {/* Therapist + room */}
+        {(appt.therapist_name || appt.room_name) && (
+          <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {appt.therapist_name && <span>👤 {appt.therapist_name}</span>}
+            {appt.room_name      && <span>🚪 {appt.room_name}</span>}
+          </div>
+        )}
+
+        {/* Tap-to-call — the #1 thing an owner needs on their phone */}
+        {appt.client_phone && (
+          <a
+            href={`tel:${appt.client_phone}`}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              background: '#f0fdf4', color: '#16a34a',
+              border: '1px solid #bbf7d0', borderRadius: 12,
+              padding: '12px 16px', textDecoration: 'none',
+              fontWeight: 700, fontSize: 16, marginBottom: 16,
+              WebkitTapHighlightColor: 'transparent',
+            }}>
+            <span style={{ fontSize: 20 }}>📞</span>
+            {appt.client_phone}
+          </a>
+        )}
+
+        {/* Payment badge if paid */}
+        {appt.payment_method && (
+          <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>Paid by</span>
+            <span style={{
+              background: pmColor(appt.payment_method), color: 'white',
+              fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+            }}>{pmLabel(appt.payment_method)}</span>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button
+            onClick={() => { onEdit(appt); onClose(); }}
+            style={{ flex: 1, minWidth: 80, minHeight: 52, borderRadius: 12, border: '1px solid var(--border)', background: 'white', fontWeight: 600, fontSize: 14, color: '#374151' }}>
+            ✏️ Edit
+          </button>
+
+          {appt.status === 'booked' && (
+            <>
+              <button
+                onClick={() => { onStatus(appt.id, 'in_progress'); onClose(); }}
+                style={{ flex: 1, minWidth: 80, minHeight: 52, borderRadius: 12, background: '#22c55e', color: 'white', border: 'none', fontWeight: 700, fontSize: 14 }}>
+                ▶ Start
+              </button>
+              <button
+                onClick={() => { onCheckout(appt); onClose(); }}
+                style={{ flex: 1, minWidth: 80, minHeight: 52, borderRadius: 12, background: '#0D1B3E', color: 'white', border: 'none', fontWeight: 700, fontSize: 14 }}>
+                🧾 Pay
+              </button>
+              <button
+                onClick={() => { onStatus(appt.id, 'cancelled'); onClose(); }}
+                style={{ flex: 1, minWidth: 80, minHeight: 52, borderRadius: 12, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', fontWeight: 600, fontSize: 14 }}>
+                ✕ Cancel
+              </button>
+            </>
+          )}
+
+          {appt.status === 'in_progress' && (
+            <button
+              onClick={() => { onCheckout(appt); onClose(); }}
+              style={{ flex: 2, minHeight: 52, borderRadius: 12, background: '#C9A84C', color: '#0D1B3E', border: 'none', fontWeight: 800, fontSize: 17 }}>
+              🧾 Checkout
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // VERTICAL TIMELINE
 // ══════════════════════════════════════════════════════════════════════════════
-function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder }) {
+function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder, isMobile }) {
   const nowRef       = useRef(null);
   const containerRef = useRef(null);
   const [containerH, setContainerH] = useState(0);
-  const [dragSrc,  setDragSrc]  = useState(null);  // column index being dragged
-  const [dragOver, setDragOver] = useState(null);  // column index being hovered
+  const [dragSrc,  setDragSrc]  = useState(null);
+  const [dragOver, setDragOver] = useState(null);
 
-  // Measure the container and recompute HOUR_H whenever it resizes
+  // Responsive dimensions
+  const COL_W_USE = isMobile ? COL_W_MOB : COL_W;
+  const LBL_W_USE = isMobile ? LBL_W_MOB : LBL_W;
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -110,22 +226,18 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
     return () => ro.disconnect();
   }, []);
 
-  // HOUR_H = grid area height / number of hours. Fall back to 64px until measured.
-  // Subtract header (52px) + legend bar (32px) + 2px border buffer
-  const gridH  = containerH > 100 ? containerH - HEADER_H - 34 : NUM_HOURS * 64;
-  const HOUR_H = Math.floor(gridH / NUM_HOURS);
-  const totalH = HOUR_H * NUM_HOURS;
+  // On mobile use a comfortable fixed height per hour so the day is readable.
+  // On desktop adapt to fill the screen.
+  const gridH   = containerH > 100 ? containerH - HEADER_H - (isMobile ? 0 : 34) : NUM_HOURS * 64;
+  const HOUR_H  = isMobile ? 64 : Math.floor(gridH / NUM_HOURS);
+  const totalH  = HOUR_H * NUM_HOURS;
 
   function minsToPx(mins) { return ((mins - DAY_START * 60) / 60) * HOUR_H; }
 
   const hours = Array.from({ length: NUM_HOURS + 1 }, (_, i) => DAY_START + i);
 
-  // Cancelled / no-show appointments are hidden from the timeline so they
-  // don't block the slot from being clicked to create a new booking.
-  // They remain visible in List view.
   const visibleAppts = appointments.filter(a => !['cancelled', 'no_show'].includes(a.status));
 
-  // Build columns: start from all working therapists, then merge in appointment data
   const apptMap = {};
   visibleAppts.forEach(a => {
     const key = a.therapist_id || 0;
@@ -140,9 +252,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
       ? workingTherapists
       : null;
   if (sourceList) {
-    // Show every therapist (with isOff flag), plus any appointments from therapists not in rota
     columns = sourceList.map(t => ({ id: t.id, name: t.name, isOff: !!t.isOff, workStart: t.workStart || null, workEnd: t.workEnd || null, appts: apptMap[t.id] || [] }));
-    // Safety net: also include appointments assigned to therapists not in the rota list
     Object.keys(apptMap).forEach(tid => {
       const id = Number(tid);
       if (!columns.find(c => c.id === id)) {
@@ -151,7 +261,6 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
       }
     });
   } else {
-    // Fallback: derive columns from visible appointments only
     const map = {};
     visibleAppts.forEach(a => {
       const key = a.therapist_id || 0;
@@ -177,16 +286,32 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   );
 
   return (
-    <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflowX: 'auto', overflowY: 'hidden', border: '1px solid var(--border)', borderRadius: 10, display: 'flex', flexDirection: 'column' }}>
-      <div style={{ minWidth: LBL_W + columns.length * COL_W, flex: 1, position: 'relative', overflowY: 'hidden' }}>
+    <div
+      ref={containerRef}
+      style={{
+        flex: 1, minHeight: 0,
+        overflowX: 'auto',
+        // On mobile allow vertical scroll so the owner can scroll through time.
+        // On desktop keep overflow hidden — the whole day is visible at once.
+        overflowY: isMobile ? 'auto' : 'hidden',
+        border: '1px solid var(--border)', borderRadius: 10,
+        display: 'flex', flexDirection: 'column',
+        // Mobile: let height be natural (scrollable). Desktop: fills container.
+        ...(isMobile ? { height: 'auto', maxHeight: 'none' } : {}),
+        WebkitOverflowScrolling: 'touch',
+      }}
+    >
+      <div style={{ minWidth: LBL_W_USE + columns.length * COL_W_USE, flex: isMobile ? 'none' : 1, position: 'relative', overflowY: 'hidden' }}>
 
-        {/* Header */}
-        <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 20, background: '#0D1B3E', boxShadow: '0 2px 8px rgba(0,0,0,0.25)' }}>
-          <div style={{ width: LBL_W, flexShrink: 0 }} />
+        {/* ── Sticky header ── */}
+        <div style={{
+          display: 'flex', position: 'sticky', top: 0, zIndex: 20,
+          background: '#0D1B3E', boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+        }}>
+          <div style={{ width: LBL_W_USE, flexShrink: 0 }} />
           {columns.map((col, ci) => {
             const activeAppts = col.appts.filter(a => !['cancelled','no_show'].includes(a.status));
-            // Hours worked = sum of non-cancelled appointment durations
-            const workedMins = activeAppts.reduce((sum, a) =>
+            const workedMins  = activeAppts.reduce((sum, a) =>
               sum + (new Date(a.ends_at) - new Date(a.starts_at)) / 60000, 0);
             const workedLabel = workedMins >= 60
               ? `${Math.floor(workedMins / 60)}h${workedMins % 60 ? ` ${workedMins % 60}m` : ''}`
@@ -194,7 +319,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
             const isDragTarget = dragOver === ci && dragSrc !== null && dragSrc !== ci;
             return (
               <div key={col.id}
-                draggable
+                draggable={!isMobile}
                 onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragSrc(ci); }}
                 onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(ci); }}
                 onDragLeave={() => setDragOver(null)}
@@ -205,51 +330,51 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                 }}
                 onDragEnd={() => { setDragSrc(null); setDragOver(null); }}
                 style={{
-                  width: COL_W, flexShrink: 0, padding: '8px 8px', textAlign: 'center',
+                  width: COL_W_USE, flexShrink: 0,
+                  padding: isMobile ? '7px 4px' : '8px 8px',
+                  textAlign: 'center',
                   borderLeft: isDragTarget ? '2px solid #C9A84C' : '1px solid rgba(255,255,255,0.18)',
                   opacity: col.isOff ? 0.55 : dragSrc === ci ? 0.4 : 1,
-                  cursor: 'grab',
+                  cursor: isMobile ? 'default' : 'grab',
                   background: isDragTarget ? 'rgba(201,168,76,0.2)' : 'transparent',
                   transition: 'background 0.1s, border-color 0.1s',
                   userSelect: 'none',
                 }}>
-                {/* Grip + name row */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
-                  <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: '-1px' }}>⠿</span>
-                  <span style={{ fontWeight: 800, fontSize: 14, color: col.isOff ? 'rgba(255,255,255,0.5)' : 'white', letterSpacing: '0.01em' }}>{col.name}</span>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
+                  {!isMobile && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: '-1px' }}>⠿</span>}
+                  {/* First name only on mobile to save space */}
+                  <span style={{ fontWeight: 800, fontSize: isMobile ? 12 : 14, color: col.isOff ? 'rgba(255,255,255,0.5)' : 'white', letterSpacing: '0.01em' }}>
+                    {isMobile ? col.name.split(' ')[0] : col.name}
+                  </span>
                 </div>
-                {/* Appt count */}
-                <div style={{ fontSize: 11, marginTop: 1, color: col.isOff ? 'rgba(255,200,100,0.55)' : '#f5c07a' }}>
-                  {col.isOff
-                    ? 'Off today'
-                    : activeAppts.length === 0 ? 'free' : `${activeAppts.length} appt${activeAppts.length !== 1 ? 's' : ''}`}
+                <div style={{ fontSize: 10, marginTop: 1, color: col.isOff ? 'rgba(255,200,100,0.55)' : '#f5c07a' }}>
+                  {col.isOff ? 'Off' : activeAppts.length === 0 ? 'free' : `${activeAppts.length}✓`}
                 </div>
-                {/* Hours worked */}
-                {!col.isOff && workedLabel && (
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>
-                    {workedLabel} booked
-                  </div>
+                {!isMobile && !col.isOff && workedLabel && (
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>{workedLabel} booked</div>
                 )}
               </div>
             );
           })}
         </div>
 
-        {/* Grid */}
+        {/* ── Grid ── */}
         <div style={{ display: 'flex', position: 'relative' }}>
 
           {/* Time axis */}
-          <div style={{ width: LBL_W, flexShrink: 0, position: 'sticky', left: 0, zIndex: 10, background: 'white' }}>
+          <div style={{
+            width: LBL_W_USE, flexShrink: 0,
+            position: 'sticky', left: 0, zIndex: 10, background: 'white',
+          }}>
             {hours.map(h => (
-              <div key={h} style={{ height: HOUR_H, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', paddingTop: 5, paddingRight: 8, justifyContent: 'flex-end' }}>
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>{pad(h)}:00</span>
+              <div key={h} style={{ height: HOUR_H, borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', paddingTop: 5, paddingRight: 6, justifyContent: 'flex-end' }}>
+                <span style={{ fontSize: isMobile ? 10 : 11, fontWeight: 600, color: 'var(--muted)' }}>{pad(h)}:00</span>
               </div>
             ))}
           </div>
 
-          {/* Columns */}
+          {/* Therapist columns */}
           {columns.map((col, ci) => {
-            // Compute blocked-hours bands for custom rota times (#29)
             let blockedBands = [];
             if (!col.isOff && col.workStart && col.workEnd) {
               const [wsh, wsm] = col.workStart.split(':').map(Number);
@@ -265,156 +390,153 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
             }
 
             return (
-            <div key={col.id}
-              style={{
-                width: COL_W, flexShrink: 0, position: 'relative', height: totalH,
-                borderLeft: '1px solid var(--border)',
-                cursor: col.isOff ? 'default' : 'crosshair',
-                background: col.isOff
-                  ? 'repeating-linear-gradient(135deg, #f5f5f5 0px, #f5f5f5 8px, #ececec 8px, #ececec 16px)'
-                  : 'white',
-              }}
-              onClick={col.isOff ? undefined : e => {
-                if (e.target !== e.currentTarget) return;
-                if (!onSlotClick) return;
-                const rect = e.currentTarget.getBoundingClientRect();
-                const clickY = e.clientY - rect.top;
-                const rawMins = (clickY / HOUR_H) * 60 + DAY_START * 60;
-                const mins = Math.round(rawMins / 15) * 15;
-                // Block clicks outside custom work hours (#29)
-                if (col.workStart && col.workEnd) {
-                  const [wsh, wsm] = col.workStart.split(':').map(Number);
-                  const [weh, wem] = col.workEnd.split(':').map(Number);
-                  if (mins < wsh * 60 + wsm || mins >= weh * 60 + wem) return;
-                }
-                const h = Math.floor(mins / 60);
-                const m = mins % 60;
-                onSlotClick({ therapistId: col.id, therapistName: col.name, time: `${pad(h)}:${pad(m)}` });
-              }}
-            >
-              {/* Grid lines */}
-              {hours.map(h => (
-                <div key={h} style={{ position: 'absolute', top: (h - DAY_START) * HOUR_H, left: 0, right: 0, height: HOUR_H, borderBottom: '1px solid #f3f4f6', pointerEvents: 'none' }}>
-                  <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 1, background: '#fafafa' }} />
-                </div>
-              ))}
-
-              {/* Blocked-hours overlay — outside custom rota start/end (#29) */}
-              {blockedBands.map((band, bi) => (
-                <div key={bi} style={{
-                  position: 'absolute', top: band.top, left: 0, right: 0, height: band.height,
-                  background: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.035) 0px, rgba(0,0,0,0.035) 7px, transparent 7px, transparent 14px)',
-                  borderTop: band.borderSide === 'top' ? '1.5px dashed #d1d5db' : 'none',
-                  borderBottom: band.borderSide === 'bottom' ? '1.5px dashed #d1d5db' : 'none',
-                  pointerEvents: 'none', zIndex: 2,
-                }} />
-              ))}
-
-              {/* Appointment blocks — single click selects, double-click edits */}
-              {col.appts.map(a => {
-                const startM = toLocalMins(a.starts_at);
-                const endM   = toLocalMins(a.ends_at);
-                const top    = minsToPx(startM);
-                const height = Math.max(minsToPx(endM) - minsToPx(startM) - 3, 26);
-                const isSel  = selected?.id === a.id;
-                const s      = apptStyle(a);
-                const hasPm  = Boolean(a.payment_method);  // #30
-                const isReq  = Boolean(a.therapist_requested); // #31
-                return (
-                  <div key={a.id}
-                    onClick={e => { e.stopPropagation(); onSelect(isSel ? null : a); }}
-                    onDoubleClick={e => { e.stopPropagation(); onEditClick && onEditClick(a); }}
-                    title={[
-                      'Click to select · Double-click to edit',
-                      isReq ? '⭐ Therapist requested' : '',
-                      hasPm ? `💳 Paid by ${a.payment_method}` : '',
-                    ].filter(Boolean).join(' · ')}
-                    style={{
-                      position: 'absolute', left: 4, right: 4, top, height,
-                      borderRadius: 7, cursor: 'pointer',
-                      background: isSel ? COL_COLORS[ci % COL_COLORS.length] : s.bg,
-                      border: `2px solid ${isSel ? COL_COLORS[ci % COL_COLORS.length] : s.border}`,
-                      padding: '4px 7px', overflow: 'hidden',
-                      boxShadow: isSel ? '0 4px 14px rgba(0,0,0,0.22)' : '0 1px 4px rgba(0,0,0,0.07)',
-                      zIndex: isSel ? 8 : 4, transition: 'all 0.12s',
-                    }}>
-                    {/* Client name + therapist-requested star (#31) */}
-                    <div style={{ fontSize: 12, fontWeight: 700, color: isSel ? 'white' : s.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {isReq && <span title="Client requested this therapist" style={{ marginRight: 3, fontSize: 10 }}>⭐</span>}
-                      {a.client_name || 'Walk-in'}
-                    </div>
-                    {height > 38 && (
-                      <div style={{ fontSize: 11, color: isSel ? 'rgba(255,255,255,0.85)' : s.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', opacity: 0.9 }}>
-                        {a.treatment_name}
-                      </div>
-                    )}
-                    {height > 54 && (
-                      <div style={{ fontSize: 10, color: isSel ? 'rgba(255,255,255,0.7)' : s.text, opacity: 0.75 }}>
-                        {fmtTime(a.starts_at)} – {fmtTime(a.ends_at)}
-                      </div>
-                    )}
-                    {height > 68 && a.room_name && (
-                      <div style={{ fontSize: 10, color: isSel ? 'rgba(255,255,255,0.65)' : s.text, opacity: 0.7 }}>
-                        🚪 {a.room_name}
-                      </div>
-                    )}
-                    {/* Payment method badge (#30) — shown when paid */}
-                    {hasPm && height > 46 && (
-                      <div style={{
-                        position: 'absolute', bottom: 4, right: 5,
-                        fontSize: 9, fontWeight: 700, lineHeight: 1,
-                        background: isSel ? 'rgba(255,255,255,0.25)' : pmColor(a.payment_method),
-                        color: 'white',
-                        padding: '2px 5px', borderRadius: 3,
-                      }}>
-                        {pmLabel(a.payment_method)}
-                      </div>
-                    )}
-                    {/* Edit hint on selected */}
-                    {isSel && height > 46 && (
-                      <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>✏ dbl-click to edit</div>
-                    )}
+              <div key={col.id}
+                style={{
+                  width: COL_W_USE, flexShrink: 0, position: 'relative', height: totalH,
+                  borderLeft: '1px solid var(--border)',
+                  cursor: col.isOff ? 'default' : 'crosshair',
+                  background: col.isOff
+                    ? 'repeating-linear-gradient(135deg, #f5f5f5 0px, #f5f5f5 8px, #ececec 8px, #ececec 16px)'
+                    : 'white',
+                }}
+                onClick={col.isOff ? undefined : e => {
+                  if (e.target !== e.currentTarget) return;
+                  if (!onSlotClick) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const clickY = e.clientY - rect.top;
+                  const rawMins = (clickY / HOUR_H) * 60 + DAY_START * 60;
+                  const mins = Math.round(rawMins / 15) * 15;
+                  if (col.workStart && col.workEnd) {
+                    const [wsh, wsm] = col.workStart.split(':').map(Number);
+                    const [weh, wem] = col.workEnd.split(':').map(Number);
+                    if (mins < wsh * 60 + wsm || mins >= weh * 60 + wem) return;
+                  }
+                  const h = Math.floor(mins / 60);
+                  const m = mins % 60;
+                  onSlotClick({ therapistId: col.id, therapistName: col.name, time: `${pad(h)}:${pad(m)}` });
+                }}
+              >
+                {/* Grid lines */}
+                {hours.map(h => (
+                  <div key={h} style={{ position: 'absolute', top: (h - DAY_START) * HOUR_H, left: 0, right: 0, height: HOUR_H, borderBottom: '1px solid #f3f4f6', pointerEvents: 'none' }}>
+                    <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 1, background: '#fafafa' }} />
                   </div>
-                );
-              })}
-            </div>
+                ))}
+
+                {/* Blocked-hours overlay */}
+                {blockedBands.map((band, bi) => (
+                  <div key={bi} style={{
+                    position: 'absolute', top: band.top, left: 0, right: 0, height: band.height,
+                    background: 'repeating-linear-gradient(135deg, rgba(0,0,0,0.035) 0px, rgba(0,0,0,0.035) 7px, transparent 7px, transparent 14px)',
+                    borderTop: band.borderSide === 'top' ? '1.5px dashed #d1d5db' : 'none',
+                    borderBottom: band.borderSide === 'bottom' ? '1.5px dashed #d1d5db' : 'none',
+                    pointerEvents: 'none', zIndex: 2,
+                  }} />
+                ))}
+
+                {/* Appointment blocks */}
+                {col.appts.map(a => {
+                  const startM = toLocalMins(a.starts_at);
+                  const endM   = toLocalMins(a.ends_at);
+                  const top    = minsToPx(startM);
+                  const height = Math.max(minsToPx(endM) - minsToPx(startM) - 2, 26);
+                  const isSel  = selected?.id === a.id;
+                  const s      = apptStyle(a);
+                  const hasPm  = Boolean(a.payment_method);
+                  const isReq  = Boolean(a.therapist_requested);
+                  return (
+                    <div key={a.id}
+                      onClick={e => { e.stopPropagation(); onSelect(isSel ? null : a); }}
+                      onDoubleClick={e => { e.stopPropagation(); !isMobile && onEditClick && onEditClick(a); }}
+                      style={{
+                        position: 'absolute', left: 3, right: 3, top, height,
+                        borderRadius: isMobile ? 6 : 7, cursor: 'pointer',
+                        background: isSel ? COL_COLORS[ci % COL_COLORS.length] : s.bg,
+                        border: `2px solid ${isSel ? COL_COLORS[ci % COL_COLORS.length] : s.border}`,
+                        padding: '3px 5px', overflow: 'hidden',
+                        boxShadow: isSel ? '0 4px 14px rgba(0,0,0,0.22)' : '0 1px 3px rgba(0,0,0,0.07)',
+                        zIndex: isSel ? 8 : 4, transition: 'all 0.12s',
+                        WebkitTapHighlightColor: 'transparent',
+                        touchAction: 'manipulation',
+                      }}>
+                      {/* Client name */}
+                      <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: 700, color: isSel ? 'white' : s.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.3 }}>
+                        {isReq && <span style={{ marginRight: 2, fontSize: 9 }}>⭐</span>}
+                        {a.client_name || 'Walk-in'}
+                      </div>
+                      {/* Treatment — show if enough vertical space */}
+                      {height > 36 && (
+                        <div style={{ fontSize: 10, color: isSel ? 'rgba(255,255,255,0.85)' : s.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', opacity: 0.9, lineHeight: 1.3 }}>
+                          {a.treatment_name}
+                        </div>
+                      )}
+                      {/* Time — only on desktop or taller blocks */}
+                      {!isMobile && height > 54 && (
+                        <div style={{ fontSize: 10, color: isSel ? 'rgba(255,255,255,0.7)' : s.text, opacity: 0.75 }}>
+                          {fmtTime(a.starts_at)} – {fmtTime(a.ends_at)}
+                        </div>
+                      )}
+                      {!isMobile && height > 68 && a.room_name && (
+                        <div style={{ fontSize: 10, color: isSel ? 'rgba(255,255,255,0.65)' : s.text, opacity: 0.7 }}>
+                          🚪 {a.room_name}
+                        </div>
+                      )}
+                      {/* Payment badge */}
+                      {hasPm && height > 46 && (
+                        <div style={{
+                          position: 'absolute', bottom: 3, right: 4,
+                          fontSize: 9, fontWeight: 700, lineHeight: 1,
+                          background: isSel ? 'rgba(255,255,255,0.25)' : pmColor(a.payment_method),
+                          color: 'white', padding: '2px 4px', borderRadius: 3,
+                        }}>
+                          {pmLabel(a.payment_method)}
+                        </div>
+                      )}
+                      {/* Desktop edit hint */}
+                      {!isMobile && isSel && height > 46 && (
+                        <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>✏ dbl-click to edit</div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             );
           })}
 
           {/* Now line */}
           {showNow && (
             <div ref={nowRef} style={{ position: 'absolute', left: 0, right: 0, top: minsToPx(nowMins), zIndex: 15, pointerEvents: 'none', display: 'flex', alignItems: 'center' }}>
-              <div style={{ width: LBL_W, flexShrink: 0, display: 'flex', justifyContent: 'flex-end', paddingRight: 4 }}>
+              <div style={{ width: LBL_W_USE, flexShrink: 0, display: 'flex', justifyContent: 'flex-end', paddingRight: 4 }}>
                 <span style={{ fontSize: 10, color: '#ef4444', fontWeight: 700 }}>{pad(now.getHours())}:{pad(now.getMinutes())}</span>
               </div>
-              <div style={{ flex: 1, height: 2, background: '#ef4444', opacity: 0.7 }} />
+              <div style={{ flex: 1, height: 2, background: '#ef4444', opacity: 0.75 }} />
             </div>
           )}
         </div>
       </div>
 
-      {/* Legend */}
-      <div style={{ padding: '8px 12px', background: '#fafafa', borderTop: '1px solid var(--border)', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-        {/* Status colours — exclude 'completed' since it's replaced by payment colours */}
-        {Object.entries(STATUS_STYLE).filter(([s]) => s !== 'completed').map(([status, s]) => (
-          <span key={status} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}`, display: 'inline-block' }} />
-            <span style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>{status.replace('_', ' ')}</span>
+      {/* Legend — desktop only */}
+      {!isMobile && (
+        <div style={{ padding: '8px 12px', background: '#fafafa', borderTop: '1px solid var(--border)', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
+          {Object.entries(STATUS_STYLE).filter(([s]) => s !== 'completed').map(([status, s]) => (
+            <span key={status} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}`, display: 'inline-block' }} />
+              <span style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>{status.replace('_', ' ')}</span>
+            </span>
+          ))}
+          <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
+          {Object.entries(PAYMENT_STYLE).map(([method, s]) => (
+            <span key={method} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}`, display: 'inline-block' }} />
+              <span style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>Paid · {method}</span>
+            </span>
+          ))}
+          <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
+          <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 10 }}>⭐</span> Therapist requested
           </span>
-        ))}
-        <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
-        {/* Paid = completed with payment method colour */}
-        {Object.entries(PAYMENT_STYLE).map(([method, s]) => (
-          <span key={method} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 10, height: 10, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}`, display: 'inline-block' }} />
-            <span style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>Paid · {method}</span>
-          </span>
-        ))}
-        <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
-        <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-          <span style={{ fontSize: 10 }}>⭐</span> Therapist requested
-        </span>
-      </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -428,21 +550,23 @@ export default function AppointmentScreen() {
   const [loading, setLoading]         = useState(false);
   const [view, setView]               = useState('timeline');
   const [selected, setSelected]       = useState(null);
-  // Modal state — null = closed, {} = new, { appointment } = edit, { therapistId, time } = click-to-book
   const [modal, setModal]             = useState(null);
-  // Rota state
   const [allTherapists, setAllTherapists] = useState([]);
   const [weeklyRota, setWeeklyRota]       = useState([]);
   const [rotaOverrides, setRotaOverrides] = useState([]);
   const [rotaMonth, setRotaMonth]         = useState('');
-  // Column order — persisted per-date in localStorage so reception can set arrival order
   const [columnOrder, setColumnOrder]     = useState(null);
+
+  // Responsive breakpoint — drives column widths + action sheet vs action bar
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize, { passive: true });
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   const navigate = useNavigate();
 
-  // Load rota data when the month changes — also exposed as a callback so
-  // the socket listener below can force a refetch when an override is
-  // added/edited elsewhere (Admin → Rota). Without this, the per-month
-  // cache (rotaMonth === month) kept the timeline showing the old window.
   const month = date.slice(0, 7);
   const refreshRota = useCallback(async (m) => {
     try {
@@ -458,20 +582,17 @@ export default function AppointmentScreen() {
     if (month !== rotaMonth) refreshRota(month);
   }, [month, rotaMonth, refreshRota]);
 
-  // Live refresh when the rota or any override changes elsewhere.
   useEffect(() => {
     const onRotaUpdated = () => refreshRota(month);
     socket.on('rota_updated', onRotaUpdated);
     return () => socket.off('rota_updated', onRotaUpdated);
   }, [month, refreshRota]);
 
-  // Load saved column order when date changes
   useEffect(() => {
     const saved = localStorage.getItem(`spa_col_order_${date}`);
     setColumnOrder(saved ? JSON.parse(saved) : null);
   }, [date]);
 
-  // All therapists shown on timeline; isOff + workStart/workEnd drive column visual state
   const therapistColumns = allTherapists
     .filter(t => t.role === 'therapist')
     .map(t => {
@@ -480,7 +601,6 @@ export default function AppointmentScreen() {
       return { ...t, isOff, workStart: hours?.start || null, workEnd: hours?.end || null };
     });
 
-  // Apply saved column order (per-date, set by reception)
   const orderedTherapistColumns = columnOrder
     ? [...therapistColumns].sort((a, b) => {
         const ai = columnOrder.indexOf(a.id);
@@ -502,7 +622,6 @@ export default function AppointmentScreen() {
     localStorage.removeItem(`spa_col_order_${date}`);
   }
 
-  // Keep backwards-compat: workingTherapists still used for "no staff" fallback message
   const workingTherapists = orderedTherapistColumns.filter(t => !t.isOff);
 
   const load = useCallback(async () => {
@@ -555,29 +674,78 @@ export default function AppointmentScreen() {
     other:       appointments.filter(a => ['cancelled','no_show'].includes(a.status)),
   };
 
-  // The outer div uses the full viewport minus the top nav (~57px) and main padding (20px top).
-  // overflow:hidden keeps the page body from growing a scrollbar.
+  // Height of the outer column:
+  // Desktop: viewport minus topnav (52) and internal padding/controls (~97px total legacy)
+  // Mobile:  viewport minus topnav (52) + bottom-nav (60) + padding-top (16) + buffer (40)
+  //          The CSS app-main padding-bottom already reserves the bottom-nav space,
+  //          so the available height shrinks accordingly. Use dvh for iOS accuracy.
+  const outerH = isMobile
+    ? 'calc(100dvh - 168px)'   // 52(nav) + 60(bottom-nav) + 16(pad-top) + 40(controls+buffer)
+    : 'calc(100vh - 97px)';    // desktop: unchanged
+
   return (
-    <div className="col" style={{ height: 'calc(100vh - 97px)', overflow: 'hidden', gap: 8 }}>
-      {/* Top bar */}
-      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, flexShrink: 0 }}>
-        <div className="row" style={{ gap: 6 }}>
-          <button onClick={() => shiftDay(-1)} style={{ padding: '7px 12px' }}>‹</button>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ width: 150 }} />
-          <span style={{ fontSize: 14, color: 'var(--muted)', alignSelf: 'center', minWidth: 90 }}>{friendlyDate}</span>
-          <button onClick={() => shiftDay(1)} style={{ padding: '7px 12px' }}>›</button>
-          {date !== todayISO() && <button onClick={() => setDate(todayISO())} style={{ fontSize: 13 }}>Today</button>}
+    <div className="col" style={{ height: outerH, overflow: 'hidden', gap: 8 }}>
+
+      {/* ── Top bar ──────────────────────────────────────────────────────── */}
+      {isMobile ? (
+        // Mobile: two compact rows
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+          {/* Row 1: date navigation — big and easy to tap */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <button onClick={() => shiftDay(-1)} style={{ minHeight: 44, padding: '0 16px', fontSize: 20, lineHeight: 1 }}>‹</button>
+            <div style={{ flex: 1, textAlign: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>{friendlyDate}</div>
+              {date !== todayISO() && (
+                <button onClick={() => setDate(todayISO())} style={{ fontSize: 11, padding: '2px 10px', marginTop: 2, minHeight: 'auto', border: '1px solid var(--gold)', color: 'var(--gold)', background: 'transparent', borderRadius: 4 }}>
+                  Today
+                </button>
+              )}
+            </div>
+            <button onClick={() => shiftDay(1)}  style={{ minHeight: 44, padding: '0 16px', fontSize: 20, lineHeight: 1 }}>›</button>
+          </div>
+          {/* Row 2: view toggle + new appointment */}
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button
+              className={view === 'timeline' ? 'primary' : ''}
+              onClick={() => setView('timeline')}
+              style={{ flex: 1, minHeight: 44, fontSize: 13 }}>
+              ⏱ Timeline
+            </button>
+            <button
+              className={view === 'list' ? 'primary' : ''}
+              onClick={() => setView('list')}
+              style={{ flex: 1, minHeight: 44, fontSize: 13 }}>
+              ☰ List
+            </button>
+            <button
+              className="gold"
+              onClick={() => setModal({})}
+              style={{ flex: 1, minHeight: 44, fontSize: 14, fontWeight: 700 }}>
+              + New
+            </button>
+          </div>
         </div>
-        <div className="row" style={{ gap: 6 }}>
-          <button className={view === 'timeline' ? 'primary' : ''} onClick={() => setView('timeline')} style={{ fontSize: 13 }}>⏱ Timeline</button>
-          <button className={view === 'list'     ? 'primary' : ''} onClick={() => setView('list')}     style={{ fontSize: 13 }}>☰ List</button>
-          <button className="primary" onClick={() => setModal({})}>+ New</button>
+      ) : (
+        // Desktop: single row (unchanged)
+        <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, flexShrink: 0 }}>
+          <div className="row" style={{ gap: 6 }}>
+            <button onClick={() => shiftDay(-1)} style={{ padding: '7px 12px' }}>‹</button>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} style={{ width: 150 }} />
+            <span style={{ fontSize: 14, color: 'var(--muted)', alignSelf: 'center', minWidth: 90 }}>{friendlyDate}</span>
+            <button onClick={() => shiftDay(1)} style={{ padding: '7px 12px' }}>›</button>
+            {date !== todayISO() && <button onClick={() => setDate(todayISO())} style={{ fontSize: 13 }}>Today</button>}
+          </div>
+          <div className="row" style={{ gap: 6 }}>
+            <button className={view === 'timeline' ? 'primary' : ''} onClick={() => setView('timeline')} style={{ fontSize: 13 }}>⏱ Timeline</button>
+            <button className={view === 'list'     ? 'primary' : ''} onClick={() => setView('list')}     style={{ fontSize: 13 }}>☰ List</button>
+            <button className="primary" onClick={() => setModal({})}>+ New</button>
+          </div>
         </div>
-      </div>
+      )}
 
       {loading && <div className="muted" style={{ flexShrink: 0 }}>Loading…</div>}
 
-      {/* Timeline view */}
+      {/* ── Timeline view ─────────────────────────────────────────────────── */}
       {!loading && view === 'timeline' && (
         workingTherapists.length === 0 && appointments.length === 0 ? (
           <div className="card" style={{ textAlign: 'center', padding: 40 }}>
@@ -586,7 +754,7 @@ export default function AppointmentScreen() {
           </div>
         ) : (
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {columnOrder && (
+            {!isMobile && columnOrder && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, fontSize: 12, color: 'var(--muted)' }}>
                 <span>⠿ Column order saved for {friendlyDate}</span>
                 <button onClick={resetColumnOrder} style={{ fontSize: 11, padding: '2px 8px' }}>Reset to default</button>
@@ -601,10 +769,12 @@ export default function AppointmentScreen() {
               onSlotClick={({ therapistId, time }) => setModal({ therapistId, time })}
               onEditClick={appt => setModal({ appointment: appt })}
               onColumnReorder={handleColumnReorder}
+              isMobile={isMobile}
             />
-            {/* Action bar when an appointment is selected */}
-            {selected && (
-              <div style={{ background: '#0D1B3E', color: 'white', padding: '11px 16px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+
+            {/* Desktop action bar (inline, below timeline) */}
+            {selected && !isMobile && (
+              <div style={{ background: '#0D1B3E', color: 'white', padding: '11px 16px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{selected.client_name || 'Walk-in'} — {selected.treatment_name}</div>
                   <div style={{ fontSize: 12, color: '#C9A84C' }}>
@@ -617,7 +787,6 @@ export default function AppointmentScreen() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {/* Edit always available */}
                   <button style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 7, padding: '7px 14px', cursor: 'pointer' }}
                     onClick={() => setModal({ appointment: selected })}>✏️ Edit</button>
                   {selected.status === 'booked' && (
@@ -642,40 +811,51 @@ export default function AppointmentScreen() {
         )
       )}
 
-      {/* List view */}
+      {/* ── List view ─────────────────────────────────────────────────────── */}
       {!loading && view === 'list' && (
-        <>
+        <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
           {[
             { key: 'in_progress', title: '▶ In Progress' },
-            { key: 'booked',      title: '📋 Upcoming' },
-            { key: 'completed',   title: '✅ Completed' },
+            { key: 'booked',      title: '📋 Upcoming'   },
+            { key: 'completed',   title: '✅ Completed'   },
             { key: 'other',       title: '❌ Cancelled / No-show' },
           ].map(section => grouped[section.key].length > 0 && (
             <section key={section.key} className="col">
               <h3 style={{ margin: '12px 0 4px', fontSize: 15 }}>{section.title} ({grouped[section.key].length})</h3>
               <div className="col" style={{ gap: 8 }}>
                 {grouped[section.key].map(a => (
-                  <div key={a.id} className="card" style={{ padding: 12 }}>
-                    <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                      <div>
-                        <div style={{ fontWeight: 600 }}>{fmtTime(a.starts_at)} – {fmtTime(a.ends_at)} · {a.treatment_name || '—'}</div>
-                        <div className="muted" style={{ fontSize: 14 }}>
-                          {a.client_name || 'Walk-in'}{a.client_phone && ` · ${a.client_phone}`}
+                  <div key={a.id} className="card" style={{ padding: isMobile ? 12 : 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8, alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>
+                          {fmtTime(a.starts_at)} – {fmtTime(a.ends_at)}
+                        </div>
+                        <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', marginTop: 1 }}>
+                          {a.client_name || 'Walk-in'}
+                        </div>
+                        <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>
+                          {a.treatment_name}
                           {a.therapist_name && ` · ${a.therapist_name}`}
                           {a.room_name && ` · ${a.room_name}`}
                         </div>
+                        {/* Tap-to-call in list view */}
+                        {a.client_phone && (
+                          <a href={`tel:${a.client_phone}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 4, color: '#16a34a', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
+                            📞 {a.client_phone}
+                          </a>
+                        )}
                       </div>
-                      <div className="row" style={{ gap: 6 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
                         <span className={`status-pill status-${a.status}`}>{a.status.replace('_', ' ')}</span>
                         {a.status === 'booked' && (
-                          <>
-                            <button onClick={() => setStatus(a.id, 'in_progress')}>Start</button>
-                            <button onClick={() => setStatus(a.id, 'cancelled')}>Cancel</button>
-                            <button onClick={() => startCheckout(a)}>Checkout</button>
-                          </>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            <button style={{ minHeight: isMobile ? 44 : 34 }} onClick={() => setStatus(a.id, 'in_progress')}>Start</button>
+                            <button style={{ minHeight: isMobile ? 44 : 34 }} onClick={() => setStatus(a.id, 'cancelled')}>Cancel</button>
+                            <button className="primary" style={{ minHeight: isMobile ? 44 : 34 }} onClick={() => startCheckout(a)}>Checkout</button>
+                          </div>
                         )}
                         {a.status === 'in_progress' && (
-                          <button className="primary" onClick={() => startCheckout(a)}>Checkout</button>
+                          <button className="gold" style={{ minHeight: isMobile ? 44 : 34, fontWeight: 700 }} onClick={() => startCheckout(a)}>🧾 Checkout</button>
                         )}
                       </div>
                     </div>
@@ -690,9 +870,21 @@ export default function AppointmentScreen() {
               <button className="primary" onClick={() => setModal({})} style={{ marginTop: 12 }}>+ Book the first one</button>
             </div>
           )}
-        </>
+        </div>
       )}
 
+      {/* ── Mobile action sheet (slides up on appointment tap) ─────────────── */}
+      {selected && isMobile && (
+        <MobileActionSheet
+          appt={selected}
+          onClose={() => setSelected(null)}
+          onEdit={appt => setModal({ appointment: appt })}
+          onStatus={setStatus}
+          onCheckout={startCheckout}
+        />
+      )}
+
+      {/* ── New/edit appointment modal ──────────────────────────────────────── */}
       {modal !== null && (
         <NewAppointmentModal
           appointment={modal.appointment || null}
