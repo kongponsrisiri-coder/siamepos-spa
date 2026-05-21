@@ -252,7 +252,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
       ? workingTherapists
       : null;
   if (sourceList) {
-    columns = sourceList.map(t => ({ id: t.id, name: t.name, isOff: !!t.isOff, workStart: t.workStart || null, workEnd: t.workEnd || null, appts: apptMap[t.id] || [] }));
+    columns = sourceList.map(t => ({ id: t.id, name: t.name, isOff: !!t.isOff, workStart: t.workStart || null, workEnd: t.workEnd || null, isOverride: !!t.isOverride, appts: apptMap[t.id] || [] }));
     Object.keys(apptMap).forEach(tid => {
       const id = Number(tid);
       if (!columns.find(c => c.id === id)) {
@@ -350,6 +350,15 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                 <div style={{ fontSize: 10, marginTop: 1, color: col.isOff ? 'rgba(255,200,100,0.55)' : '#f5c07a' }}>
                   {col.isOff ? 'Off' : activeAppts.length === 0 ? 'free' : `${activeAppts.length}✓`}
                 </div>
+                {/* Working window — shown when the column has explicit
+                    hours (rota or override). Gold star prefix flags an
+                    override so the receptionist knows it's special for
+                    today, not the normal shift. */}
+                {!col.isOff && col.workStart && col.workEnd && (
+                  <div style={{ fontSize: 10, marginTop: 2, color: col.isOverride ? '#C9A84C' : 'rgba(255,255,255,0.55)', fontWeight: col.isOverride ? 700 : 400 }}>
+                    {col.isOverride ? '★ ' : ''}{col.workStart}–{col.workEnd}
+                  </div>
+                )}
                 {!isMobile && !col.isOff && workedLabel && (
                   <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 1 }}>{workedLabel} booked</div>
                 )}
@@ -598,7 +607,10 @@ export default function AppointmentScreen() {
     .map(t => {
       const isOff = !isWorkingOn(t.id, date, weeklyRota, rotaOverrides);
       const hours = isOff ? null : getWorkHours(t.id, date, weeklyRota, rotaOverrides);
-      return { ...t, isOff, workStart: hours?.start || null, workEnd: hours?.end || null };
+      // Is this hour window coming from an override (vs the weekly rota)?
+      // Used in the column header to flag "today is custom" with a gold star.
+      const hasOverride = !!rotaOverrides.find(o => o.therapist_id === t.id && String(o.date).slice(0, 10) === date);
+      return { ...t, isOff, workStart: hours?.start || null, workEnd: hours?.end || null, isOverride: hasOverride };
     });
 
   const orderedTherapistColumns = columnOrder
