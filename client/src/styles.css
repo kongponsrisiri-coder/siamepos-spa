@@ -400,3 +400,46 @@ tbody tr:hover td { background: var(--navy-muted); }
   }
   .admin-content { padding: 16px !important; }
 }
+
+/* ── Bottom nav + desktop-only visibility ────────────────────────── */
+.desktop-only { display: flex; }
+.bottom-nav   { display: none; }
+
+@media (max-width: 768px) {
+  .desktop-only { display: none !important; }
+
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: #0D1B3E;
+    border-top: 1px solid rgba(201,168,76,0.22);
+    z-index: 100;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    height: calc(60px + env(safe-area-inset-bottom, 0px));
+    box-shadow: 0 -2px 12px rgba(14,28,55,0.28);
+  }
+
+  .bottom-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    color: rgba(255,255,255,0.55);
+    font-size: 11px;
+    font-family: Inter, sans-serif;
+    font-weight: 500;
+    gap: 3px;
+    -webkit-tap-highlight-color: transparent;
+    transition: color 0.15s;
+  }
+
+  .bottom-nav-item.active { color: #C9A84C; }
+
+  /* Push main content up so bottom nav doesn't overlap it */
+  .app-main {
+    padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
+  }
+}
