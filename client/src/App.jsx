@@ -49,14 +49,16 @@ function NavLink({ to, children }) {
     <Link
       to={to}
       style={{
-        color: active ? '#C9A84C' : 'rgba(255,255,255,0.75)',
+        color: active ? '#0D1B3E' : 'white',
         textDecoration: 'none',
-        fontWeight: active ? 600 : 400,
+        fontWeight: active ? 700 : 500,
         fontSize: 14,
-        padding: '5px 12px',
+        padding: '6px 14px',
         borderRadius: 6,
-        background: active ? 'rgba(201,168,76,0.12)' : 'transparent',
+        background: active ? '#C9A84C' : 'transparent',
+        border: active ? 'none' : '1px solid rgba(255,255,255,0.22)',
         transition: 'color 0.15s, background 0.15s',
+        letterSpacing: '0.01em',
       }}
     >{children}</Link>
   );
@@ -87,24 +89,25 @@ function TopNav() {
         {isAdmin && <NavLink to="/admin">Admin</NavLink>}
       </div>
       <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-        <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13 }}>
+        <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: 500 }}>
           {staff?.name}
-          <span style={{ color: 'rgba(201,168,76,0.6)', marginLeft: 5, fontSize: 11, textTransform: 'capitalize' }}>{staff?.role}</span>
+          <span style={{ color: '#C9A84C', marginLeft: 6, fontSize: 11, textTransform: 'capitalize', fontWeight: 600 }}>{staff?.role}</span>
         </span>
         <button
           onClick={() => { clearAuth(); navigate('/login'); }}
           style={{
-            background: 'rgba(255,255,255,0.08)',
-            border: '1px solid rgba(255,255,255,0.18)',
-            color: 'rgba(255,255,255,0.75)',
+            background: 'rgba(255,255,255,0.10)',
+            border: '1px solid rgba(255,255,255,0.30)',
+            color: 'white',
             borderRadius: 6,
             padding: '5px 12px',
             fontSize: 13,
+            fontWeight: 500,
             cursor: 'pointer',
             transition: 'background 0.15s',
           }}
-          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.15)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.20)'}
+          onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.10)'}
         >Log out</button>
       </div>
     </header>

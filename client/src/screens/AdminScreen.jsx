@@ -102,7 +102,7 @@ export default function AdminScreen() {
       }}>
         {/* Panel label */}
         <div style={{
-          color: 'rgba(201,168,76,0.6)',
+          color: '#C9A84C',
           fontWeight: 700,
           fontSize: 10,
           padding: '0 20px 14px',
@@ -118,14 +118,14 @@ export default function AdminScreen() {
           if (item.divider) {
             return (
               <div key={`div-${i}`} style={{
-                color: 'rgba(201,168,76,0.38)',
+                color: 'rgba(201,168,76,0.7)',
                 fontWeight: 700,
-                fontSize: 9.5,
+                fontSize: 10,
                 padding: '14px 20px 5px',
                 textTransform: 'uppercase',
                 letterSpacing: '0.12em',
                 fontFamily: 'Inter, sans-serif',
-                borderTop: '1px solid rgba(255,255,255,0.06)',
+                borderTop: '1px solid rgba(255,255,255,0.10)',
                 marginTop: 4,
               }}>
                 {item.divider}
@@ -140,16 +140,16 @@ export default function AdminScreen() {
               key={item.k}
               onClick={() => setTab(item.k)}
               style={{
-                background: active ? 'rgba(201,168,76,0.22)' : 'transparent',
+                background: active ? '#C9A84C' : 'transparent',
                 border: 'none',
-                borderLeft: active ? '4px solid #C9A84C' : '4px solid transparent',
-                color: active ? '#ffffff' : 'rgba(255,255,255,0.70)',
+                borderLeft: active ? '4px solid #E8C96A' : '4px solid transparent',
+                color: active ? '#0D1B3E' : 'white',
                 padding: '11px 20px',
                 paddingLeft: 16,
                 textAlign: 'left',
                 cursor: 'pointer',
                 fontSize: 13.5,
-                fontWeight: active ? 700 : 400,
+                fontWeight: active ? 700 : 500,
                 fontFamily: 'Inter, sans-serif',
                 transition: 'background 0.12s, color 0.12s',
                 width: '100%',
@@ -157,14 +157,14 @@ export default function AdminScreen() {
               }}
               onMouseEnter={e => {
                 if (!active) {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.07)';
-                  e.currentTarget.style.color = 'rgba(255,255,255,0.95)';
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.12)';
+                  e.currentTarget.style.color = 'white';
                 }
               }}
               onMouseLeave={e => {
                 if (!active) {
                   e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = 'rgba(255,255,255,0.70)';
+                  e.currentTarget.style.color = 'white';
                 }
               }}
             >
