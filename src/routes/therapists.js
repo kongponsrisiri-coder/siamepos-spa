@@ -116,9 +116,13 @@ router.put('/:id/availability', requireRole('admin', 'manager'), async (req, res
 router.get('/rota', requireAuth, async (req, res) => {
   try {
     const month = req.query.month || new Date().toISOString().slice(0, 7); // YYYY-MM
+    // Pure-string month-end math so the result is independent of the
+    // server's wall-clock TZ. `new Date(year, month, 0)` + toISOString()
+    // would only work on a UTC server.
     const monthStart = `${month}-01`;
-    const d = new Date(monthStart);
-    const monthEnd = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+    const [yyyy, mm] = month.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(yyyy, mm, 0)).getUTCDate();
+    const monthEnd = `${month}-${String(lastDay).padStart(2, '0')}`;
 
     const [therapistsRes, rotaRes, overridesRes] = await Promise.all([
       pool.query('SELECT id, name, role, specialisms FROM therapists WHERE active = TRUE ORDER BY name'),

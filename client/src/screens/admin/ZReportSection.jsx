@@ -2,7 +2,12 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../api.js';
 
 function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
-function todayISO() { return new Date().toISOString().slice(0, 10); }
+// Local-time YYYY-MM-DD — toISOString returns UTC, which rolls over to
+// "tomorrow" between 23:00 and 00:00 local for any TZ ahead of UTC.
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
 
 export default function ZReportSection() {
   const [date, setDate] = useState(todayISO());

@@ -3,6 +3,25 @@ const express = require('express');
 const { pool } = require('../db/database');
 const { requireRole } = require('../middleware/auth');
 const { sendVoucherGiftEmail } = require('../services/emailService');
+const { buildAt } = require('../services/availability');
+
+// Voucher is valid through the END of expires_at in London time. Without
+// this, `new Date('2026-05-21') < new Date()` flips the voucher to expired
+// the moment we cross 00:00 UTC = 01:00 BST — i.e. an hour into the day
+// the voucher was supposed to still be valid for.
+function isExpired(expires_at) {
+  if (!expires_at) return false;
+  // expires_at from PG is a Date at 00:00 in some TZ — normalise to a
+  // YYYY-MM-DD string so buildAt can anchor it to London.
+  const dateStr = (expires_at instanceof Date)
+    ? expires_at.toISOString().slice(0, 10)
+    : String(expires_at).slice(0, 10);
+  // End of day London = next day's 00:00 in London.
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const next = new Date(Date.UTC(y, mo - 1, d + 1));
+  const nextStr = next.toISOString().slice(0, 10);
+  return Date.now() >= buildAt(nextStr, '00:00').getTime();
+}
 
 const router = express.Router();
 
@@ -62,7 +81,7 @@ router.get('/lookup', async (req, res) => {
     if (!rows[0]) return res.status(404).json({ error: 'Voucher not found' });
     const v = rows[0];
     // Auto-expire check
-    if (v.status === 'active' && v.expires_at && new Date(v.expires_at) < new Date()) {
+    if (v.status === 'active' && isExpired(v.expires_at)) {
       await pool.query("UPDATE vouchers SET status = 'expired' WHERE id = $1", [v.id]);
       v.status = 'expired';
     }
@@ -237,7 +256,7 @@ router.post('/:id/redeem', async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: `Voucher is ${v.status}` });
     }
-    if (v.expires_at && new Date(v.expires_at) < new Date()) {
+    if (isExpired(v.expires_at)) {
       await client.query("UPDATE vouchers SET status = 'expired' WHERE id = $1", [id]);
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Voucher has expired' });

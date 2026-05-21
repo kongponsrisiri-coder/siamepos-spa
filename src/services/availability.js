@@ -10,13 +10,35 @@ function parseHM(s) {
   return { h: h || 0, m: m || 0 };
 }
 
-// Build local-time UTC ISO from "YYYY-MM-DD" + "HH:MM" interpreting the
-// time as local server time. Good enough for a single-site spa.
+// Interpret dateStr ("YYYY-MM-DD") + timeStr ("HH:MM" or "HH:MM:SS") as
+// **Europe/London local time** and return the corresponding UTC Date.
+//
+// The previous implementation used `new Date(dateStr + 'T00:00:00')` +
+// setHours(), which interprets the value in the SERVER'S local clock.
+// Railway runs in UTC, so an override saved as "10:00" came out as
+// 10:00 UTC = 11:00 BST, and a 10:30 BST booking (09:30 UTC) was
+// wrongly rejected as outside-rota.
+//
+// All rota / override / settings times are owner-entered London local
+// time, so anchoring them to Europe/London here makes the window
+// independent of the server clock.
+//
+// (For a future non-UK customer this would need to read the spa's
+// timezone from settings rather than hard-coding Europe/London.)
+const SPA_TZ = 'Europe/London';
+function londonOffsetHours(dateStr) {
+  const sample = new Date(`${dateStr}T12:00:00Z`);
+  const h = Number(new Intl.DateTimeFormat('en-GB', {
+    timeZone: SPA_TZ, hour: 'numeric', hour12: false,
+  }).format(sample));
+  return h - 12;   // 0 in GMT (winter), 1 in BST (summer)
+}
 function buildAt(dateStr, timeStr) {
   const { h, m } = parseHM(timeStr);
-  const d = new Date(`${dateStr}T00:00:00`);
-  d.setHours(h, m, 0, 0);
-  return d;
+  const off = londonOffsetHours(dateStr);
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  // h:m London → (h-off):m UTC. Date.UTC normalises day overflow.
+  return new Date(Date.UTC(y, mo - 1, d, h - off, m, 0, 0));
 }
 
 // Returns a working window { start, end } in ms, or null if the therapist
@@ -220,4 +242,19 @@ async function isTherapistWorking(therapist_id, starts_at, ends_at) {
   return { working: true, window };
 }
 
-module.exports = { computeAvailability, getTherapistWorkingWindow, isTherapistWorking };
+// Return the YYYY-MM-DD calendar date in Europe/London for any Date/ms.
+// Useful when computing "what calendar day is this UTC moment on for the spa".
+function londonDateString(d) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: SPA_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(d instanceof Date ? d : new Date(d));
+}
+
+module.exports = {
+  computeAvailability,
+  getTherapistWorkingWindow,
+  isTherapistWorking,
+  buildAt,
+  londonDateString,
+  SPA_TZ,
+};

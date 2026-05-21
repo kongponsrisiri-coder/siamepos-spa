@@ -2,9 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../api.js';
 
 function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
+// Local-time YYYY-MM-DD. setDate is local; toISOString is UTC — mixing
+// the two produces an off-by-one day near midnight for any TZ ahead of
+// UTC. Read with local component getters throughout to stay consistent.
 function isoDaysAgo(n) {
   const d = new Date(); d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
 // SPA-003 — source labels mirror ClientsSection's pills so reports +

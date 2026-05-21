@@ -3,8 +3,16 @@ const { pool } = require('../db/database');
 
 const router = express.Router();
 
+// Today's date in Europe/London — NOT UTC. Reports default to "today's"
+// trading; on Railway (UTC server) `new Date().toISOString().slice(0,10)`
+// rolls over to tomorrow at 00:00 UTC = 01:00 BST, so a London operator
+// at 00:30 BST would land on yesterday's report. Using Intl with the
+// spa's timezone keeps the rollover at midnight local.
 function today() {
-  return new Date().toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/London',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date()); // 'en-CA' yields YYYY-MM-DD
 }
 
 // GET /api/reports/trading?date=YYYY-MM-DD  (default: today)

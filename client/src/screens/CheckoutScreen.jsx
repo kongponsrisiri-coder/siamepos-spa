@@ -22,7 +22,11 @@ export default function CheckoutScreen() {
   const load = useCallback(async () => {
     setError('');
     try {
-      const list = await api.get(`/appointments?date=${new Date().toISOString().slice(0, 10)}`);
+      // Local-time date so the query matches what the operator sees
+      // on the timeline (toISOString returns UTC).
+      const td = new Date();
+      const todayStr = `${td.getFullYear()}-${String(td.getMonth()+1).padStart(2,'0')}-${String(td.getDate()).padStart(2,'0')}`;
+      const list = await api.get(`/appointments?date=${todayStr}`);
       // Look up by appointment_id across a wider window if not found today.
       let a = list.appointments.find((x) => x.id === Number(appointmentId));
       if (!a) {

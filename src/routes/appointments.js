@@ -1,6 +1,6 @@
 const express = require('express');
 const { pool } = require('../db/database');
-const { computeAvailability, isTherapistWorking } = require('../services/availability');
+const { computeAvailability, isTherapistWorking, buildAt, londonDateString } = require('../services/availability');
 
 // Build the rich rota-conflict 409 body. Same alternatives shape as the
 // time-conflict response so the modal can render one panel that
@@ -193,12 +193,13 @@ router.post('/', async (req, res) => {
       const duration    = tr.rows[0].duration_minutes;
 
       // ── Alternative slots for same therapist (up to 5, same day then next day) ──
+      // Window bounds anchored to Europe/London (the spa's TZ) — Railway
+      // runs UTC so server-local setHours() would slip by 1hr in BST.
       const altSlots = [];
       const searchFrom = new Date(conflicting.ends_at); // start looking after the blocking appt
       for (let dayOffset = 0; dayOffset <= 1 && altSlots.length < 5; dayOffset++) {
-        const dayEnd = new Date(searchFrom);
-        dayEnd.setDate(dayEnd.getDate() + dayOffset);
-        dayEnd.setHours(21, 0, 0, 0);
+        const searchDateStr = londonDateString(new Date(searchFrom.getTime() + dayOffset * 86400000));
+        const dayEnd = buildAt(searchDateStr, '21:00');
 
         // Fetch all bookings for this therapist on this search day
         const dayAppts = await pool.query(
@@ -207,12 +208,12 @@ router.post('/', async (req, res) => {
              AND status NOT IN ('cancelled','no_show')
              AND starts_at::date = $2::date
            ORDER BY starts_at`,
-          [therapist_id, searchFrom],
+          [therapist_id, searchDateStr],
         );
 
         let cursor = dayOffset === 0
           ? searchFrom.getTime()
-          : (() => { const d = new Date(searchFrom); d.setDate(d.getDate() + dayOffset); d.setHours(9, 0, 0, 0); return d.getTime(); })();
+          : buildAt(searchDateStr, '09:00').getTime();
 
         while (cursor + duration * 60_000 <= dayEnd.getTime() && altSlots.length < 5) {
           const slotStart = new Date(cursor);
@@ -368,9 +369,8 @@ router.put('/:id', async (req, res) => {
         const altSlots = [];
         const searchFrom = new Date(conflicting.ends_at);
         for (let dayOffset = 0; dayOffset <= 1 && altSlots.length < 5; dayOffset++) {
-          const dayEnd = new Date(searchFrom);
-          dayEnd.setDate(dayEnd.getDate() + dayOffset);
-          dayEnd.setHours(21, 0, 0, 0);
+          const searchDateStr = londonDateString(new Date(searchFrom.getTime() + dayOffset * 86400000));
+          const dayEnd = buildAt(searchDateStr, '21:00');
           const dayAppts = await pool.query(
             `SELECT starts_at, ends_at FROM appointments
              WHERE therapist_id = $1
@@ -378,11 +378,11 @@ router.put('/:id', async (req, res) => {
                AND status NOT IN ('cancelled','no_show')
                AND starts_at::date = $2::date
              ORDER BY starts_at`,
-            [checkTherapist, searchFrom, id],
+            [checkTherapist, searchDateStr, id],
           );
           let cursor = dayOffset === 0
             ? searchFrom.getTime()
-            : (() => { const d = new Date(searchFrom); d.setDate(d.getDate() + dayOffset); d.setHours(9, 0, 0, 0); return d.getTime(); })();
+            : buildAt(searchDateStr, '09:00').getTime();
           while (cursor + duration * 60_000 <= dayEnd.getTime() && altSlots.length < 5) {
             const slotStart = new Date(cursor);
             const slotEnd   = new Date(cursor + duration * 60_000);
