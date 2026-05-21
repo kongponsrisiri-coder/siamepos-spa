@@ -115,7 +115,7 @@ function AppShell({ children }) {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
       <TopNav />
-      <main style={{ flex: 1, padding: '20px 20px 0', maxWidth: 1280, margin: '0 auto', width: '100%', overflow: 'hidden' }}>
+      <main style={{ flex: 1, padding: '20px 20px 0', maxWidth: 1280, margin: '0 auto', width: '100%', overflow: 'clip' }}>
         {children}
       </main>
     </div>

@@ -16,21 +16,29 @@ import VouchersSection        from './admin/VouchersSection.jsx';
 import ClientsSection         from './admin/ClientsSection.jsx';
 import CampaignsSection       from './admin/CampaignsSection.jsx';
 
-// ── Sandy: AdminScreen — left sidebar, matches EPOS admin layout ──
+// ── Sandy: AdminScreen — left sidebar, SiamEPOS Spa brand CI ──────
 // Slate Navy #1e3a6e sidebar · Thai Gold #C9A84C active state
+// Grouped navigation mirrors SiamEPOS admin pattern
 
 const NAV = [
+  // Revenue
   { k: 'trading',    label: '📊 Trading' },
   { k: 'reports',    label: '📈 Reports' },
   { k: 'zreport',    label: '🔐 Z Report' },
+  // Clients
+  { divider: 'Clients' },
   { k: 'bills',      label: '🧾 Bills' },
   { k: 'clients',    label: '👤 Clients' },
   { k: 'campaigns',  label: '📧 Campaigns' },
   { k: 'vouchers',   label: '🎁 Vouchers' },
+  // Spa management
+  { divider: 'Spa' },
   { k: 'menu',       label: '💆 Treatments' },
   { k: 'therapists', label: '👥 Therapists' },
   { k: 'rota',       label: '📅 Rota' },
   { k: 'rooms',      label: '🛁 Rooms' },
+  // Configuration
+  { divider: 'Settings' },
   { k: 'booking',    label: '⚙️ Booking' },
   { k: 'embed',      label: '🔗 Embed Codes' },
   { k: 'settings',   label: '🔧 Settings' },
@@ -76,65 +84,91 @@ export default function AdminScreen() {
       height: 'calc(100vh - 52px)',       /* 52px = TopNav height */
       margin: '-20px -20px 0',            /* undo AppShell's 20px top + side padding */
       width: 'calc(100% + 40px)',         /* stretch to fill the undone padding */
+      overflow: 'hidden',
     }}>
 
-      {/* ── Sidebar ─────────────────────────────────────────────── */}
+      {/* ── Left Sidebar ────────────────────────────────────────── */}
       <aside style={{
         width: 200,
+        minWidth: 200,
         background: '#1e3a6e',
         display: 'flex',
         flexDirection: 'column',
-        padding: '20px 0',
+        paddingTop: 20,
+        paddingBottom: 20,
         flexShrink: 0,
-        boxShadow: '2px 0 8px rgba(14,28,55,0.18)',
+        overflowY: 'auto',
+        boxShadow: '2px 0 12px rgba(14,28,55,0.22)',
       }}>
+        {/* Panel label */}
         <div style={{
-          color: 'rgba(201,168,76,0.55)',
+          color: 'rgba(201,168,76,0.6)',
           fontWeight: 700,
-          fontSize: 11,
-          padding: '0 20px 16px',
+          fontSize: 10,
+          padding: '0 20px 14px',
           textTransform: 'uppercase',
-          letterSpacing: '0.1em',
+          letterSpacing: '0.12em',
           fontFamily: 'Inter, sans-serif',
         }}>
           Admin Panel
         </div>
 
-        {NAV.map(({ k, label }) => {
-          const active = tab === k;
+        {NAV.map((item, i) => {
+          // ── Group divider / label ──
+          if (item.divider) {
+            return (
+              <div key={`div-${i}`} style={{
+                color: 'rgba(201,168,76,0.38)',
+                fontWeight: 700,
+                fontSize: 9.5,
+                padding: '14px 20px 5px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.12em',
+                fontFamily: 'Inter, sans-serif',
+                borderTop: '1px solid rgba(255,255,255,0.06)',
+                marginTop: 4,
+              }}>
+                {item.divider}
+              </div>
+            );
+          }
+
+          // ── Nav item ──
+          const active = tab === item.k;
           return (
             <button
-              key={k}
-              onClick={() => setTab(k)}
+              key={item.k}
+              onClick={() => setTab(item.k)}
               style={{
-                background: active ? 'rgba(201,168,76,0.15)' : 'none',
+                background: active ? 'rgba(201,168,76,0.14)' : 'transparent',
                 border: 'none',
                 borderLeft: active ? '3px solid #C9A84C' : '3px solid transparent',
-                color: active ? '#C9A84C' : 'rgba(255,255,255,0.72)',
-                padding: '11px 20px',
-                paddingLeft: active ? 17 : 17,   /* consistent left pad with border */
+                color: active ? '#C9A84C' : 'rgba(255,255,255,0.70)',
+                padding: '10px 20px',
+                paddingLeft: 17,
                 textAlign: 'left',
                 cursor: 'pointer',
-                fontSize: 13.5,
+                fontSize: 13,
                 fontWeight: active ? 600 : 400,
                 fontFamily: 'Inter, sans-serif',
                 transition: 'background 0.12s, color 0.12s',
                 width: '100%',
+                lineHeight: 1.3,
               }}
               onMouseEnter={e => {
                 if (!active) {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
-                  e.currentTarget.style.color = 'white';
+                  e.currentTarget.style.background = 'rgba(255,255,255,0.07)';
+                  e.currentTarget.style.color = 'rgba(255,255,255,0.95)';
                 }
               }}
               onMouseLeave={e => {
                 if (!active) {
-                  e.currentTarget.style.background = 'none';
-                  e.currentTarget.style.color = 'rgba(255,255,255,0.72)';
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = 'rgba(255,255,255,0.70)';
                 }
               }}
             >
-              {label}
+              {item.label}
             </button>
           );
         })}
@@ -143,9 +177,9 @@ export default function AdminScreen() {
       {/* ── Content pane ────────────────────────────────────────── */}
       <main style={{
         flex: 1,
-        overflow: 'auto',
+        overflowY: 'auto',
         background: 'var(--bg)',
-        padding: '20px 24px',
+        padding: '24px 28px',
       }}>
         <Current />
       </main>
