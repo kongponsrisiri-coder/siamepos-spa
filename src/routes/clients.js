@@ -31,6 +31,7 @@ router.get('/', async (req, res) => {
          c.email,
          c.date_of_birth,
          c.marketing_consent,
+         c.unsubscribed_at,
          c.gdpr_consent,
          c.created_at,
          COUNT(a.id) FILTER (WHERE a.status NOT IN ('cancelled','no_show')) AS total_visits,

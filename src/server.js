@@ -26,6 +26,9 @@ const settingsRoutes    = require('./routes/settings');
 const voucherRoutes     = require('./routes/vouchers');
 const widgetRoutes      = require('./routes/widget');
 const treatwellRoutes   = require('./routes/treatwell');
+const campaignRoutes    = require('./routes/campaigns');
+const { parseUnsubscribeToken } = require('./services/emailService');
+const { pool: dbPool }  = require('./db/database');
 const { router: stripeRouter, webhookHandler: stripeWebhookHandler } = require('./routes/stripe');
 
 const app = express();
@@ -75,6 +78,44 @@ app.use('/api/widget',    widgetRoutes);
 app.use('/api/treatwell', treatwellRoutes);
 app.use('/api/auth',      authRoutes);
 
+// SPA-CAMPAIGNS-001 — public one-click unsubscribe. The token is a
+// stateless HMAC of the email; no auth required because anyone with a
+// valid token already knows the email it stands for (it was emailed to
+// them). Stamps clients.unsubscribed_at and flips marketing_consent off
+// so subsequent campaigns skip them.
+app.get('/api/unsubscribe', async (req, res) => {
+  const email = parseUnsubscribeToken(req.query.token);
+  const safeHtml = (s) => String(s || '').replace(/[<>"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  if (!email) {
+    return res.status(400).type('html').send(
+      `<!doctype html><html><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;padding:60px;text-align:center;color:#555;">
+        <h2 style="color:#1e3a6e;font-family:Georgia,serif;">Invalid unsubscribe link</h2>
+        <p>Sorry — this link isn't valid. Please contact us directly if you'd like to opt out.</p>
+      </body></html>`
+    );
+  }
+  try {
+    await dbPool.query(
+      `UPDATE clients
+       SET unsubscribed_at  = COALESCE(unsubscribed_at, now()),
+           marketing_consent = FALSE
+       WHERE LOWER(TRIM(email)) = LOWER(TRIM($1))`,
+      [email],
+    );
+    res.type('html').send(`<!doctype html>
+<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;background:#faf7f2;color:#1c1c1c;margin:0;min-height:100vh;padding:60px 20px;text-align:center;">
+  <div style="background:white;max-width:480px;margin:40px auto;padding:40px 32px;border-radius:14px;box-shadow:0 4px 16px rgba(20,38,74,0.08);border-top:4px solid #C9A84C;">
+    <h1 style="color:#1e3a6e;font-family:Georgia,serif;margin:0 0 14px;font-size:26px;">You're unsubscribed</h1>
+    <p style="color:#444;line-height:1.6;margin:0 0 14px;">We've removed <strong>${safeHtml(email)}</strong> from our marketing list. You won't receive any more promotional emails from us.</p>
+    <p style="color:#888;font-size:13px;margin:24px 0 0;">If this was a mistake, contact the spa to opt back in.</p>
+  </div>
+</body></html>`);
+  } catch (err) {
+    console.error('[unsubscribe]', err);
+    res.status(500).type('html').send('<!doctype html><html><body>Something went wrong. Please try again later.</body></html>');
+  }
+});
+
 // ---- Protected routes (require staff token) ------------------------------
 app.use('/api/treatments',   requireAuth, treatmentRoutes);
 app.use('/api/therapists',   requireAuth, therapistRoutes);
@@ -86,6 +127,7 @@ app.use('/api/stripe',       requireAuth, stripeRouter);
 app.use('/api/reports',      requireAuth, reportRoutes);
 app.use('/api/settings',     requireAuth, settingsRoutes);
 app.use('/api/vouchers',     requireAuth, voucherRoutes);
+app.use('/api/campaigns',    requireAuth, campaignRoutes);
 
 // 404 for any unmatched /api/* request.
 app.use('/api', (_req, res) => res.status(404).json({ error: 'not found' }));

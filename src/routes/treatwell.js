@@ -32,6 +32,7 @@
 
 const express = require('express');
 const { pool } = require('../db/database');
+const { computeAvailability } = require('../services/availability');
 
 const router = express.Router();
 
@@ -169,7 +170,40 @@ router.post('/webhook', async (req, res) => {
     }
 
     const endsAt = new Date(new Date(startsAt).getTime() + durationMin * 60_000);
-    const notes  = [
+
+    // Try to pre-assign a free therapist + room so the booking lands ready
+    // to go. If the requested slot has no free therapist at all (rare —
+    // Treatwell ought to have checked availability before pushing) we
+    // still accept the booking but flag the conflict in notes so the
+    // receptionist sees it and can offer the customer an alternative.
+    let preTherapistId = null;
+    let preRoomId      = null;
+    let conflictFlag   = null;
+    if (treatmentId) {
+      try {
+        const slots = await computeAvailability({
+          treatment_id: treatmentId,
+          date: String(startsAt).slice(0, 10),
+          therapist_id: null,
+        });
+        const slot = slots.find((s) =>
+          new Date(s.starts_at).getTime() === new Date(startsAt).getTime()
+        );
+        if (slot) {
+          preTherapistId = slot.therapists[0] || null;
+          preRoomId      = slot.rooms[0]      || null;
+        } else {
+          conflictFlag = '[CONFLICT — no free therapist at requested time; please reassign or contact customer]';
+        }
+      } catch (e) {
+        // computeAvailability throws if treatment is inactive etc. — skip
+        // auto-assign rather than fail the whole webhook.
+        console.warn('[treatwell] auto-assign skipped:', e.message);
+      }
+    }
+
+    const notes = [
+      conflictFlag,
       treatmentId ? null : `[unmatched treatment: ${service.name || 'unknown'}]`,
       b.notes ? String(b.notes) : null,
     ].filter(Boolean).join(' ') || null;
@@ -178,9 +212,9 @@ router.post('/webhook', async (req, res) => {
       `INSERT INTO appointments
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
           status, source, notes, treatwell_booking_id)
-       VALUES ($1, $2, NULL, NULL, $3, $4, 'booked', 'treatwell', $5, $6)
+       VALUES ($1, $2, $3, $4, $5, $6, 'booked', 'treatwell', $7, $8)
        RETURNING *`,
-      [cli.id, treatmentId, startsAt, endsAt, notes, bookingId],
+      [cli.id, treatmentId, preTherapistId, preRoomId, startsAt, endsAt, notes, bookingId],
     );
 
     await client.query('COMMIT');
@@ -193,6 +227,8 @@ router.post('/webhook', async (req, res) => {
       appointment_id: ap.rows[0].id,
       client_id: cli.id,
       treatment_matched: !!treatmentId,
+      therapist_assigned: !!preTherapistId,
+      conflict: !!conflictFlag,
     });
   } catch (err) {
     await client.query('ROLLBACK');

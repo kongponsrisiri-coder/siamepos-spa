@@ -270,7 +270,12 @@ export default function ClientsSection() {
                         £{c.spend.toFixed(2)}
                       </td>
                       <td style={{ padding: '10px 6px' }}>
-                        {c.marketing_consent ? (
+                        {c.unsubscribed_at ? (
+                          <span
+                            style={{ background: '#fee2e2', color: '#991b1b', padding: '3px 9px', borderRadius: 6, fontSize: 10, fontWeight: 700 }}
+                            title={`Unsubscribed ${new Date(c.unsubscribed_at).toLocaleDateString('en-GB')}. Cannot be re-opted-in without a fresh, recorded consent.`}
+                          >UNSUBSCRIBED</span>
+                        ) : c.marketing_consent ? (
                           <button
                             onClick={() => toggleConsent(c, false)}
                             style={{ background: '#dcfce7', color: '#166534', padding: '3px 9px', borderRadius: 6, fontSize: 10, fontWeight: 700, border: 'none', cursor: 'pointer' }}

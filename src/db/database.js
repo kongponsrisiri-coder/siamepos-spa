@@ -240,6 +240,28 @@ async function initSchema() {
       WHERE treatwell_booking_id IS NOT NULL;
   `);
 
+  // ── SPA-CAMPAIGNS-001: email campaigns + unsubscribe ────────────────────
+  // Campaigns are sent via Brevo to segments of opted-in clients. We track
+  // who unsubscribes (via HMAC-signed token clicked from inside an email)
+  // so they're permanently removed from the campaign audience even if the
+  // operator later re-toggles their marketing_consent — the unsubscribed_at
+  // stamp wins.
+  await pool.query(`
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS unsubscribed_at TIMESTAMPTZ;
+
+    CREATE TABLE IF NOT EXISTS campaigns (
+      id              SERIAL PRIMARY KEY,
+      subject         TEXT NOT NULL,
+      body            TEXT NOT NULL,
+      segment         TEXT NOT NULL,
+      recipient_count INT  NOT NULL DEFAULT 0,
+      sent_count      INT  NOT NULL DEFAULT 0,
+      failed_count    INT  NOT NULL DEFAULT 0,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_campaigns_created_at ON campaigns (created_at DESC);
+  `);
+
   // ── SPA-ROTA-001 — therapist rota overrides ─────────────────────────────
   // Date-specific schedule changes: day off, or different start/end hours.
   // is_working=FALSE means the therapist is off that day entirely.

@@ -168,18 +168,16 @@ export default function CheckoutScreen() {
                 <button onClick={() => pay('card')} disabled={busy} className="primary" style={{ flex: 1, padding: 14, minWidth: 80 }}>Card</button>
                 <button onClick={() => pay('split')} disabled={busy} style={{ flex: 1, padding: 14, minWidth: 80 }}>Split</button>
                 <button onClick={() => setShowVoucher(v => !v)} disabled={busy} style={{ flex: 1, padding: 14, minWidth: 80, background: showVoucher ? '#C9A84C' : undefined, color: showVoucher ? '#1e3a6e' : undefined, fontWeight: showVoucher ? 700 : undefined }}>🎁 Voucher</button>
-                {appt.source === 'treatwell' && (
-                  <button
-                    onClick={() => pay('treatwell')}
-                    disabled={busy}
-                    style={{ flex: 1, padding: 14, minWidth: 100, background: '#fff7ed', color: '#c2410c', border: '1px solid #fdba74', fontWeight: 600 }}
-                    title="Customer paid Treatwell directly — Treatwell settles minus commission. Closes the bill without taking cash here."
-                  >🌐 Treatwell</button>
-                )}
+                <button
+                  onClick={() => pay('treatwell')}
+                  disabled={busy}
+                  style={{ flex: 1, padding: 14, minWidth: 100, background: '#fff7ed', color: '#c2410c', border: '1px solid #fdba74', fontWeight: 600 }}
+                  title="Customer paid Treatwell directly — Treatwell settles minus commission. Closes the bill without taking cash here."
+                >🌐 Treatwell</button>
               </div>
               {appt.source === 'treatwell' && (
-                <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5 }}>
-                  This appointment came from Treatwell. The customer paid Treatwell directly — use the 🌐 Treatwell button to close the bill without recording cash. Treatwell will settle (minus commission) on their next statement.
+                <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 6, padding: '8px 12px', color: '#9a3412' }}>
+                  🌐 This appointment came from <strong>Treatwell</strong>. The customer paid Treatwell directly — use the 🌐 Treatwell button to close the bill without recording cash. Treatwell will settle (minus commission) on their next statement.
                 </div>
               )}
             </div>
