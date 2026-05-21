@@ -157,6 +157,7 @@ function CreateVoucherModal({ onClose, onSaved }) {
   const [purchasedBy, setPurchasedBy] = useState('');
   const [purchasedFor, setPurchasedFor] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState(''); // 'cash' | 'card' | 'split'
   const [expiresAt, setExpiresAt]   = useState('');
   const [notes, setNotes]           = useState('');
   const [busy, setBusy]             = useState(false);
@@ -189,6 +190,7 @@ function CreateVoucherModal({ onClose, onSaved }) {
     if (type === 'sessions') {
       if (!sessions || Number(sessions) <= 0) { setError('Please enter the number of sessions.'); return; }
     }
+    if (!paymentMethod) { setError('Please record how the customer paid (Cash / Card / Split).'); return; }
     setBusy(true); setError('');
     try {
       const body = {
@@ -196,6 +198,7 @@ function CreateVoucherModal({ onClose, onSaved }) {
         purchased_by: purchasedBy.trim() || null,
         purchased_for: purchasedFor.trim() || null,
         recipient_email: recipientEmail.trim() || null,
+        payment_method: paymentMethod,
         expires_at: expiresAt || null,
         notes: notes.trim() || null,
       };
@@ -367,11 +370,50 @@ function CreateVoucherModal({ onClose, onSaved }) {
               <textarea rows={2} value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any notes…" />
             </div>
 
+            {/* Payment method — required. Pre-CTA so the operator can't
+                forget to record how the cash came in. Colours mirror the
+                Checkout palette so the two screens read the same. */}
+            <div>
+              <label>How did the customer pay? *</label>
+              <div className="row" style={{ gap: 8 }}>
+                {[
+                  { id: 'cash',  label: 'Cash',  bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
+                  { id: 'card',  label: 'Card',  bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
+                  { id: 'split', label: 'Split', bg: '#ede9fe', border: '#7c3aed', text: '#4c1d95' },
+                ].map(m => {
+                  const active = paymentMethod === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => setPaymentMethod(m.id)}
+                      style={{
+                        flex: 1,
+                        padding: '12px 14px',
+                        background: active ? m.border : m.bg,
+                        color:      active ? '#fff'    : m.text,
+                        border:     `2px solid ${m.border}`,
+                        borderRadius: 8,
+                        fontWeight: 700,
+                        fontSize: 14,
+                        cursor: 'pointer',
+                      }}
+                    >{m.label}</button>
+                  );
+                })}
+              </div>
+            </div>
+
             {error && <div style={{ color: 'var(--danger)', fontSize: 13, background: '#fee2e2', padding: '8px 12px', borderRadius: 6 }}>{error}</div>}
 
             <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
               <button onClick={onClose}>Cancel</button>
-              <button className="primary" onClick={submit} disabled={busy}>{busy ? 'Creating…' : 'Create Voucher'}</button>
+              <button className="primary" onClick={submit} disabled={busy || !paymentMethod}>
+                {busy
+                  ? 'Creating…'
+                  : paymentMethod
+                    ? `Take £${Number(value || 0).toFixed(2)} ${paymentMethod} & issue voucher`
+                    : 'Create Voucher'}
+              </button>
             </div>
           </div>
         )}

@@ -132,6 +132,34 @@ export default function TradingSection() {
           ))
         )}
       </div>
+
+      {/* ── Voucher sales (deferred revenue) ───────────────────────
+          Tracked separately from bill revenue: vouchers are money
+          received but not yet earned (service hasn't been delivered).
+          Helps the owner reconcile the till at end of day without
+          double-counting voucher cash as earned revenue. */}
+      {data.voucher_sales && data.voucher_sales.count > 0 && (
+        <div className="card col">
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <h3 style={{ margin: 0 }}>🎁 Voucher sales</h3>
+            <span className="muted" style={{ fontSize: 12 }}>Deferred revenue — money in, service to come</span>
+          </div>
+          <div className="row" style={{ justifyContent: 'space-between', padding: '6px 0' }}>
+            <span><strong>{data.voucher_sales.count}</strong> voucher{data.voucher_sales.count === 1 ? '' : 's'} sold today</span>
+            <span style={{ fontWeight: 700, color: '#C9A84C' }}>{fmtMoney(data.voucher_sales.total)}</span>
+          </div>
+          {data.voucher_sales.by_payment_method?.length > 0 && (
+            <div style={{ paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+              {data.voucher_sales.by_payment_method.map((m) => (
+                <div key={m.payment_method} className="row" style={{ justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
+                  <span className="muted">{m.payment_method}</span>
+                  <span>{m.n} · {fmtMoney(m.revenue)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

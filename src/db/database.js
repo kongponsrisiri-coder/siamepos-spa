@@ -341,6 +341,12 @@ async function initSchema() {
     -- by email at point of sale (also used for a "Resend" later).
     ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS recipient_email TEXT;
     ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS email_sent_at   TIMESTAMPTZ;
+
+    -- SPA-VOUCHER-004: payment method on voucher sale.
+    -- Selling a voucher takes real cash/card from the customer, so we
+    -- record it here. NULL is allowed for legacy rows; new sales are
+    -- required to set this (enforced in the API + admin form).
+    ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS payment_method TEXT;
   `);
 
   console.log('[db] schema ready');

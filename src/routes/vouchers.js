@@ -108,13 +108,18 @@ router.get('/:id', async (req, res) => {
 // body (sessions, new):
 //   { voucher_type:'sessions', value (sale price), total_sessions, treatment_id?, ... }
 //   — treatment_id NULL means "any treatment in the menu".
+const VOUCHER_PAYMENT_METHODS = ['cash', 'card', 'split'];
+
 router.post('/', async (req, res) => {
   const {
     value, purchased_by, purchased_for, client_id, expires_at, notes, sold_by,
-    voucher_type, total_sessions, treatment_id, recipient_email,
+    voucher_type, total_sessions, treatment_id, recipient_email, payment_method,
   } = req.body || {};
   const isSessions = voucher_type === 'sessions';
   if (!value || Number(value) <= 0) return res.status(400).json({ error: 'value required' });
+  if (!payment_method || !VOUCHER_PAYMENT_METHODS.includes(payment_method)) {
+    return res.status(400).json({ error: 'payment_method required (cash | card | split)' });
+  }
   if (isSessions) {
     if (!total_sessions || Number(total_sessions) <= 0) {
       return res.status(400).json({ error: 'total_sessions required for a sessions voucher' });
@@ -142,8 +147,8 @@ router.post('/', async (req, res) => {
          (code, initial_value, remaining_value, purchased_by, purchased_for,
           client_id, expires_at, notes, sold_by,
           voucher_type, total_sessions, sessions_remaining, treatment_id,
-          recipient_email)
-       VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$12) RETURNING *`,
+          recipient_email, payment_method)
+       VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$12,$13) RETURNING *`,
       [
         code, Number(value), purchased_by || null, purchased_for || null,
         client_id || null, expires_at || null, notes || null,
@@ -152,6 +157,7 @@ router.post('/', async (req, res) => {
         isSessions ? Number(total_sessions) : null,
         isSessions ? (treatment_id ? Number(treatment_id) : null) : null,
         recipient_email || null,
+        payment_method,
       ],
     );
     const voucher = rows[0];

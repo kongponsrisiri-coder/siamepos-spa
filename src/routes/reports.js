@@ -64,6 +64,29 @@ router.get('/trading', async (req, res) => {
        ORDER BY appointments DESC`,
       [date],
     );
+    // SPA-VOUCHER-004 — voucher sales taken today. Tracked separately
+    // from bill revenue because vouchers are deferred revenue (money in,
+    // service not yet delivered). The frontend renders this in its own
+    // block alongside the bill totals so the owner can see both.
+    const voucherSales = await pool.query(
+      `SELECT
+         COUNT(*)::int                                AS count,
+         COALESCE(SUM(initial_value), 0)::numeric     AS total
+       FROM vouchers
+       WHERE purchased_at::date = $1::date`,
+      [date],
+    );
+    const voucherSalesByMethod = await pool.query(
+      `SELECT
+         COALESCE(payment_method, 'unknown') AS payment_method,
+         COUNT(*)::int                       AS n,
+         COALESCE(SUM(initial_value), 0)::numeric AS revenue
+       FROM vouchers
+       WHERE purchased_at::date = $1::date
+       GROUP BY COALESCE(payment_method, 'unknown')
+       ORDER BY revenue DESC`,
+      [date],
+    );
     res.json({
       date,
       totals: totals.rows[0],
@@ -71,6 +94,11 @@ router.get('/trading', async (req, res) => {
       top_treatments: top.rows,
       by_payment_method: byMethod.rows,
       by_source: bySource.rows,
+      voucher_sales: {
+        count:  voucherSales.rows[0].count,
+        total:  voucherSales.rows[0].total,
+        by_payment_method: voucherSalesByMethod.rows,
+      },
     });
   } catch (err) {
     console.error('[reports] trading', err);
