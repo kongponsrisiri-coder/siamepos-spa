@@ -141,6 +141,7 @@ router.post('/', async (req, res) => {
         `SELECT th.id, th.name
          FROM therapists th
          WHERE th.active = TRUE
+           AND th.role = 'therapist'
            AND th.id != $1
            AND NOT EXISTS (
              SELECT 1 FROM appointments a
@@ -282,6 +283,7 @@ router.put('/:id', async (req, res) => {
           `SELECT th.id, th.name
            FROM therapists th
            WHERE th.active = TRUE
+             AND th.role = 'therapist'
              AND th.id != $1
              AND NOT EXISTS (
                SELECT 1 FROM appointments a

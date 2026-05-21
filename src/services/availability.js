@@ -78,10 +78,12 @@ async function computeAvailability({ treatment_id, date, therapist_id }) {
   // day_of_week: 0=Sun … 6=Sat (matches JS Date.getDay())
   const dayOfWeek = new Date(date + 'T12:00:00').getDay();
 
-  // Fetch therapists
+  // Fetch therapists. Only role='therapist' is considered for slot
+  // availability — admins, managers and reception are staff but they
+  // don't deliver treatments, so we never auto-assign them.
   const therapistsRes = therapist_id
-    ? await pool.query('SELECT id FROM therapists WHERE id = $1 AND active = TRUE', [therapist_id])
-    : await pool.query('SELECT id FROM therapists WHERE active = TRUE');
+    ? await pool.query(`SELECT id FROM therapists WHERE id = $1 AND active = TRUE AND role = 'therapist'`, [therapist_id])
+    : await pool.query(`SELECT id FROM therapists WHERE active = TRUE AND role = 'therapist'`);
   const allTherapists = therapistsRes.rows.map((r) => r.id);
   if (!allTherapists.length) return [];
 

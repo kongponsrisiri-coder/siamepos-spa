@@ -28,12 +28,14 @@ router.get('/treatments', async (_req, res) => {
 
 // GET /api/widget/therapists — public list (active only).
 // Returns the bare minimum the customer needs to pick a therapist.
+// Filters to role='therapist' so the public widget never shows admin /
+// manager / reception staff as bookable practitioners.
 router.get('/therapists', async (_req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, name, specialisms, photo_url
        FROM therapists
-       WHERE active = TRUE
+       WHERE active = TRUE AND role = 'therapist'
        ORDER BY name`,
     );
     res.json({ therapists: rows });
