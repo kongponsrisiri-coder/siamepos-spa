@@ -87,7 +87,7 @@ function apptStyle(a) {
   return STATUS_STYLE[a.status] || STATUS_STYLE.booked;
 }
 // Selected-block highlight colours — navy shades so they feel on-brand
-const COL_COLORS = ['#1e3a6e','#2a4f8f','#142952','#1a3d7a','#243d6b','#1e4a8a'];
+const COL_COLORS = ['#0D1B3E','#1A2F6B','#071028','#0f2456','#162e5c','#0e2260'];
 
 function toLocalMins(iso) { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); }
 
@@ -181,7 +181,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
       <div style={{ minWidth: LBL_W + columns.length * COL_W, flex: 1, position: 'relative', overflowY: 'hidden' }}>
 
         {/* Header */}
-        <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 20, background: '#1e3a6e' }}>
+        <div style={{ display: 'flex', position: 'sticky', top: 0, zIndex: 20, background: '#0D1B3E', boxShadow: '0 2px 8px rgba(0,0,0,0.25)' }}>
           <div style={{ width: LBL_W, flexShrink: 0 }} />
           {columns.map((col, ci) => {
             const activeAppts = col.appts.filter(a => !['cancelled','no_show'].includes(a.status));
@@ -216,7 +216,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                 {/* Grip + name row */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                   <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', letterSpacing: '-1px' }}>⠿</span>
-                  <span style={{ fontWeight: 700, fontSize: 13, color: col.isOff ? 'rgba(255,255,255,0.6)' : 'white' }}>{col.name}</span>
+                  <span style={{ fontWeight: 800, fontSize: 14, color: col.isOff ? 'rgba(255,255,255,0.5)' : 'white', letterSpacing: '0.01em' }}>{col.name}</span>
                 </div>
                 {/* Appt count */}
                 <div style={{ fontSize: 11, marginTop: 1, color: col.isOff ? 'rgba(255,200,100,0.55)' : '#f5c07a' }}>
@@ -604,7 +604,7 @@ export default function AppointmentScreen() {
             />
             {/* Action bar when an appointment is selected */}
             {selected && (
-              <div style={{ background: '#1e3a6e', color: 'white', padding: '11px 16px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+              <div style={{ background: '#0D1B3E', color: 'white', padding: '11px 16px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{selected.client_name || 'Walk-in'} — {selected.treatment_name}</div>
                   <div style={{ fontSize: 12, color: '#C9A84C' }}>
@@ -631,7 +631,7 @@ export default function AppointmentScreen() {
                     </>
                   )}
                   {selected.status === 'in_progress' && (
-                    <button style={{ background: '#C9A84C', color: '#1e3a6e', border: 'none', borderRadius: 7, padding: '7px 18px', fontWeight: 700, cursor: 'pointer' }}
+                    <button style={{ background: '#C9A84C', color: '#0D1B3E', border: 'none', borderRadius: 7, padding: '7px 18px', fontWeight: 700, cursor: 'pointer' }}
                       onClick={() => startCheckout(selected)}>🧾 Checkout</button>
                   )}
                   <button onClick={() => setSelected(null)} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.3)', color: 'white', borderRadius: 7, padding: '7px 12px', cursor: 'pointer' }}>✕</button>
