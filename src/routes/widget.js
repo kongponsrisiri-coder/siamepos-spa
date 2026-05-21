@@ -31,7 +31,7 @@ router.get('/treatments', async (_req, res) => {
 router.get('/therapists', async (_req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, name, specialisms
+      `SELECT id, name, specialisms, photo_url
        FROM therapists
        WHERE active = TRUE
        ORDER BY name`,

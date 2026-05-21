@@ -38,6 +38,7 @@ export default function TherapistSection() {
       name: editing.name,
       role: editing.role || 'therapist',
       specialisms: editing.specialisms ?? null,
+      photo_url: editing.photo_url ?? null,
       active: editing.active !== false,
     };
     if (editing.pin) body.pin = String(editing.pin);
@@ -105,6 +106,21 @@ export default function TherapistSection() {
                   placeholder="e.g. Deep tissue, Hot stone"
                   onChange={(e) => setEdit({ ...editing, specialisms: e.target.value })}
                 />
+              </div>
+              <div>
+                <label>Photo URL <span className="muted" style={{ fontSize: 12 }}>(square headshot, shown on the widget + demo site)</span></label>
+                <input
+                  value={editing.photo_url || ''}
+                  placeholder="https://images.unsplash.com/photo-…"
+                  onChange={(e) => setEdit({ ...editing, photo_url: e.target.value })}
+                />
+                {editing.photo_url && (
+                  <img
+                    src={editing.photo_url}
+                    alt=""
+                    style={{ width: 60, height: 60, borderRadius: '50%', objectFit: 'cover', marginTop: 6, border: '1px solid var(--border)' }}
+                  />
+                )}
               </div>
               {editing.id && (
                 <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

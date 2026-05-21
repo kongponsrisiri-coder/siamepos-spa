@@ -9,7 +9,7 @@ const router = express.Router();
 router.get('/', async (_req, res) => {
   try {
     const { rows } = await pool.query(
-      'SELECT id, name, role, specialisms, active FROM therapists WHERE active = TRUE ORDER BY name',
+      'SELECT id, name, role, specialisms, photo_url, active FROM therapists WHERE active = TRUE ORDER BY name',
     );
     res.json({ therapists: rows });
   } catch (err) {
@@ -18,16 +18,16 @@ router.get('/', async (_req, res) => {
   }
 });
 
-// POST /api/therapists  body: { name, pin, role, specialisms? }
+// POST /api/therapists  body: { name, pin, role, specialisms?, photo_url? }
 router.post('/', requireRole('admin', 'manager'), async (req, res) => {
-  const { name, pin, role, specialisms } = req.body || {};
+  const { name, pin, role, specialisms, photo_url } = req.body || {};
   if (!name || !pin) return res.status(400).json({ error: 'name + pin required' });
   try {
     const hash = bcrypt.hashSync(String(pin), 10);
     const { rows } = await pool.query(
-      `INSERT INTO therapists (name, pin, role, specialisms) VALUES ($1, $2, $3, $4)
-       RETURNING id, name, role, specialisms, active`,
-      [name, hash, role || 'therapist', specialisms || null],
+      `INSERT INTO therapists (name, pin, role, specialisms, photo_url) VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, name, role, specialisms, photo_url, active`,
+      [name, hash, role || 'therapist', specialisms || null, photo_url || null],
     );
     res.status(201).json({ therapist: rows[0] });
   } catch (err) {
@@ -36,10 +36,10 @@ router.post('/', requireRole('admin', 'manager'), async (req, res) => {
   }
 });
 
-// PUT /api/therapists/:id  body: { name?, pin?, role?, specialisms?, active? }
+// PUT /api/therapists/:id  body: { name?, pin?, role?, specialisms?, photo_url?, active? }
 router.put('/:id', requireRole('admin', 'manager'), async (req, res) => {
   const id = Number(req.params.id);
-  const { name, pin, role, specialisms, active } = req.body || {};
+  const { name, pin, role, specialisms, photo_url, active } = req.body || {};
   const pinHash = pin ? bcrypt.hashSync(String(pin), 10) : null;
   try {
     const { rows } = await pool.query(
@@ -48,10 +48,11 @@ router.put('/:id', requireRole('admin', 'manager'), async (req, res) => {
          pin         = COALESCE($3, pin),
          role        = COALESCE($4, role),
          specialisms = COALESCE($5, specialisms),
-         active      = COALESCE($6, active)
+         photo_url   = COALESCE($6, photo_url),
+         active      = COALESCE($7, active)
        WHERE id = $1
-       RETURNING id, name, role, specialisms, active`,
-      [id, name, pinHash, role, specialisms, active],
+       RETURNING id, name, role, specialisms, photo_url, active`,
+      [id, name, pinHash, role, specialisms, photo_url, active],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     res.json({ therapist: rows[0] });

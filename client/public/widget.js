@@ -127,7 +127,15 @@
 
   var root, modal;
 
-  function open() {
+  // open(opts?)
+  //   opts.treatmentId  — pre-select a treatment (advances past step 1)
+  //   opts.therapistId  — pre-select a therapist (advances past step 2 IF a
+  //                       treatment is also pre-set; otherwise the therapist
+  //                       is silently held until the user picks a treatment)
+  // The auto-mount button passes a MouseEvent here, so anything that isn't
+  // a plain options object is ignored.
+  function open(opts) {
+    var pre = (opts && typeof opts === 'object' && !opts.target && !opts.nativeEvent) ? opts : {};
     injectStyle();
     if (root) { root.style.display = 'flex'; return; }
     root = document.createElement('div');
@@ -138,7 +146,15 @@
     root.appendChild(modal);
     document.body.appendChild(root);
     state = freshState();
+
+    if (pre.treatmentId) state.treatmentId = Number(pre.treatmentId);
+    if (pre.therapistId) state.therapistId = Number(pre.therapistId);
+    if (state.treatmentId && state.therapistId) state.step = 3;
+    else if (state.treatmentId)                  state.step = 2;
+
     render();
+    if (state.step === 3 && state.treatmentId) loadSlots();
+
     // Kick off the parallel data loads — both are tiny.
     api('/treatments').then(function (r) {
       state.treatments = r.treatments;
@@ -310,11 +326,14 @@
     } else {
       state.therapists.forEach(function (t) {
         var selected = state.therapistId === t.id;
+        var avatar = t.photo_url
+          ? h('img', { className: 'ses-avatar', src: t.photo_url, alt: '', style: 'object-fit:cover' }, [])
+          : h('div', { className: 'ses-avatar' }, [initialsOf(t.name)]);
         wrap.appendChild(h('div', {
           className: 'ses-card' + (selected ? ' selected' : ''),
           onClick: function () { state.therapistId = t.id; render(); },
         }, [
-          h('div', { className: 'ses-avatar' }, [initialsOf(t.name)]),
+          avatar,
           h('div', { style: 'flex:1' }, [
             h('div', { style: 'font-weight:600' }, [t.name]),
             h('div', { className: 'ses-muted' }, [t.specialisms || 'Available']),

@@ -1,0 +1,16 @@
+# Baan Siam Spa demo site — Netlify config.
+# Deploy notes are in README.md alongside this file.
+
+[build]
+  base = "spa-epos/mockup-website"
+  publish = "."
+
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"

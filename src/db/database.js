@@ -225,6 +225,7 @@ async function initSchema() {
   // ── therapists new columns (booking-widget picker) ──────────────────────
   await pool.query(`
     ALTER TABLE therapists ADD COLUMN IF NOT EXISTS specialisms TEXT;
+    ALTER TABLE therapists ADD COLUMN IF NOT EXISTS photo_url   TEXT;
   `);
 
   // ── SPA-ROTA-001 — therapist rota overrides ─────────────────────────────
