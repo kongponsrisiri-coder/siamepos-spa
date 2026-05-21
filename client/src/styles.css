@@ -370,7 +370,18 @@ tbody tr:hover td { background: var(--navy-muted); }
 
 /* Admin sidebar — slide in as drawer on mobile */
 @media (max-width: 768px) {
-  .admin-layout { flex-direction: column !important; }
+  /* On mobile, drop the fixed viewport-height container and let the
+     page scroll naturally — sidebar becomes a horizontal strip at the
+     top (sticky below the top nav) and content flows below. The
+     bottom-nav clearance is handled by the .app-main rule further down
+     in the file. */
+  .admin-layout {
+    flex-direction: column !important;
+    height: auto !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    width: 100% !important;
+  }
   .admin-sidebar {
     width: 100% !important;
     min-width: unset !important;
@@ -382,6 +393,11 @@ tbody tr:hover td { background: var(--navy-muted); }
     border-bottom: 1px solid rgba(201,168,76,0.2);
     height: 48px;
     align-items: stretch;
+    /* Stick the section-switcher under the top nav so the operator
+       can always change tab without scrolling back up. */
+    position: sticky !important;
+    top: 0;
+    z-index: 20;
   }
   .admin-sidebar .admin-panel-label  { display: none; }
   .admin-sidebar .admin-group-label  { display: none; }

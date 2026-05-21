@@ -186,7 +186,10 @@ function AppShell({ children }) {
         maxWidth: 1280,
         margin: '0 auto',
         width: '100%',
-        overflow: 'clip',
+        // No overflow constraint here — `overflow: clip` was blocking
+        // every page that doesn't manage its own scroll container.
+        // Mobile padding-bottom for the fixed bottom-nav is set via
+        // .app-main media query in styles.css.
       }}>
         {children}
       </main>

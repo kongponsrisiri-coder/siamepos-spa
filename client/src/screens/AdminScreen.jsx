@@ -81,9 +81,13 @@ export default function AdminScreen() {
   return (
     <div className="admin-layout" style={{
       display: 'flex',
-      height: 'calc(100vh - 52px)',
-      margin: '-20px -20px 0',
-      width: 'calc(100% + 40px)',
+      // 100dvh (dynamic viewport) so iOS Safari's hideable address bar
+      // doesn't push content below the visible area. The .admin-layout
+      // media query in styles.css adjusts further on mobile to leave
+      // room for the fixed bottom-nav.
+      height: 'calc(100dvh - 52px)',
+      margin: '-16px -16px 0',
+      width: 'calc(100% + 32px)',
       overflow: 'hidden',
     }}>
 
