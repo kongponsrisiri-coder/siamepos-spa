@@ -126,7 +126,12 @@ export default function CampaignsSection() {
 
   return (
     <div className="col" style={{ maxWidth: 880 }}>
-      <h2 style={{ margin: 0 }}>📧 Email Campaigns</h2>
+      <div className="section-header">
+        <div>
+          <h2>Campaigns</h2>
+          <div className="sub">Email marketing to opted-in client segments via Brevo</div>
+        </div>
+      </div>
 
       {/* ── Audience ────────────────────────────────────────────────── */}
       <div className="card col">

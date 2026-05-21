@@ -31,7 +31,14 @@ export default function BookingSettingsSection() {
   }
 
   return (
-    <div className="card col">
+    <div className="col">
+      <div className="section-header">
+        <div>
+          <h2>Booking Settings</h2>
+          <div className="sub">Configure the public booking widget and spa behaviour</div>
+        </div>
+      </div>
+      <div className="card col">
       <h3 style={{ margin: 0 }}>Booking & spa settings</h3>
       {KEYS.map((row) => (
         <SettingRow
@@ -42,6 +49,7 @@ export default function BookingSettingsSection() {
           onSave={(v) => save(row.k, v)}
         />
       ))}
+      </div>
     </div>
   );
 }

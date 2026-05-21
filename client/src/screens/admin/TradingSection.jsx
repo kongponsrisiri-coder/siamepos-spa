@@ -22,26 +22,32 @@ export default function TradingSection() {
   if (!data) return <div className="muted">{loading ? 'Loading…' : ''}</div>;
 
   const stat = (label, value) => (
-    <div className="card" style={{ flex: 1, textAlign: 'center', minWidth: 140 }}>
-      <div className="muted" style={{ fontSize: 12 }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 600, marginTop: 4 }}>{value}</div>
+    <div className="stat-card">
+      <div className="stat-label">{label}</div>
+      <div className="stat-value">{value}</div>
     </div>
   );
 
   return (
     <div className="col">
-      <div className="row">
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 180 }} />
-        <button onClick={() => setDate(todayISO())}>Today</button>
+      <div className="section-header">
+        <div>
+          <h2>Trading</h2>
+          <div className="sub">Daily revenue and appointment summary</div>
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 170 }} />
+          <button onClick={() => setDate(todayISO())}>Today</button>
+        </div>
       </div>
 
-      <div className="row" style={{ flexWrap: 'wrap' }}>
-        {stat('Revenue',     fmtMoney(data.totals.revenue))}
-        {stat('Tips',        fmtMoney(data.totals.tips))}
-        {stat('Bills paid',  data.totals.bill_count)}
+      <div className="row" style={{ flexWrap: 'wrap', gap: 10 }}>
+        {stat('Revenue',      fmtMoney(data.totals.revenue))}
+        {stat('Tips',         fmtMoney(data.totals.tips))}
+        {stat('Bills paid',   data.totals.bill_count)}
         {stat('Appointments', data.appointments.appt_count)}
-        {stat('No-shows',    data.appointments.no_shows)}
-        {stat('Cancelled',   data.appointments.cancelled)}
+        {stat('No-shows',     data.appointments.no_shows)}
+        {stat('Cancelled',    data.appointments.cancelled)}
       </div>
 
       <div className="card">

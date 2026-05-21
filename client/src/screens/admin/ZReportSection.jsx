@@ -30,11 +30,16 @@ export default function ZReportSection() {
 
   return (
     <div className="col">
-      <div className="row">
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 180 }} />
-        <button onClick={() => setDate(todayISO())}>Today</button>
+      <div className="section-header">
+        <div>
+          <h2>Z Report</h2>
+          <div className="sub">End-of-day revenue summary</div>
+        </div>
+        <div className="row" style={{ gap: 8 }}>
+          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 170 }} />
+          <button onClick={() => setDate(todayISO())}>Today</button>
+        </div>
       </div>
-
       <div className="card col">
         <h3 style={{ margin: 0 }}>Z Report — {date}</h3>
         <div className="row" style={{ justifyContent: 'space-between' }}><span>Subtotal</span><span>{fmtMoney(data.totals.subtotal)}</span></div>

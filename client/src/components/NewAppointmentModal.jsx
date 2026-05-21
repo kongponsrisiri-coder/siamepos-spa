@@ -246,7 +246,7 @@ export default function NewAppointmentModal({
           <div>
             <label>Client</label>
             {clientId ? (
-              <div className="row" style={{ justifyContent: 'space-between', background: '#f0f9ff', padding: '8px 12px', borderRadius: 8, border: '1px solid #bae6fd' }}>
+              <div className="row" style={{ justifyContent: 'space-between', background: 'var(--gold-light)', padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(201,168,76,0.4)' }}>
                 <span style={{ fontWeight: 600 }}>{clientName || `Client #${clientId}`}</span>
                 <button style={{ fontSize: 12 }} onClick={() => { setClientId(null); setClientName(''); setClientQuery(''); }}>Change</button>
               </div>
@@ -262,7 +262,7 @@ export default function NewAppointmentModal({
                     {clients.map(c => (
                       <div key={c.id} onClick={() => { setClientId(c.id); setClientName(c.name); setClientQuery(''); setClients([]); }}
                         style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: 14 }}
-                        onMouseEnter={e => e.currentTarget.style.background = '#f0f9ff'}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--navy-muted)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'white'}
                       >{c.name}{c.phone && <span className="muted"> · {c.phone}</span>}</div>
                     ))}

@@ -51,6 +51,12 @@ export default function TreatmentMenuSection() {
 
   return (
     <div className="col">
+      <div className="section-header">
+        <div>
+          <h2>Treatments</h2>
+          <div className="sub">Manage your treatment menu, categories and pricing</div>
+        </div>
+      </div>
       <div className="card col">
         <h3 style={{ margin: 0 }}>Categories</h3>
         <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>

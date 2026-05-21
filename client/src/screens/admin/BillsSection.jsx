@@ -94,11 +94,14 @@ export default function BillsSection() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
 
       {/* Heading — 5 taps opens unlock prompt */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <h2
-          onClick={handleHeadingTap}
-          style={{ margin: 0, fontSize: 20, cursor: 'default', userSelect: 'none' }}
-        >🧾 Bill Records</h2>
+      <div className="section-header">
+        <div>
+          <h2
+            onClick={handleHeadingTap}
+            style={{ margin: 0, cursor: 'default', userSelect: 'none' }}
+          >Bills</h2>
+          <div className="sub">Paid bill history · tap heading 5× to unlock manager delete</div>
+        </div>
 
         {/* Countdown pill — only visible when unlocked */}
         {isUnlocked && (

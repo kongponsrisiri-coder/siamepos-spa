@@ -139,6 +139,12 @@ export default function ClientsSection() {
 
   return (
     <div className="col">
+      <div className="section-header">
+        <div>
+          <h2>Clients</h2>
+          <div className="sub">CRM — visit history, consent and status segmentation</div>
+        </div>
+      </div>
       {/* ── Status tiles ───────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
         {['VIP', 'Regular', 'New', 'Lapsed'].map((s) => {

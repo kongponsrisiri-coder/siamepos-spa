@@ -35,6 +35,12 @@ export default function ReportsSection() {
 
   return (
     <div className="col">
+      <div className="section-header">
+        <div>
+          <h2>Reports</h2>
+          <div className="sub">Therapist performance and trading analysis</div>
+        </div>
+      </div>
       <div className="row">
         <div><label>From</label><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
         <div><label>To</label><input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>

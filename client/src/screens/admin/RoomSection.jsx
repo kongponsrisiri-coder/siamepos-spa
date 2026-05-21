@@ -28,6 +28,12 @@ export default function RoomSection() {
 
   return (
     <div className="col">
+      <div className="section-header">
+        <div>
+          <h2>Rooms</h2>
+          <div className="sub">Treatment rooms and beds available for scheduling</div>
+        </div>
+      </div>
       <div className="card col">
         <h3 style={{ margin: 0 }}>Rooms / Beds</h3>
         {rooms.length === 0 ? <div className="muted">No rooms yet.</div> : (

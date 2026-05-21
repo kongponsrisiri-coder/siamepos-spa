@@ -39,10 +39,10 @@ export default function VouchersSection() {
   return (
     <div className="col" style={{ gap: 16 }}>
       {/* Header */}
-      <div className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+      <div className="section-header">
         <div>
-          <h2 style={{ margin: 0 }}>🎁 Gift Vouchers</h2>
-          <div className="muted" style={{ fontSize: 13 }}>
+          <h2>Vouchers</h2>
+          <div className="sub">
             {vouchers.filter(v => v.status === 'active').length} active · {fmtMoney(totalActive)} outstanding balance
           </div>
         </div>

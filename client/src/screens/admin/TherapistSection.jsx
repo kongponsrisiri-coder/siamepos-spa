@@ -50,6 +50,12 @@ export default function TherapistSection() {
 
   return (
     <div className="col">
+      <div className="section-header">
+        <div>
+          <h2>Therapists</h2>
+          <div className="sub">Staff profiles, PINs and availability schedules</div>
+        </div>
+      </div>
       <div className="card col">
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <h3 style={{ margin: 0 }}>Staff</h3>

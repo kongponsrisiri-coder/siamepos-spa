@@ -326,8 +326,11 @@ export default function RotaSection() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 20 }}>🗓 Therapist Rota</h2>
+      <div className="section-header">
+        <div>
+          <h2>Rota</h2>
+          <div className="sub">Weekly schedules and date-specific overrides</div>
+        </div>
         <div style={{ display: 'flex', gap: 6 }}>
           <button className={tab === 'weekly'    ? 'primary' : ''} onClick={() => setTab('weekly')}    style={{ fontSize: 13 }}>Weekly Schedule</button>
           <button className={tab === 'overrides' ? 'primary' : ''} onClick={() => setTab('overrides')} style={{ fontSize: 13 }}>Override Calendar</button>

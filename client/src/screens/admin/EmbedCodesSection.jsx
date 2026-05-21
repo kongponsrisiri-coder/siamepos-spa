@@ -30,6 +30,12 @@ export default function EmbedCodesSection() {
 
   return (
     <div className="col">
+      <div className="section-header">
+        <div>
+          <h2>Embed Codes</h2>
+          <div className="sub">Add the booking or takeaway widget to your website</div>
+        </div>
+      </div>
       <div className="card col">
         <h3 style={{ margin: 0 }}>Public booking widget — embed codes</h3>
         <p className="muted" style={{ margin: 0 }}>

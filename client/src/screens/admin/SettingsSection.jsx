@@ -27,6 +27,12 @@ export default function SettingsSection() {
 
   return (
     <div className="col">
+      <div className="section-header">
+        <div>
+          <h2>Settings</h2>
+          <div className="sub">Spa identity and system configuration</div>
+        </div>
+      </div>
       <div className="card col">
         <h3 style={{ margin: 0 }}>Spa identity</h3>
         {KEYS.map((row) => (

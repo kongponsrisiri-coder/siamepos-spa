@@ -124,6 +124,31 @@ button.danger:hover:not(:disabled) {
   color: white;
 }
 
+button.gold {
+  background: var(--gold);
+  color: var(--navy-dark);
+  border-color: var(--gold);
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
+}
+button.gold:hover:not(:disabled) {
+  background: var(--gold-2);
+  border-color: var(--gold-2);
+  color: var(--navy-dark);
+  box-shadow: var(--shadow-md);
+}
+
+button.outline {
+  background: transparent;
+  color: var(--navy);
+  border-color: var(--navy);
+  font-weight: 500;
+}
+button.outline:hover:not(:disabled) {
+  background: var(--navy-muted);
+  color: var(--navy);
+}
+
 /* ── Forms ───────────────────────────────────────────────────────── */
 input, select, textarea {
   font-family: 'Inter', sans-serif;
@@ -200,6 +225,110 @@ label {
 .status-completed   { background: #e0e7ff; color: #3730a3; }
 .status-cancelled   { background: #fee2e2; color: #991b1b; }
 .status-no_show     { background: #f3f4f6; color: #4b5563; }
+
+/* ── Tables ──────────────────────────────────────────────────────── */
+table { border-collapse: collapse; width: 100%; }
+
+thead th {
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 2px solid var(--border);
+}
+
+tbody td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13.5px;
+  vertical-align: middle;
+}
+
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: var(--navy-muted); }
+
+/* ── Stat cards ──────────────────────────────────────────────────── */
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--navy);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  flex: 1;
+  min-width: 130px;
+}
+.stat-card .stat-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.stat-card .stat-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--navy);
+  margin-top: 6px;
+  font-family: 'Inter', sans-serif;
+  line-height: 1;
+}
+
+/* ── Section page header ─────────────────────────────────────────── */
+.section-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 4px;
+}
+.section-header h2 {
+  font-size: 20px;
+  color: var(--navy);
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 600;
+}
+.section-header .sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+/* ── Tab strip (e.g. client profile tabs) ────────────────────────── */
+.tab-strip {
+  display: flex;
+  gap: 2px;
+  border-bottom: 2px solid var(--border);
+  margin-bottom: 2px;
+}
+.tab-strip button {
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  padding: 9px 14px;
+  font-size: 13.5px;
+  color: var(--text-2);
+  margin-bottom: -2px;
+  transition: color 0.12s;
+}
+.tab-strip button:hover:not(:disabled) {
+  background: var(--navy-muted);
+  color: var(--navy);
+  border-color: transparent;
+}
+.tab-strip button.active {
+  color: var(--navy);
+  border-bottom-color: var(--gold);
+  font-weight: 600;
+  background: transparent;
+}
 
 /* ── Scrollbar ───────────────────────────────────────────────────── */
 ::-webkit-scrollbar       { width: 5px; height: 5px; }

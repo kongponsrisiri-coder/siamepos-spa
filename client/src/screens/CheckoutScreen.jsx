@@ -178,7 +178,7 @@ export default function CheckoutScreen() {
                 <button onClick={() => pay('cash')} disabled={busy} style={{ flex: 1, padding: 14, minWidth: 80 }}>Cash</button>
                 <button onClick={() => pay('card')} disabled={busy} className="primary" style={{ flex: 1, padding: 14, minWidth: 80 }}>Card</button>
                 <button onClick={() => pay('split')} disabled={busy} style={{ flex: 1, padding: 14, minWidth: 80 }}>Split</button>
-                <button onClick={() => setShowVoucher(v => !v)} disabled={busy} style={{ flex: 1, padding: 14, minWidth: 80, background: showVoucher ? '#C9A84C' : undefined, color: showVoucher ? '#1e3a6e' : undefined, fontWeight: showVoucher ? 700 : undefined }}>🎁 Voucher</button>
+                <button onClick={() => setShowVoucher(v => !v)} disabled={busy} className={showVoucher ? 'gold' : ''} style={{ flex: 1, padding: 14, minWidth: 80 }}>🎁 Voucher</button>
                 <button
                   onClick={() => pay('treatwell')}
                   disabled={busy}
@@ -254,10 +254,10 @@ export default function CheckoutScreen() {
                       </div>
                     )}
                     <button
-                      className="primary"
+                      className="gold"
                       onClick={payWithVoucher}
                       disabled={busy || treatmentMismatch}
-                      style={{ width: '100%', padding: 14, marginTop: 8, background: '#C9A84C', color: '#1e3a6e', fontWeight: 700 }}
+                      style={{ width: '100%', padding: 14, marginTop: 8 }}
                     >
                       {busy ? 'Processing…'
                         : isSessions
