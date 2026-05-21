@@ -5,6 +5,17 @@ import MedicalQuestionnaireForm from '../components/MedicalQuestionnaireForm.jsx
 
 function fmtDate(d) { return d ? new Date(d).toLocaleDateString('en-GB') : '—'; }
 
+// Mirror the timeline's payment-method palette so history reads the
+// same way (Cash orange · Card pink · Voucher green · Treatwell yellow).
+const PAYMENT_COLOR = {
+  cash:      '#f97316',
+  card:      '#ec4899',
+  voucher:   '#16a34a',
+  treatwell: '#eab308',
+  split:     '#7c3aed',
+};
+function pmColor(method) { return PAYMENT_COLOR[method] || '#6b7280'; }
+
 export default function ClientProfileScreen() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -125,7 +136,7 @@ export default function ClientProfileScreen() {
                     {a.therapist_name && <span> · <span style={{ color: '#1e3a6e', fontWeight: 500 }}>👤 {a.therapist_name}</span></span>}
                   </div>
                   {a.payment_method && (
-                    <div style={{ fontSize: 12, marginTop: 3, color: a.payment_method === 'cash' ? '#16a34a' : a.payment_method === 'card' ? '#2563eb' : '#6b7280' }}>
+                    <div style={{ fontSize: 12, marginTop: 3, color: pmColor(a.payment_method), fontWeight: 600 }}>
                       💳 {a.payment_method.charAt(0).toUpperCase() + a.payment_method.slice(1)}
                       {a.bill_total ? ` · £${Number(a.bill_total).toFixed(2)}` : ''}
                     </div>

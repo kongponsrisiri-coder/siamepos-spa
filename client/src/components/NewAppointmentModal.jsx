@@ -9,7 +9,13 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
-const STATUSES = ['booked', 'in_progress', 'completed', 'cancelled', 'no_show'];
+// Cancellation + no-show are handled by the dedicated "Cancel" button on
+// the timeline — and the timeline filters those rows out anyway — so the
+// edit-mode dropdown only exposes the "live" statuses. If an appointment
+// happens to already be in cancelled / no_show (legacy data, restored
+// row, etc.) we still surface that value as a one-off option so it
+// renders correctly until the user moves it back to a live state.
+const STATUSES = ['booked', 'in_progress', 'completed'];
 
 function pad(n) { return String(n).padStart(2, '0'); }
 
@@ -307,7 +313,9 @@ export default function NewAppointmentModal({
             <div>
               <label>Status</label>
               <select value={status} onChange={e => setStatus(e.target.value)}>
-                {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                {[...STATUSES, ...(STATUSES.includes(status) ? [] : [status])].map(s => (
+                  <option key={s} value={s}>{s.replace('_', ' ')}</option>
+                ))}
               </select>
             </div>
           )}

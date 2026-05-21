@@ -40,8 +40,18 @@ function getWorkHours(therapistId, dateStr, weeklyRota, overrides) {
   return null;
 }
 
-// Payment method → colour
-const PAYMENT_COLOR = { cash: '#16a34a', card: '#2563eb', voucher: '#7c3aed', other: '#6b7280' };
+// Payment method → colour. Korakot's chosen palette:
+//   Cash → orange · Card → pink · Voucher → green · Treatwell → yellow
+// Split kept on violet so it stays visually distinct from the four named
+// methods; `other` is the grey fallback for legacy / unknown values.
+const PAYMENT_COLOR = {
+  cash:      '#f97316',
+  card:      '#ec4899',
+  voucher:   '#16a34a',
+  treatwell: '#eab308',
+  split:     '#7c3aed',
+  other:     '#6b7280',
+};
 function pmColor(method) { return PAYMENT_COLOR[method] || PAYMENT_COLOR.other; }
 function pmLabel(method) { return method ? method.charAt(0).toUpperCase() + method.slice(1) : ''; }
 
@@ -60,12 +70,15 @@ const STATUS_STYLE = {
   cancelled:   { bg: '#f3f4f6', border: '#9ca3af', text: '#4b5563' },
   no_show:     { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' },
 };
-// Completed appointments use payment method colour instead of generic purple
+// Completed appointments use payment method colour instead of generic purple.
+// Tints match PAYMENT_COLOR above (Korakot's mapping):
+//   Cash → orange · Card → pink · Voucher → green · Treatwell → yellow
 const PAYMENT_STYLE = {
-  cash:    { bg: '#dcfce7', border: '#16a34a', text: '#14532d' },
-  card:    { bg: '#dbeafe', border: '#2563eb', text: '#1e40af' },
-  voucher: { bg: '#ede9fe', border: '#7c3aed', text: '#4c1d95' },
-  split:   { bg: '#fef9c3', border: '#ca8a04', text: '#713f12' },
+  cash:      { bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
+  card:      { bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
+  voucher:   { bg: '#dcfce7', border: '#16a34a', text: '#14532d' },
+  treatwell: { bg: '#fef9c3', border: '#eab308', text: '#854d0e' },
+  split:     { bg: '#ede9fe', border: '#7c3aed', text: '#4c1d95' },
 };
 function apptStyle(a) {
   if (a.status === 'completed' && a.payment_method) {
