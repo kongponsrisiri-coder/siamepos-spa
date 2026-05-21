@@ -2,6 +2,7 @@
 const express = require('express');
 const { pool } = require('../db/database');
 const { requireRole } = require('../middleware/auth');
+const { sendVoucherGiftEmail } = require('../services/emailService');
 
 const router = express.Router();
 
@@ -110,7 +111,7 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   const {
     value, purchased_by, purchased_for, client_id, expires_at, notes, sold_by,
-    voucher_type, total_sessions, treatment_id,
+    voucher_type, total_sessions, treatment_id, recipient_email,
   } = req.body || {};
   const isSessions = voucher_type === 'sessions';
   if (!value || Number(value) <= 0) return res.status(400).json({ error: 'value required' });
@@ -140,8 +141,9 @@ router.post('/', async (req, res) => {
       `INSERT INTO vouchers
          (code, initial_value, remaining_value, purchased_by, purchased_for,
           client_id, expires_at, notes, sold_by,
-          voucher_type, total_sessions, sessions_remaining, treatment_id)
-       VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11) RETURNING *`,
+          voucher_type, total_sessions, sessions_remaining, treatment_id,
+          recipient_email)
+       VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$12) RETURNING *`,
       [
         code, Number(value), purchased_by || null, purchased_for || null,
         client_id || null, expires_at || null, notes || null,
@@ -149,9 +151,28 @@ router.post('/', async (req, res) => {
         isSessions ? 'sessions' : 'monetary',
         isSessions ? Number(total_sessions) : null,
         isSessions ? (treatment_id ? Number(treatment_id) : null) : null,
+        recipient_email || null,
       ],
     );
-    res.status(201).json({ voucher: rows[0] });
+    const voucher = rows[0];
+
+    // Fire-and-forget gift email. If BREVO_API_KEY isn't set the helper
+    // returns { skipped:true } without throwing; recipient_email is left
+    // on the row so the operator can resend later.
+    if (voucher.recipient_email) {
+      const tName = voucher.treatment_id
+        ? (await pool.query('SELECT name FROM treatments WHERE id = $1', [voucher.treatment_id])).rows[0]?.name
+        : null;
+      sendVoucherGiftEmail({ voucher, treatment_name: tName })
+        .then(async (r) => {
+          if (r && r.ok) {
+            await pool.query('UPDATE vouchers SET email_sent_at = now() WHERE id = $1', [voucher.id]);
+          }
+        })
+        .catch((e) => console.error('[vouchers] gift email failed', e));
+    }
+
+    res.status(201).json({ voucher });
   } catch (err) {
     console.error('[vouchers] create', err);
     res.status(500).json({ error: 'server error' });

@@ -156,6 +156,7 @@ function CreateVoucherModal({ onClose, onSaved }) {
   const [treatments, setTreatments] = useState([]);
   const [purchasedBy, setPurchasedBy] = useState('');
   const [purchasedFor, setPurchasedFor] = useState('');
+  const [recipientEmail, setRecipientEmail] = useState('');
   const [expiresAt, setExpiresAt]   = useState('');
   const [notes, setNotes]           = useState('');
   const [busy, setBusy]             = useState(false);
@@ -194,6 +195,7 @@ function CreateVoucherModal({ onClose, onSaved }) {
         value: Number(value),
         purchased_by: purchasedBy.trim() || null,
         purchased_for: purchasedFor.trim() || null,
+        recipient_email: recipientEmail.trim() || null,
         expires_at: expiresAt || null,
         notes: notes.trim() || null,
       };
@@ -245,7 +247,11 @@ function CreateVoucherModal({ onClose, onSaved }) {
               {created.purchased_for && <div style={{ fontSize: 14, marginTop: 4, opacity: 0.8 }}>For {created.purchased_for}</div>}
               {created.expires_at && <div style={{ fontSize: 12, marginTop: 2, opacity: 0.65 }}>Expires {fmtDate(created.expires_at)}</div>}
             </div>
-            <div className="muted" style={{ fontSize: 13 }}>Hand this code to the customer. They present it at checkout to redeem.</div>
+            <div className="muted" style={{ fontSize: 13 }}>
+              {created.recipient_email
+                ? <>📧 Voucher emailed to <strong>{created.recipient_email}</strong>. Also hand them this code if they want a paper copy.</>
+                : 'Hand this code to the customer. They present it at checkout to redeem.'}
+            </div>
             <button className="primary" onClick={onSaved} style={{ width: '100%' }}>Done</button>
           </div>
         ) : (
@@ -332,6 +338,23 @@ function CreateVoucherModal({ onClose, onSaved }) {
                 <label>Gift for</label>
                 <input placeholder="Recipient's name" value={purchasedFor} onChange={e => setPurchasedFor(e.target.value)} />
               </div>
+            </div>
+
+            {/* Recipient email — if set, the voucher is auto-emailed to
+                them with the code + redemption details on save. */}
+            <div>
+              <label>
+                Recipient email
+                <span className="muted" style={{ fontSize: 12, fontWeight: 400, marginLeft: 8 }}>
+                  (optional — if set, we email the voucher to them on save)
+                </span>
+              </label>
+              <input
+                type="email"
+                placeholder="name@example.com"
+                value={recipientEmail}
+                onChange={e => setRecipientEmail(e.target.value)}
+              />
             </div>
 
             <div>
