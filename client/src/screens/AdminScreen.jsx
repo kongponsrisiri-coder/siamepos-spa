@@ -79,16 +79,16 @@ export default function AdminScreen() {
   const Current = SECTIONS[tab] || TradingSection;
 
   return (
-    <div style={{
+    <div className="admin-layout" style={{
       display: 'flex',
-      height: 'calc(100vh - 52px)',       /* 52px = TopNav height */
-      margin: '-20px -20px 0',            /* undo AppShell's 20px top + side padding */
-      width: 'calc(100% + 40px)',         /* stretch to fill the undone padding */
+      height: 'calc(100vh - 52px)',
+      margin: '-20px -20px 0',
+      width: 'calc(100% + 40px)',
       overflow: 'hidden',
     }}>
 
-      {/* ── Left Sidebar ────────────────────────────────────────── */}
-      <aside style={{
+      {/* ── Sidebar (left on desktop, horizontal bar on mobile) ── */}
+      <aside className="admin-sidebar" style={{
         width: 200,
         minWidth: 200,
         background: '#0D1B3E',
@@ -100,8 +100,7 @@ export default function AdminScreen() {
         overflowY: 'auto',
         boxShadow: '2px 0 12px rgba(14,28,55,0.22)',
       }}>
-        {/* Panel label */}
-        <div style={{
+        <div className="admin-panel-label" style={{
           color: '#C9A84C',
           fontWeight: 700,
           fontSize: 10,
@@ -114,10 +113,9 @@ export default function AdminScreen() {
         </div>
 
         {NAV.map((item, i) => {
-          // ── Group divider / label ──
           if (item.divider) {
             return (
-              <div key={`div-${i}`} style={{
+              <div key={`div-${i}`} className="admin-group-label" style={{
                 color: 'rgba(201,168,76,0.7)',
                 fontWeight: 700,
                 fontSize: 10,
@@ -133,11 +131,11 @@ export default function AdminScreen() {
             );
           }
 
-          // ── Nav item ──
           const active = tab === item.k;
           return (
             <button
               key={item.k}
+              data-active={active}
               onClick={() => setTab(item.k)}
               style={{
                 background: active ? '#C9A84C' : 'transparent',
@@ -154,19 +152,11 @@ export default function AdminScreen() {
                 transition: 'background 0.12s, color 0.12s',
                 width: '100%',
                 lineHeight: 1.3,
+                minHeight: 44,
+                WebkitTapHighlightColor: 'transparent',
               }}
-              onMouseEnter={e => {
-                if (!active) {
-                  e.currentTarget.style.background = 'rgba(255,255,255,0.12)';
-                  e.currentTarget.style.color = 'white';
-                }
-              }}
-              onMouseLeave={e => {
-                if (!active) {
-                  e.currentTarget.style.background = 'transparent';
-                  e.currentTarget.style.color = 'white';
-                }
-              }}
+              onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; } }}
+              onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; } }}
             >
               {item.label}
             </button>
@@ -175,7 +165,7 @@ export default function AdminScreen() {
       </aside>
 
       {/* ── Content pane ────────────────────────────────────────── */}
-      <main style={{
+      <main className="admin-content" style={{
         flex: 1,
         overflowY: 'auto',
         background: 'var(--bg)',

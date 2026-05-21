@@ -337,3 +337,66 @@ tbody tr:hover td { background: var(--navy-muted); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
+/* ── Mobile ──────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  /* Tighter padding on small screens */
+  .card  { padding: 12px; }
+  .col   { gap: 10px; }
+
+  /* Inputs: 16px prevents iOS auto-zoom */
+  input, select, textarea { font-size: 16px; }
+
+  /* Buttons: minimum 48px tap target */
+  button { min-height: 44px; }
+
+  /* Section headers: stack vertically */
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  /* Stat cards: 2 per row on mobile */
+  .stat-card { min-width: calc(50% - 5px); }
+
+  /* Tables: allow horizontal scroll */
+  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* Modal: full screen on mobile */
+  .modal { max-width: 100%; border-radius: 16px 16px 0 0; padding: 20px 16px; }
+  .modal-backdrop { align-items: flex-end; padding: 0; }
+}
+
+/* Admin sidebar — slide in as drawer on mobile */
+@media (max-width: 768px) {
+  .admin-layout { flex-direction: column !important; }
+  .admin-sidebar {
+    width: 100% !important;
+    min-width: unset !important;
+    flex-direction: row !important;
+    overflow-x: auto !important;
+    overflow-y: hidden !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border-bottom: 1px solid rgba(201,168,76,0.2);
+    height: 48px;
+    align-items: stretch;
+  }
+  .admin-sidebar .admin-panel-label  { display: none; }
+  .admin-sidebar .admin-group-label  { display: none; }
+  .admin-sidebar button {
+    flex-shrink: 0;
+    height: 48px;
+    padding: 0 14px !important;
+    border-left: none !important;
+    border-bottom: 3px solid transparent !important;
+    font-size: 12px !important;
+    white-space: nowrap;
+  }
+  .admin-sidebar button[data-active="true"] {
+    border-bottom-color: #C9A84C !important;
+    background: rgba(201,168,76,0.14) !important;
+  }
+  .admin-content { padding: 16px !important; }
+}
