@@ -234,11 +234,49 @@ router.get('/z-report', async (req, res) => {
        WHERE source = 'online' AND created_at::date = $1::date`,
       [date],
     );
+    // Voucher sales for the day — mirrors the trading endpoint so the
+    // operator sees them at end of day too. Deferred revenue (money in,
+    // service to come) so it's a separate line from bill totals.
+    const voucherSales = await pool.query(
+      `SELECT
+         COUNT(*)::int                                AS count,
+         COALESCE(SUM(initial_value), 0)::numeric     AS total
+       FROM vouchers
+       WHERE purchased_at::date = $1::date`,
+      [date],
+    );
+    const voucherSalesByMethod = await pool.query(
+      `SELECT
+         COALESCE(payment_method, 'unknown') AS payment_method,
+         COUNT(*)::int                       AS n,
+         COALESCE(SUM(initial_value), 0)::numeric AS revenue
+       FROM vouchers
+       WHERE purchased_at::date = $1::date
+       GROUP BY COALESCE(payment_method, 'unknown')
+       ORDER BY revenue DESC`,
+      [date],
+    );
+    // Spa identity so the receipt/print/CSV all carry the business name.
+    const ident = await pool.query(
+      `SELECT key, value FROM settings WHERE key IN ('spa_name','spa_email','spa_address','spa_phone')`,
+    );
+    const identity = Object.fromEntries(ident.rows.map((r) => [r.key, r.value]));
     res.json({
       date,
       totals: totals.rows[0],
       by_payment_method: byMethod.rows,
       online_deposits: onlineDeposits.rows[0],
+      voucher_sales: {
+        count: voucherSales.rows[0].count,
+        total: voucherSales.rows[0].total,
+        by_payment_method: voucherSalesByMethod.rows,
+      },
+      identity: {
+        spa_name:    identity.spa_name    || process.env.SPA_NAME    || 'SiamEPOS Spa',
+        spa_email:   identity.spa_email   || process.env.SPA_EMAIL   || null,
+        spa_address: identity.spa_address || process.env.SPA_ADDRESS || null,
+        spa_phone:   identity.spa_phone   || null,
+      },
       last_closed_date: closed.rows[0]?.value || null,
     });
   } catch (err) {

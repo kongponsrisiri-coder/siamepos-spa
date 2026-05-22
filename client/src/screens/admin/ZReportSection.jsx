@@ -72,7 +72,16 @@ export default function ZReportSection() {
       ...METHODS.map((m) => `${m[0].toUpperCase()}${m.slice(1)} £`),
       'Status',
     ];
-    const rows = [header];
+    const rows = [];
+    // Shop identity header for the CSV
+    if (data.identity?.spa_name) rows.push([data.identity.spa_name]);
+    if (data.identity?.spa_address) rows.push([data.identity.spa_address]);
+    if (data.identity?.spa_phone || data.identity?.spa_email) {
+      rows.push([[data.identity.spa_phone, data.identity.spa_email].filter(Boolean).join(' · ')]);
+    }
+    rows.push([`Z Report — ${date}`]);
+    rows.push([]);
+    rows.push(header);
 
     // Per-bill detail rows
     for (const b of bills) {
@@ -125,6 +134,19 @@ export default function ZReportSection() {
       rows.push(['Forfeit (late cancel)',  data.online_deposits.count_forfeit || 0]);
     }
 
+    // Voucher sales — deferred revenue, listed separately from bill totals
+    if (data.voucher_sales && Number(data.voucher_sales.count) > 0) {
+      rows.push([]);
+      rows.push(['Voucher sales']);
+      rows.push(['Count', data.voucher_sales.count]);
+      rows.push(['Total £', '', Number(data.voucher_sales.total).toFixed(2)]);
+      if (Array.isArray(data.voucher_sales.by_payment_method)) {
+        for (const m of data.voucher_sales.by_payment_method) {
+          rows.push([`  ${m.payment_method}`, m.n, Number(m.revenue).toFixed(2)]);
+        }
+      }
+    }
+
     downloadCsv(`z-report_${date}.csv`, rows);
   }
 
@@ -146,6 +168,23 @@ export default function ZReportSection() {
         </div>
       </div>
       <div className="card col">
+        {/* Shop identity — top of every Z report so the printout / CSV
+            carry the business name. */}
+        {data.identity?.spa_name && (
+          <div style={{ textAlign: 'center', borderBottom: '1px solid var(--border)', paddingBottom: 10, marginBottom: 6 }}>
+            <div style={{ fontFamily: 'Georgia, serif', fontSize: 22, fontWeight: 700, color: '#1e3a6e', letterSpacing: '0.02em' }}>
+              {data.identity.spa_name}
+            </div>
+            {(data.identity.spa_address || data.identity.spa_phone) && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                {[data.identity.spa_address, data.identity.spa_phone].filter(Boolean).join(' · ')}
+              </div>
+            )}
+            {data.identity.spa_email && (
+              <div style={{ fontSize: 11, color: 'var(--muted)' }}>{data.identity.spa_email}</div>
+            )}
+          </div>
+        )}
         <h3 style={{ margin: 0 }}>Z Report — {date}</h3>
         <div className="row" style={{ justifyContent: 'space-between' }}><span>Subtotal</span><span>{fmtMoney(data.totals.subtotal)}</span></div>
         <div className="row" style={{ justifyContent: 'space-between' }}><span>Tips</span><span>{fmtMoney(data.totals.tips)}</span></div>
@@ -163,6 +202,30 @@ export default function ZReportSection() {
               </div>
             ))}
         </div>
+
+        {/* Voucher sales — money received today against vouchers, which
+            is deferred revenue (service to come). Tracked separately
+            from bill revenue so the operator doesn't double-count
+            voucher cash at end of day. */}
+        {data.voucher_sales && Number(data.voucher_sales.count) > 0 && (
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 4 }}>
+            <strong>🎁 Voucher sales</strong>
+            <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
+              <span>{data.voucher_sales.count} voucher{Number(data.voucher_sales.count) === 1 ? '' : 's'} sold</span>
+              <span style={{ fontWeight: 700, color: '#16a34a' }}>{fmtMoney(data.voucher_sales.total)}</span>
+            </div>
+            {Array.isArray(data.voucher_sales.by_payment_method) && data.voucher_sales.by_payment_method.length > 0 && (
+              <div style={{ paddingTop: 4, borderTop: '1px solid #f3f4f6' }}>
+                {data.voucher_sales.by_payment_method.map((m) => (
+                  <div key={m.payment_method} className="row" style={{ justifyContent: 'space-between', padding: '3px 0', fontSize: 12, color: 'var(--muted)' }}>
+                    <span>{m.payment_method}</span>
+                    <span>{m.n} · {fmtMoney(m.revenue)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* SPA-PAY-001 — Stripe-side deposit movement for the day.
             'Taken' = new online bookings deposited today (sitting in
