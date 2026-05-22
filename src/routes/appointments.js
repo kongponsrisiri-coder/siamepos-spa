@@ -479,6 +479,22 @@ router.put('/:id', async (req, res) => {
       [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null, newPriceAtBooking],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
+
+    // SPA-BILL-SYNC — if the treatment was swapped AND there's already
+    // an open (unpaid) bill for this appointment, update the bill's
+    // subtotal too. Otherwise the receptionist sees the new treatment
+    // on the booking but the till still charges the old price. Paid
+    // bills are locked — they're already a closed transaction.
+    if (newPriceAtBooking !== null) {
+      await pool.query(
+        `UPDATE bills
+            SET subtotal = $2, total = $2 + COALESCE(tip, 0)
+          WHERE appointment_id = $1
+            AND payment_status != 'paid'`,
+        [id, newPriceAtBooking],
+      );
+    }
+
     req.app.get('io')?.emit('appointment_updated', rows[0]);
     res.json({ appointment: rows[0] });
   } catch (err) {
