@@ -141,6 +141,16 @@ export default function ClientProfileScreen() {
                       {a.bill_total ? ` · £${Number(a.bill_total).toFixed(2)}` : ''}
                     </div>
                   )}
+                  {/* SPA-PAY-001 — flag bookings that came with an online
+                      deposit, so CRM-minded operators can spot loyal
+                      online-bookers at a glance. */}
+                  {Number(a.deposit_amount) > 0 && (
+                    <div style={{ fontSize: 11, marginTop: 3, display: 'inline-block', padding: '2px 8px', borderRadius: 10, background: '#dcfce7', color: '#166534', fontWeight: 600 }}>
+                      🌐 Online · £{Number(a.deposit_amount).toFixed(2)} deposit
+                      {a.payment_status === 'refunded' && ' · refunded'}
+                      {a.payment_status === 'forfeit'  && ' · forfeit'}
+                    </div>
+                  )}
                 </div>
                 <span className={`status-pill status-${a.status}`}>{a.status.replace('_', ' ')}</span>
               </div>

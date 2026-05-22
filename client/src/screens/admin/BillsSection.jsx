@@ -183,7 +183,23 @@ export default function BillsSection() {
                   <td style={{ padding: '10px', fontFamily: 'monospace' }}>{fmtMoney(b.subtotal)}</td>
                   <td style={{ padding: '10px', fontFamily: 'monospace', color: b.tip > 0 ? 'var(--success)' : 'var(--muted)' }}>{fmtMoney(b.tip)}</td>
                   <td style={{ padding: '10px', fontFamily: 'monospace', fontWeight: 700 }}>{fmtMoney(b.total)}</td>
-                  <td style={{ padding: '10px', fontSize: 13 }}>{METHOD_LABEL[b.payment_method] || b.payment_method || '—'}</td>
+                  <td style={{ padding: '10px', fontSize: 13 }}>
+                    {METHOD_LABEL[b.payment_method] || b.payment_method || '—'}
+                    {/* SPA-PAY-001 — break the split into its underlying
+                        rows so an auditor can see exactly how the bill
+                        was paid (deposit + cash, voucher + card, etc.) */}
+                    {b.payment_method === 'split' && Array.isArray(b.split_payments) && b.split_payments.length > 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>
+                        {b.split_payments.map((p, i) => (
+                          <div key={i}>
+                            {p.method === 'deposit' ? '🌐' : p.method === 'voucher' ? '🎁' : p.method === 'cash' ? '💵' : p.method === 'card' ? '💳' : '·'}
+                            {' '}
+                            {p.method} £{Number(p.amount).toFixed(2)}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </td>
                   {/* 🗑 only visible when manager has unlocked */}
                   {isUnlocked && (
                     <td style={{ padding: '10px' }}>

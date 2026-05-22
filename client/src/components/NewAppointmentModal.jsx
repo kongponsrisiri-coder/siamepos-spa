@@ -263,6 +263,36 @@ export default function NewAppointmentModal({
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>✕</button>
         </div>
 
+        {/* SPA-PAY-001 — deposit badge so the receptionist sees what the
+            customer already paid online without opening the bill. */}
+        {isEdit && Number(appointment?.deposit_amount) > 0 && (
+          <div style={{
+            background: '#dcfce7',
+            border: '1px solid #86efac',
+            color: '#166534',
+            padding: '10px 14px',
+            borderRadius: 8,
+            marginBottom: 14,
+            fontSize: 13,
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 10,
+          }}>
+            <span>
+              💳 <strong>Deposit £{Number(appointment.deposit_amount).toFixed(2)} paid online</strong>
+              {appointment.payment_status === 'refunded' && <span style={{ color: '#1e40af', marginLeft: 8 }}>· refunded</span>}
+              {appointment.payment_status === 'forfeit'  && <span style={{ color: '#92400e', marginLeft: 8 }}>· forfeit</span>}
+              {appointment.payment_status === 'fully_paid' && <span style={{ color: '#6b7280', marginLeft: 8 }}>· bill closed</span>}
+            </span>
+            {appointment.payment_status === 'deposit_paid' && (
+              <span style={{ fontSize: 11, color: '#166534', whiteSpace: 'nowrap' }}>
+                balance due at till
+              </span>
+            )}
+          </div>
+        )}
+
         <div className="col" style={{ gap: 14 }}>
 
           {/* ── Client ── */}

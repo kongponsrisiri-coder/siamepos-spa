@@ -58,11 +58,47 @@ export default function ZReportSection() {
           {data.by_payment_method.length === 0 ? <div className="muted">—</div> :
             data.by_payment_method.map((m) => (
               <div key={m.payment_method} className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
-                <span>{m.payment_method || '—'}</span>
+                <span>{m.payment_method === 'deposit' ? '🌐 deposit (online)' : (m.payment_method || '—')}</span>
                 <span>{m.n} · {fmtMoney(m.revenue)}</span>
               </div>
             ))}
         </div>
+
+        {/* SPA-PAY-001 — Stripe-side deposit movement for the day.
+            'Taken' = new online bookings deposited today (sitting in
+            Stripe, not the till). 'Consumed' = customer arrived + paid
+            balance — already counted in by_payment_method above. The
+            two views together give a full till + online picture. */}
+        {data.online_deposits && (Number(data.online_deposits.count_pending) + Number(data.online_deposits.count_consumed) + Number(data.online_deposits.count_forfeit) > 0) && (
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 4 }}>
+            <strong>🌐 Online deposits (Stripe)</strong>
+            <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
+              <span>Taken today</span>
+              <span style={{ fontWeight: 700, color: '#C9A84C' }}>{fmtMoney(data.online_deposits.total_taken)}</span>
+            </div>
+            {Number(data.online_deposits.total_refunded) > 0 && (
+              <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
+                <span className="muted">Refunded</span>
+                <span style={{ color: '#1e40af' }}>− {fmtMoney(data.online_deposits.total_refunded)}</span>
+              </div>
+            )}
+            {Number(data.online_deposits.count_pending) > 0 && (
+              <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0', fontSize: 12, color: 'var(--muted)' }}>
+                <span>Pending (booking upcoming)</span><span>{data.online_deposits.count_pending}</span>
+              </div>
+            )}
+            {Number(data.online_deposits.count_consumed) > 0 && (
+              <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0', fontSize: 12, color: 'var(--muted)' }}>
+                <span>Consumed (paid in full)</span><span>{data.online_deposits.count_consumed}</span>
+              </div>
+            )}
+            {Number(data.online_deposits.count_forfeit) > 0 && (
+              <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0', fontSize: 12, color: '#92400e' }}>
+                <span>Forfeit (late cancel)</span><span>{data.online_deposits.count_forfeit}</span>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <span className="muted" style={{ fontSize: 12 }}>

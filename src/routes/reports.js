@@ -218,10 +218,27 @@ router.get('/z-report', async (req, res) => {
     const closed = await pool.query(
       `SELECT value FROM settings WHERE key = 'last_z_closed_date'`,
     );
+    // SPA-PAY-001 — Z-report also surfaces Stripe deposit activity for
+    // the day so the operator's end-of-day picture is complete (till
+    // cash + Stripe-side movement). by_payment_method above already
+    // splits each bill's deposit portion into the 'deposit' line.
+    const onlineDeposits = await pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE payment_status = 'deposit_paid')::int  AS count_pending,
+         COUNT(*) FILTER (WHERE payment_status = 'fully_paid')::int    AS count_consumed,
+         COUNT(*) FILTER (WHERE payment_status = 'refunded')::int      AS count_refunded,
+         COUNT(*) FILTER (WHERE payment_status = 'forfeit')::int       AS count_forfeit,
+         COALESCE(SUM(deposit_amount) FILTER (WHERE payment_status IN ('deposit_paid','fully_paid','forfeit')), 0)::numeric AS total_taken,
+         COALESCE(SUM(deposit_amount) FILTER (WHERE payment_status = 'refunded'), 0)::numeric AS total_refunded
+       FROM appointments
+       WHERE source = 'online' AND created_at::date = $1::date`,
+      [date],
+    );
     res.json({
       date,
       totals: totals.rows[0],
       by_payment_method: byMethod.rows,
+      online_deposits: onlineDeposits.rows[0],
       last_closed_date: closed.rows[0]?.value || null,
     });
   } catch (err) {
