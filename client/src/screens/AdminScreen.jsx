@@ -15,6 +15,7 @@ import BillsSection           from './admin/BillsSection.jsx';
 import VouchersSection        from './admin/VouchersSection.jsx';
 import ClientsSection         from './admin/ClientsSection.jsx';
 import CampaignsSection       from './admin/CampaignsSection.jsx';
+import OnlineBookingSection   from './admin/OnlineBookingSection.jsx';
 
 // ── Sandy: AdminScreen — left sidebar, SiamEPOS Spa brand CI ──────
 // Slate Navy #0D1B3E sidebar · Thai Gold #C9A84C active state
@@ -40,6 +41,7 @@ const NAV = [
   // Configuration
   { divider: 'Settings' },
   { k: 'booking',    label: '⚙️ Booking' },
+  { k: 'online',     label: '🌐 Online Booking' },
   { k: 'embed',      label: '🔗 Embed Codes' },
   { k: 'settings',   label: '🔧 Settings' },
 ];
@@ -57,6 +59,7 @@ const SECTIONS = {
   rota:       RotaSection,
   rooms:      RoomSection,
   booking:    BookingSettingsSection,
+  online:     OnlineBookingSection,
   embed:      EmbedCodesSection,
   settings:   SettingsSection,
 };

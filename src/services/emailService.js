@@ -29,6 +29,30 @@ function parseUnsubscribeToken(token) {
   } catch { return null; }
 }
 
+// SPA-PAY-001 — HMAC-signed booking token for the customer manage-link.
+// Encodes the appointment id; the public /api/booking/by-token/:token
+// endpoint verifies the HMAC before returning data. Separate secret
+// from UNSUB_SECRET so a compromise of one doesn't compromise the other.
+function bookingToken(appointmentId) {
+  const secret = process.env.BOOKING_SECRET || 'siamspa-default-booking-secret-change-me';
+  const id = String(appointmentId);
+  const hmac = crypto.createHmac('sha256', secret).update(id).digest('hex').slice(0, 20);
+  return Buffer.from(id).toString('base64url') + '.' + hmac;
+}
+
+function parseBookingToken(token) {
+  try {
+    const [b64, hmac] = String(token || '').split('.');
+    if (!b64 || !hmac) return null;
+    const id = Buffer.from(b64, 'base64url').toString('utf8');
+    const secret = process.env.BOOKING_SECRET || 'siamspa-default-booking-secret-change-me';
+    const expected = crypto.createHmac('sha256', secret).update(id).digest('hex').slice(0, 20);
+    if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(hmac))) return null;
+    const n = Number(id);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch { return null; }
+}
+
 async function sendBrevoEmail({ to, subject, html, replyTo }) {
   const apiKey = process.env.BREVO_API_KEY;
   if (!apiKey) {
@@ -75,29 +99,109 @@ function formatStarts(starts_at) {
   });
 }
 
-async function sendBookingConfirmation({ client, appointment, treatment, cancellationPolicy }) {
+async function sendBookingConfirmation({ client, appointment, treatment, cancellationPolicy, depositAmount, totalAmount, therapistName, roomName }) {
   if (!client?.email) return { skipped: true };
   const spaName = process.env.SPA_NAME || 'SiamEPOS Spa';
   const when = formatStarts(appointment.starts_at);
+  const apiBase = process.env.PUBLIC_API_URL || 'https://spa-api.siamepos.co.uk';
+  const manageUrl = `${apiBase}/my-booking.html?token=${encodeURIComponent(bookingToken(appointment.id))}`;
+  const dep = Number(depositAmount || 0);
+  const tot = Number(totalAmount || treatment?.price || 0);
+  const balance = +(tot - dep).toFixed(2);
+  const depositLine = dep > 0
+    ? `<tr><td style="padding:6px 12px;"><strong>Deposit paid</strong></td><td>£${dep.toFixed(2)}</td></tr>
+       <tr><td style="padding:6px 12px;"><strong>Balance on arrival</strong></td><td>£${balance.toFixed(2)}</td></tr>`
+    : '';
   const html = `
-    <div style="font-family: Arial, sans-serif; max-width:560px; margin:0 auto; color:#222;">
-      <h2 style="color:#7a4f1e;">${spaName} — Booking Confirmation</h2>
-      <p>Hi ${client.name || 'there'},</p>
-      <p>Your booking is confirmed:</p>
-      <table style="border-collapse:collapse; margin:16px 0;">
-        <tr><td style="padding:6px 12px;"><strong>Treatment</strong></td><td>${treatment?.name || ''}</td></tr>
-        <tr><td style="padding:6px 12px;"><strong>Duration</strong></td><td>${treatment?.duration_minutes || ''} minutes</td></tr>
-        <tr><td style="padding:6px 12px;"><strong>When</strong></td><td>${when}</td></tr>
-        <tr><td style="padding:6px 12px;"><strong>Reference</strong></td><td>#${appointment.id}</td></tr>
-      </table>
-      ${cancellationPolicy ? `<p style="font-size:13px; color:#666;">${cancellationPolicy}</p>` : ''}
-      <p>We look forward to seeing you.</p>
-      <p style="font-size:13px; color:#666;">${spaName}</p>
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width:560px; margin:0 auto; color:#1c1c1c;">
+      <div style="background:#1e3a6e; color:#C9A84C; padding:24px 28px; border-radius:12px 12px 0 0; font-family:Georgia,serif; font-size:22px; font-weight:700;">
+        ${spaName} — booking confirmed
+      </div>
+      <div style="background:white; border:1px solid #e8e3d8; border-top:none; padding:24px 28px; border-radius:0 0 12px 12px;">
+        <p style="margin:0 0 16px;">Hi ${(client.name || 'there').replace(/[<>]/g,'')},</p>
+        <p style="margin:0 0 18px;">Your appointment is confirmed:</p>
+        <table style="border-collapse:collapse; margin:0 0 18px; font-size:15px;">
+          <tr><td style="padding:6px 12px 6px 0;"><strong>Treatment</strong></td><td>${(treatment?.name || '').replace(/[<>]/g,'')}</td></tr>
+          <tr><td style="padding:6px 12px 6px 0;"><strong>Duration</strong></td><td>${treatment?.duration_minutes || ''} minutes</td></tr>
+          ${therapistName ? `<tr><td style="padding:6px 12px 6px 0;"><strong>Therapist</strong></td><td>${String(therapistName).replace(/[<>]/g,'')}</td></tr>` : ''}
+          ${roomName ? `<tr><td style="padding:6px 12px 6px 0;"><strong>Room</strong></td><td>${String(roomName).replace(/[<>]/g,'')}</td></tr>` : ''}
+          <tr><td style="padding:6px 12px 6px 0;"><strong>When</strong></td><td>${when}</td></tr>
+          ${depositLine}
+          <tr><td style="padding:6px 12px 6px 0;"><strong>Reference</strong></td><td>#${appointment.id}</td></tr>
+        </table>
+        <p style="margin:0 0 20px;">
+          <a href="${manageUrl}" style="display:inline-block;background:#C9A84C;color:#1e3a6e;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:700;">Manage your booking</a>
+        </p>
+        ${cancellationPolicy ? `<p style="font-size:13px; color:#666; margin:0 0 12px;">${String(cancellationPolicy).replace(/[<>]/g,'')}</p>` : ''}
+        <p style="margin:0; color:#1e3a6e;">We look forward to seeing you.<br><strong>${spaName}</strong></p>
+      </div>
     </div>
   `;
   return sendBrevoEmail({
     to: [{ email: client.email, name: client.name }],
     subject: `${spaName} — Booking confirmed for ${when}`,
+    html,
+  });
+}
+
+// SPA-PAY-001 — sent when a customer reschedules or the spa moves them.
+async function sendBookingRescheduled({ client, appointment, treatment, oldStartsAt }) {
+  if (!client?.email) return { skipped: true };
+  const spaName = process.env.SPA_NAME || 'SiamEPOS Spa';
+  const newWhen = formatStarts(appointment.starts_at);
+  const oldWhen = oldStartsAt ? formatStarts(oldStartsAt) : '';
+  const apiBase = process.env.PUBLIC_API_URL || 'https://spa-api.siamepos.co.uk';
+  const manageUrl = `${apiBase}/my-booking.html?token=${encodeURIComponent(bookingToken(appointment.id))}`;
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width:560px; margin:0 auto; color:#1c1c1c;">
+      <div style="background:#1e3a6e; color:#C9A84C; padding:24px 28px; border-radius:12px 12px 0 0; font-family:Georgia,serif; font-size:22px; font-weight:700;">
+        ${spaName} — booking rescheduled
+      </div>
+      <div style="background:white; border:1px solid #e8e3d8; border-top:none; padding:24px 28px; border-radius:0 0 12px 12px;">
+        <p>Hi ${(client.name || 'there').replace(/[<>]/g,'')},</p>
+        <p>Your booking for <strong>${(treatment?.name || '').replace(/[<>]/g,'')}</strong> has been moved.</p>
+        <table style="border-collapse:collapse; margin:14px 0; font-size:15px;">
+          ${oldWhen ? `<tr><td style="padding:4px 12px 4px 0;"><strong>From</strong></td><td style="color:#888;text-decoration:line-through;">${oldWhen}</td></tr>` : ''}
+          <tr><td style="padding:4px 12px 4px 0;"><strong>To</strong></td><td style="color:#16a34a;font-weight:700;">${newWhen}</td></tr>
+          <tr><td style="padding:4px 12px 4px 0;"><strong>Reference</strong></td><td>#${appointment.id}</td></tr>
+        </table>
+        <p style="margin:14px 0 4px;"><a href="${manageUrl}" style="display:inline-block;background:#C9A84C;color:#1e3a6e;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:700;">Manage your booking</a></p>
+      </div>
+    </div>
+  `;
+  return sendBrevoEmail({
+    to: [{ email: client.email, name: client.name }],
+    subject: `${spaName} — Booking moved to ${newWhen}`,
+    html,
+  });
+}
+
+// SPA-PAY-001 — sent when a booking is cancelled (by customer or by spa).
+async function sendBookingCancelled({ client, appointment, treatment, refundAmount, refundReason }) {
+  if (!client?.email) return { skipped: true };
+  const spaName = process.env.SPA_NAME || 'SiamEPOS Spa';
+  const when = formatStarts(appointment.starts_at);
+  const refundLine = Number(refundAmount) > 0
+    ? `<p style="background:#dcfce7;border:1px solid #86efac;color:#166534;padding:12px;border-radius:6px;font-size:14px;">💸 <strong>£${Number(refundAmount).toFixed(2)} refunded</strong> to your card — typically arrives in 5–10 working days.</p>`
+    : refundReason
+      ? `<p style="background:#fef3c7;border:1px solid #fcd34d;color:#92400e;padding:12px;border-radius:6px;font-size:14px;">⚠️ ${String(refundReason).replace(/[<>]/g,'')}</p>`
+      : '';
+  const html = `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width:560px; margin:0 auto; color:#1c1c1c;">
+      <div style="background:#1e3a6e; color:#C9A84C; padding:24px 28px; border-radius:12px 12px 0 0; font-family:Georgia,serif; font-size:22px; font-weight:700;">
+        ${spaName} — booking cancelled
+      </div>
+      <div style="background:white; border:1px solid #e8e3d8; border-top:none; padding:24px 28px; border-radius:0 0 12px 12px;">
+        <p>Hi ${(client.name || 'there').replace(/[<>]/g,'')},</p>
+        <p>Your booking for <strong>${(treatment?.name || '').replace(/[<>]/g,'')}</strong> on <strong>${when}</strong> has been cancelled.</p>
+        ${refundLine}
+        <p style="margin-top:18px;color:#1e3a6e;">We're sorry to miss you — book again any time at our website.</p>
+      </div>
+    </div>
+  `;
+  return sendBrevoEmail({
+    to: [{ email: client.email, name: client.name }],
+    subject: `${spaName} — Booking #${appointment.id} cancelled`,
     html,
   });
 }
@@ -207,8 +311,12 @@ async function sendVoucherGiftEmail({ voucher, treatment_name }) {
 module.exports = {
   sendBrevoEmail,
   sendBookingConfirmation,
+  sendBookingRescheduled,
+  sendBookingCancelled,
   buildCampaignEmail,
   unsubscribeToken,
   parseUnsubscribeToken,
+  bookingToken,
+  parseBookingToken,
   sendVoucherGiftEmail,
 };

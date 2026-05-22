@@ -133,6 +133,51 @@ export default function TradingSection() {
         )}
       </div>
 
+      {/* ── Online deposits (SPA-PAY-001) ──────────────────────────
+          Money landed in the spa's Stripe account when customers booked
+          online today. Pending = deposit attached to upcoming booking.
+          Consumed = customer arrived + paid the balance at the till.
+          Tracked separately because Stripe settles to the spa's bank
+          on its own cycle, not via the till. */}
+      {data.online_deposits && (Number(data.online_deposits.count_pending) + Number(data.online_deposits.count_consumed) + Number(data.online_deposits.count_forfeit) > 0) && (
+        <div className="card col">
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <h3 style={{ margin: 0 }}>🌐 Online deposits</h3>
+            <span className="muted" style={{ fontSize: 12 }}>Settled to Stripe, not the till</span>
+          </div>
+          <div className="row" style={{ justifyContent: 'space-between', padding: '6px 0' }}>
+            <span>Taken today</span>
+            <span style={{ fontWeight: 700, color: '#C9A84C', fontSize: 18 }}>{fmtMoney(data.online_deposits.total_taken)}</span>
+          </div>
+          {Number(data.online_deposits.total_refunded) > 0 && (
+            <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
+              <span className="muted">Refunded</span>
+              <span style={{ color: '#1e40af' }}>− {fmtMoney(data.online_deposits.total_refunded)}</span>
+            </div>
+          )}
+          <div style={{ paddingTop: 6, borderTop: '1px solid var(--border)' }}>
+            {Number(data.online_deposits.count_pending) > 0 && (
+              <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0', fontSize: 13 }}>
+                <span className="muted">Pending (booking upcoming)</span>
+                <span>{data.online_deposits.count_pending}</span>
+              </div>
+            )}
+            {Number(data.online_deposits.count_consumed) > 0 && (
+              <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0', fontSize: 13 }}>
+                <span className="muted">Consumed (customer paid balance)</span>
+                <span>{data.online_deposits.count_consumed}</span>
+              </div>
+            )}
+            {Number(data.online_deposits.count_forfeit) > 0 && (
+              <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0', fontSize: 13 }}>
+                <span className="muted">Forfeit (late cancel)</span>
+                <span style={{ color: '#92400e' }}>{data.online_deposits.count_forfeit}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Voucher sales (deferred revenue) ───────────────────────
           Tracked separately from bill revenue: vouchers are money
           received but not yet earned (service hasn't been delivered).

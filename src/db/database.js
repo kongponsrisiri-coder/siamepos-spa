@@ -353,6 +353,42 @@ async function initSchema() {
     -- card portion to "card" instead of dumping the whole thing in a
     -- "split" bucket. JSONB array of { method, amount }.
     ALTER TABLE bills ADD COLUMN IF NOT EXISTS split_payments JSONB;
+
+    -- SPA-PAY-001: online booking deposit + self-service amendments.
+    -- deposit_amount = what the customer prepaid via Stripe when they
+    -- booked online. deposit_stripe_id = the PaymentIntent ref so we
+    -- can issue a refund later. payment_status tracks the deposit
+    -- lifecycle: 'none' | 'deposit_paid' | 'refunded' | 'forfeit' |
+    -- 'fully_paid'. The bill at checkout subtracts the deposit from
+    -- the total — the operator collects only the balance.
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS deposit_amount    NUMERIC(10,2);
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS deposit_stripe_id TEXT;
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS payment_status    TEXT NOT NULL DEFAULT 'none';
+
+    -- Audit log so the spa knows who changed what and when (whether
+    -- the customer self-serviced via the manage-link, or the
+    -- receptionist edited from admin).
+    CREATE TABLE IF NOT EXISTS appointment_amendments (
+      id              SERIAL PRIMARY KEY,
+      appointment_id  INT  NOT NULL REFERENCES appointments(id) ON DELETE CASCADE,
+      kind            TEXT NOT NULL,                -- 'rescheduled' | 'cancelled' | 'therapist_changed' | 'refunded'
+      from_value      TEXT,                          -- e.g. previous starts_at, previous therapist
+      to_value        TEXT,                          -- new value
+      by_customer     BOOLEAN NOT NULL DEFAULT FALSE,
+      by_staff_id     INT REFERENCES therapists(id) ON DELETE SET NULL,
+      note            TEXT,
+      created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_appt_amendments_appointment_id ON appointment_amendments (appointment_id);
+
+    -- Default policy settings (no-op if already present).
+    INSERT INTO settings (key, value) VALUES
+      ('deposit_model',         'fixed_amount'),
+      ('deposit_amount',        '25'),
+      ('deposit_percentage',    '25'),
+      ('cancel_window_hours',   '24'),
+      ('cancel_policy_text',    'Cancellations within 24 hours of your appointment forfeit the deposit. We''re happy to reschedule any time before then.')
+    ON CONFLICT (key) DO NOTHING;
   `);
 
   console.log('[db] schema ready');

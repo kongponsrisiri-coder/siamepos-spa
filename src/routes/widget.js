@@ -2,11 +2,44 @@
 // Mounted at /api/widget/* and excluded from the requireAuth middleware.
 
 const express = require('express');
+const Stripe = require('stripe');
 const { pool } = require('../db/database');
 const { computeAvailability } = require('../services/availability');
 const { sendBookingConfirmation } = require('../services/emailService');
 
 const router = express.Router();
+
+function stripeClient() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return null;
+  return new Stripe(key, { apiVersion: '2024-06-20' });
+}
+
+// Load the spa's deposit + cancellation policy from settings, with sensible
+// defaults if the operator hasn't set anything yet.
+async function loadDepositPolicy() {
+  const { rows } = await pool.query(
+    `SELECT key, value FROM settings WHERE key IN
+       ('deposit_model','deposit_amount','deposit_percentage','cancel_window_hours','cancel_policy_text')`,
+  );
+  const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  return {
+    deposit_model:        s.deposit_model        || 'fixed_amount',     // 'none' | 'fixed_amount' | 'percentage' | 'full_prepay'
+    deposit_amount:       Number(s.deposit_amount || 25),
+    deposit_percentage:   Number(s.deposit_percentage || 25),
+    cancel_window_hours:  Number(s.cancel_window_hours || 24),
+    cancel_policy_text:   s.cancel_policy_text   || '',
+  };
+}
+
+// Given a treatment price and policy, compute the deposit £ amount.
+function computeDeposit(policy, treatmentPrice) {
+  const price = Number(treatmentPrice || 0);
+  if (policy.deposit_model === 'none')        return 0;
+  if (policy.deposit_model === 'full_prepay') return +price.toFixed(2);
+  if (policy.deposit_model === 'percentage')  return +((price * policy.deposit_percentage) / 100).toFixed(2);
+  return +Math.min(policy.deposit_amount, price).toFixed(2); // fixed_amount (default)
+}
 
 // GET /api/widget/treatments — public list (active only)
 router.get('/treatments', async (_req, res) => {
@@ -65,13 +98,108 @@ router.get('/availability', async (req, res) => {
   }
 });
 
+// GET /api/widget/stripe-config
+// Public — returns the publishable key + deposit policy so the widget
+// can show "Pay £25 deposit" and load Stripe Elements.
+router.get('/stripe-config', async (_req, res) => {
+  try {
+    const policy = await loadDepositPolicy();
+    res.json({
+      publishable_key: process.env.STRIPE_PUBLISHABLE_KEY || null,
+      configured:      !!(process.env.STRIPE_PUBLISHABLE_KEY && process.env.STRIPE_SECRET_KEY),
+      policy,
+    });
+  } catch (err) {
+    console.error('[widget] stripe-config', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// POST /api/widget/payment-intent
+// body: { treatment_id, starts_at, email? }
+// Creates a Stripe PaymentIntent for the deposit on a quoted booking.
+// The appointment is NOT created here — only after the payment confirms
+// the widget calls POST /book with the payment_intent_id. So an
+// abandoned payment never leaves a phantom appointment.
+router.post('/payment-intent', async (req, res) => {
+  const b = req.body || {};
+  if (!b.treatment_id || !b.starts_at) {
+    return res.status(400).json({ error: 'treatment_id + starts_at required' });
+  }
+  const s = stripeClient();
+  if (!s) return res.status(503).json({ error: 'stripe not configured' });
+  try {
+    const tr = await pool.query(
+      'SELECT id, name, price FROM treatments WHERE id = $1 AND active = TRUE',
+      [b.treatment_id],
+    );
+    if (!tr.rows[0]) return res.status(400).json({ error: 'treatment not found' });
+    const policy = await loadDepositPolicy();
+    const deposit = computeDeposit(policy, tr.rows[0].price);
+    if (deposit <= 0) {
+      // Policy says no deposit — the widget should call /book directly.
+      return res.json({ deposit_amount: 0, skip_payment: true });
+    }
+    const intent = await s.paymentIntents.create({
+      amount: Math.round(deposit * 100),
+      currency: 'gbp',
+      automatic_payment_methods: { enabled: true },
+      receipt_email: b.email || undefined,
+      metadata: {
+        purpose: 'spa_deposit',
+        treatment_id: String(b.treatment_id),
+        treatment_name: String(tr.rows[0].name || ''),
+        starts_at: String(b.starts_at),
+      },
+    });
+    res.json({
+      client_secret:  intent.client_secret,
+      intent_id:      intent.id,
+      deposit_amount: deposit,
+      total_amount:   Number(tr.rows[0].price),
+    });
+  } catch (err) {
+    console.error('[widget] payment-intent', err);
+    res.status(500).json({ error: err.message || 'server error' });
+  }
+});
+
 // POST /api/widget/book
-// body: { treatment_id, starts_at, therapist_id?, name, phone, email?, gdpr_consent, marketing_consent?, notes? }
+// body: { treatment_id, starts_at, therapist_id?, name, phone, email?,
+//         gdpr_consent, marketing_consent?, notes?, payment_intent_id? }
+// payment_intent_id is required when the deposit policy says one is due.
+// We verify with Stripe that the PI is in 'succeeded' state before
+// creating the appointment — guarantees no appointment without payment.
 router.post('/book', async (req, res) => {
   const b = req.body || {};
   const required = ['treatment_id', 'starts_at', 'name', 'phone'];
   for (const k of required) if (!b[k]) return res.status(400).json({ error: `${k} required` });
   if (!b.gdpr_consent) return res.status(400).json({ error: 'gdpr_consent required' });
+
+  // ── Verify deposit payment up-front if policy requires one ────────
+  // We do this BEFORE opening the DB transaction so a failed payment
+  // can't leave a partial appointment row anywhere.
+  const policy = await loadDepositPolicy();
+  let depositAmount = 0;
+  let depositStripeId = null;
+  if (policy.deposit_model !== 'none') {
+    const tr0 = await pool.query('SELECT price FROM treatments WHERE id = $1', [b.treatment_id]);
+    depositAmount = computeDeposit(policy, tr0.rows[0]?.price);
+    if (depositAmount > 0) {
+      if (!b.payment_intent_id) return res.status(400).json({ error: 'payment_intent_id required (deposit due)' });
+      const s = stripeClient();
+      if (!s) return res.status(503).json({ error: 'stripe not configured' });
+      let intent;
+      try { intent = await s.paymentIntents.retrieve(b.payment_intent_id); }
+      catch (err) { return res.status(400).json({ error: 'invalid payment_intent_id' }); }
+      if (intent.status !== 'succeeded') {
+        return res.status(402).json({ error: 'deposit payment not completed', stripe_status: intent.status });
+      }
+      // Defend against amount tampering — Stripe is the source of truth.
+      depositAmount = +(intent.amount_received / 100).toFixed(2);
+      depositStripeId = intent.id;
+    }
+  }
 
   const client = await pool.connect();
   try {
@@ -79,7 +207,7 @@ router.post('/book', async (req, res) => {
 
     // Treatment duration.
     const tr = await client.query(
-      'SELECT id, duration_minutes, name FROM treatments WHERE id = $1 AND active = TRUE',
+      'SELECT id, duration_minutes, name, price FROM treatments WHERE id = $1 AND active = TRUE',
       [b.treatment_id],
     );
     if (!tr.rows[0]) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'treatment not found' }); }
@@ -134,10 +262,17 @@ router.post('/book', async (req, res) => {
 
     const ap = await client.query(
       `INSERT INTO appointments
-         (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at, status, source, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,'booked','online',$7)
+         (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
+          status, source, notes,
+          deposit_amount, deposit_stripe_id, payment_status)
+       VALUES ($1,$2,$3,$4,$5,$6,'booked','online',$7,$8,$9,$10)
        RETURNING *`,
-      [cli.id, b.treatment_id, therapist_id, room_id, b.starts_at, ends_at, b.notes || null],
+      [
+        cli.id, b.treatment_id, therapist_id, room_id, b.starts_at, ends_at, b.notes || null,
+        depositAmount > 0 ? depositAmount : null,
+        depositStripeId,
+        depositAmount > 0 ? 'deposit_paid' : 'none',
+      ],
     );
 
     // Look up the names the widget renders on the confirmation card.
@@ -151,18 +286,18 @@ router.post('/book', async (req, res) => {
 
     await client.query('COMMIT');
 
-    // Fire-and-forget side effects after commit so the booking isn't lost
-    // if the email service is down.
-    const policy = (await pool.query(
-      `SELECT value FROM settings WHERE key = 'cancellation_policy_text'`,
-    )).rows[0]?.value;
+    // Fire-and-forget side effects after commit.
     req.app.get('io')?.emit('new_appointment', ap.rows[0]);
     if (cli.email) {
       sendBookingConfirmation({
-        client: cli,
-        appointment: ap.rows[0],
-        treatment: tr.rows[0],
-        cancellationPolicy: policy,
+        client:        cli,
+        appointment:   ap.rows[0],
+        treatment:     tr.rows[0],
+        therapistName: named.rows[0]?.therapist_name,
+        roomName:      named.rows[0]?.room_name,
+        depositAmount,
+        totalAmount:   Number(tr.rows[0].price),
+        cancellationPolicy: policy.cancel_policy_text,
       }).catch((e) => console.error('[widget] email send failed', e));
     }
 
@@ -173,6 +308,9 @@ router.post('/book', async (req, res) => {
         ends_at: ap.rows[0].ends_at,
         therapist_name: named.rows[0]?.therapist_name || null,
         room_name: named.rows[0]?.room_name || null,
+        deposit_amount: depositAmount,
+        total_amount: Number(tr.rows[0].price),
+        balance_due: +(Number(tr.rows[0].price) - depositAmount).toFixed(2),
       },
       client: { id: cli.id, name: cli.name },
     });

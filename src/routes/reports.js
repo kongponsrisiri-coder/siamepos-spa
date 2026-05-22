@@ -113,6 +113,22 @@ router.get('/trading', async (req, res) => {
        ORDER BY revenue DESC`,
       [date],
     );
+    // SPA-PAY-001 — online deposits collected today (separate from
+    // bill revenue: money landed in the spa's Stripe account when the
+    // customer booked online, regardless of whether they've arrived).
+    const onlineDeposits = await pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE payment_status = 'deposit_paid')::int  AS count_pending,
+         COUNT(*) FILTER (WHERE payment_status = 'fully_paid')::int    AS count_consumed,
+         COUNT(*) FILTER (WHERE payment_status = 'refunded')::int      AS count_refunded,
+         COUNT(*) FILTER (WHERE payment_status = 'forfeit')::int       AS count_forfeit,
+         COALESCE(SUM(deposit_amount) FILTER (WHERE payment_status IN ('deposit_paid','fully_paid','forfeit')), 0)::numeric AS total_taken,
+         COALESCE(SUM(deposit_amount) FILTER (WHERE payment_status = 'refunded'), 0)::numeric AS total_refunded
+       FROM appointments
+       WHERE source = 'online' AND created_at::date = $1::date`,
+      [date],
+    );
+
     res.json({
       date,
       totals: totals.rows[0],
@@ -125,6 +141,7 @@ router.get('/trading', async (req, res) => {
         total:  voucherSales.rows[0].total,
         by_payment_method: voucherSalesByMethod.rows,
       },
+      online_deposits: onlineDeposits.rows[0],
     });
   } catch (err) {
     console.error('[reports] trading', err);

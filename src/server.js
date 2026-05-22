@@ -27,6 +27,7 @@ const voucherRoutes     = require('./routes/vouchers');
 const widgetRoutes      = require('./routes/widget');
 const treatwellRoutes   = require('./routes/treatwell');
 const campaignRoutes    = require('./routes/campaigns');
+const bookingRoutes     = require('./routes/booking');
 const { parseUnsubscribeToken } = require('./services/emailService');
 const { pool: dbPool }  = require('./db/database');
 const { router: stripeRouter, webhookHandler: stripeWebhookHandler } = require('./routes/stripe');
@@ -73,9 +74,17 @@ function sendWidget(_req, res) {
 app.get('/widget.js',         sendWidget);
 app.get('/booking-widget.js', sendWidget);
 
+// SPA-PAY-001 — self-service customer portal (static page).
+// Served from the backend so the link in the confirmation email
+// resolves at spa-api.siamepos.co.uk/my-booking.html?token=…
+app.get('/my-booking.html', (_req, res) => {
+  res.sendFile(path.resolve(__dirname, '..', 'client', 'public', 'my-booking.html'));
+});
+
 // ---- Public routes (NO auth) ---------------------------------------------
 app.use('/api/widget',    widgetRoutes);
 app.use('/api/treatwell', treatwellRoutes);
+app.use('/api/booking',   bookingRoutes);     // public self-service via HMAC token
 app.use('/api/auth',      authRoutes);
 
 // SPA-CAMPAIGNS-001 — public one-click unsubscribe. The token is a

@@ -101,7 +101,53 @@ router.post('/:id/pay', async (req, res) => {
     }
     splitJson = JSON.stringify(clean);
   }
+
+  // SPA-PAY-001 — auto-credit any deposit the customer already paid online.
+  // If appointment.deposit_amount > 0 we prepend a 'deposit' row to the
+  // breakdown so reports attribute that portion to the Stripe deposit
+  // pool, and the chosen method (cash/card/etc) covers only the balance.
+  // This means the bill row never shows £55-cash when the customer really
+  // paid £25 deposit + £30 cash.
   try {
+    const billRow = await pool.query(
+      `SELECT b.total, b.appointment_id, COALESCE(a.deposit_amount, 0) AS deposit_amount
+       FROM bills b JOIN appointments a ON a.id = b.appointment_id
+       WHERE b.id = $1`,
+      [id],
+    );
+    if (!billRow.rows[0]) return res.status(404).json({ error: 'not found' });
+    const depositAmount = Number(billRow.rows[0].deposit_amount || 0);
+    const billTotal = Number(billRow.rows[0].total);
+    let effectiveMethod = method;
+    if (depositAmount > 0 && method !== 'split') {
+      const balance = +(billTotal - depositAmount).toFixed(2);
+      effectiveMethod = 'split';
+      splitJson = JSON.stringify(
+        balance > 0
+          ? [
+              { method: 'deposit', amount: depositAmount },
+              { method,           amount: balance },
+            ]
+          : [{ method: 'deposit', amount: billTotal }],
+      );
+    } else if (depositAmount > 0 && method === 'split') {
+      // Customer's split rows should sum to (billTotal - deposit).
+      // The above validation enforced sum == billTotal which assumed no
+      // deposit. Re-do it with the deposit credit subtracted.
+      const cleanRows = JSON.parse(splitJson || '[]');
+      const customerSum = +cleanRows.reduce((s, p) => s + Number(p.amount), 0).toFixed(2);
+      const expected = +(billTotal - depositAmount).toFixed(2);
+      if (Math.abs(customerSum - expected) > 0.01) {
+        return res.status(400).json({
+          error: `split_payments sum £${customerSum.toFixed(2)} should equal balance £${expected.toFixed(2)} (deposit £${depositAmount.toFixed(2)} auto-credited)`,
+        });
+      }
+      splitJson = JSON.stringify([
+        { method: 'deposit', amount: depositAmount },
+        ...cleanRows,
+      ]);
+    }
+
     const { rows } = await pool.query(
       `UPDATE bills SET
          payment_method = $2,
@@ -109,9 +155,16 @@ router.post('/:id/pay', async (req, res) => {
          payment_status = 'paid',
          closed_at      = now()
        WHERE id = $1 RETURNING *`,
-      [id, method, splitJson],
+      [id, effectiveMethod, splitJson],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    // Stamp the deposit as fully consumed once the bill closes.
+    if (depositAmount > 0) {
+      await pool.query(
+        `UPDATE appointments SET payment_status = 'fully_paid' WHERE id = $1 AND payment_status = 'deposit_paid'`,
+        [rows[0].appointment_id],
+      );
+    }
     // Mark the appointment completed as a side-effect of taking payment.
     await pool.query(
       `UPDATE appointments SET status = 'completed'

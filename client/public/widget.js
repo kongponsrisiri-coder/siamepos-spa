@@ -121,7 +121,29 @@
       confirmation: null,
       error: '',
       busy: false,
+      // SPA-PAY-001 deposit payment
+      stripeConfig: null,       // { publishable_key, configured, policy }
+      stripeInstance: null,     // window.Stripe(publishable_key) handle
+      stripeElements: null,     // Stripe Elements instance
+      paymentElement: null,     // mounted PaymentElement
+      paymentIntentId: null,
+      depositAmount: 0,
+      totalAmount: 0,
     };
+  }
+
+  // ── Stripe loader (lazy) ──────────────────────────────────────────
+  function loadStripeJs() {
+    if (window.Stripe) return Promise.resolve(window.Stripe);
+    if (window.__sesStripeLoading) return window.__sesStripeLoading;
+    window.__sesStripeLoading = new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = 'https://js.stripe.com/v3/';
+      s.onload = function () { resolve(window.Stripe); };
+      s.onerror = function () { reject(new Error('Could not load Stripe.js')); };
+      document.head.appendChild(s);
+    });
+    return window.__sesStripeLoading;
   }
   var state = freshState();
 
@@ -185,7 +207,27 @@
       .catch(function (err) { state.error = err.message; render(); });
   }
 
+  // Called from step 4 (Details) → decide whether to advance to the
+  // deposit step or book straight through (no-deposit policy).
   function submit() {
+    state.busy = true; state.error = ''; render();
+    api('/stripe-config').then(function (cfg) {
+      state.stripeConfig = cfg;
+      if (!cfg.configured || (cfg.policy && cfg.policy.deposit_model === 'none')) {
+        return submitBooking(null);
+      }
+      state.busy = false;
+      state.step = 5;          // payment step
+      render();
+      initPayment();
+    }).catch(function () {
+      // Stripe config endpoint failed — book without deposit so widget
+      // still works on spas that haven't configured Stripe yet.
+      submitBooking(null);
+    });
+  }
+
+  function submitBooking(paymentIntentId) {
     state.busy = true; state.error = ''; render();
     var body = {
       treatment_id: state.treatmentId,
@@ -195,17 +237,71 @@
       notes: state.notes,
       gdpr_consent: state.gdpr,
       marketing_consent: state.marketing,
+      payment_intent_id: paymentIntentId || undefined,
     };
     api('/book', { method: 'POST', body: body })
       .then(function (r) {
         state.confirmation = r;
         state.busy = false;
-        state.step = 5;
+        state.step = 6;           // confirmation
         render();
       })
       .catch(function (err) {
         state.error = err.message; state.busy = false; render();
       });
+  }
+
+  // Initialise Stripe Elements: create a PaymentIntent on the server,
+  // load Stripe.js, mount the PaymentElement into the modal.
+  function initPayment() {
+    state.busy = true; state.error = ''; render();
+    Promise.all([
+      loadStripeJs(),
+      api('/payment-intent', {
+        method: 'POST',
+        body: { treatment_id: state.treatmentId, starts_at: state.slot, email: state.email || undefined },
+      }),
+    ]).then(function (out) {
+      var Stripe = out[0];
+      var pi = out[1];
+      state.depositAmount = Number(pi.deposit_amount || 0);
+      state.totalAmount   = Number(pi.total_amount   || 0);
+      if (pi.skip_payment) {
+        // Server confirmed no deposit due → book through.
+        return submitBooking(null);
+      }
+      state.stripeInstance  = Stripe(state.stripeConfig.publishable_key);
+      state.stripeElements  = state.stripeInstance.elements({
+        clientSecret: pi.client_secret,
+        appearance: { theme: 'stripe', variables: { colorPrimary: '#1e3a6e', colorBackground: '#ffffff', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' } },
+      });
+      state.paymentIntentId = pi.intent_id;
+      state.paymentElement  = state.stripeElements.create('payment', { layout: 'tabs' });
+      state.busy = false;
+      render();    // renderStep5_payment() will mount #ses-card-mount on the next tick
+    }).catch(function (err) {
+      state.error = (err && err.message) || 'Payment setup failed';
+      state.busy = false;
+      render();
+    });
+  }
+
+  function confirmPayment() {
+    if (!state.stripeInstance || !state.stripeElements) return;
+    state.busy = true; state.error = ''; render();
+    state.stripeInstance.confirmPayment({
+      elements: state.stripeElements,
+      redirect: 'if_required',
+    }).then(function (result) {
+      if (result.error) {
+        state.error = result.error.message || 'Payment failed';
+        state.busy = false;
+        render();
+        return;
+      }
+      var intentId = (result.paymentIntent && result.paymentIntent.id) || state.paymentIntentId;
+      submitBooking(intentId);
+    });
   }
 
   // -------- rendering -------------------------------------------------------
@@ -236,7 +332,8 @@
 
   function progress() {
     var bar = h('div', { className: 'ses-steps' }, []);
-    for (var i = 1; i <= 5; i++) {
+    // 6 steps now: treatment → therapist → date/time → details → payment → confirmation
+    for (var i = 1; i <= 6; i++) {
       bar.appendChild(h('div', { className: 'ses-step' + (i <= state.step ? ' active' : '') }, []));
     }
     return bar;
@@ -256,7 +353,8 @@
     if (state.step === 2) return renderStep2();
     if (state.step === 3) return renderStep3();
     if (state.step === 4) return renderStep4();
-    if (state.step === 5) return renderStep5();
+    if (state.step === 5) return renderStep5_payment();
+    if (state.step === 6) return renderStep6_confirmation();
   }
 
   // STEP 1 — Treatment
@@ -452,7 +550,57 @@
   }
 
   // STEP 5 — Confirmation
-  function renderStep5() {
+  // STEP 5 — Deposit payment (Stripe Elements)
+  function renderStep5_payment() {
+    var wrap = h('div', {}, []);
+    wrap.appendChild(h('p', { className: 'ses-muted' }, ['Pay the deposit to confirm your booking. You\'ll pay the balance at the spa.']));
+
+    if (state.busy && !state.paymentElement) {
+      wrap.appendChild(h('div', { className: 'ses-muted', style: 'padding:20px;text-align:center' }, ['Preparing payment…']));
+      return wrap;
+    }
+
+    // Summary card
+    var dep = Number(state.depositAmount || 0);
+    var tot = Number(state.totalAmount || 0);
+    var bal = +(tot - dep).toFixed(2);
+    wrap.appendChild(h('div', { className: 'ses-card', style: 'display:block;cursor:default;background:#fdf6ec;border-color:#e0c884' }, [
+      h('div', { style: 'display:flex;justify-content:space-between;font-size:13px;color:#7a4f1e' }, [
+        h('span', {}, ['Treatment']), h('span', {}, ['£' + tot.toFixed(2)]),
+      ]),
+      h('div', { style: 'display:flex;justify-content:space-between;font-size:14px;font-weight:700;color:#1e3a6e;margin-top:6px' }, [
+        h('span', {}, ['Deposit now']), h('span', {}, ['£' + dep.toFixed(2)]),
+      ]),
+      h('div', { style: 'display:flex;justify-content:space-between;font-size:12px;color:#6b7280;margin-top:4px' }, [
+        h('span', {}, ['Balance at the spa']), h('span', {}, ['£' + bal.toFixed(2)]),
+      ]),
+    ]));
+
+    // Card mount point — Stripe attaches here after this render returns
+    var mountId = 'ses-card-mount';
+    wrap.appendChild(h('div', { id: mountId, style: 'margin:14px 0;min-height:50px' }, []));
+
+    // Mount on next tick (after the wrap is in the DOM)
+    setTimeout(function () {
+      if (state.paymentElement && document.getElementById(mountId)) {
+        try { state.paymentElement.unmount(); } catch (e) {}
+        state.paymentElement.mount('#' + mountId);
+      }
+    }, 0);
+
+    wrap.appendChild(h('div', { className: 'ses-actions' }, [
+      h('button', { className: 'ses-btn', onClick: function () { go(4); }, disabled: state.busy }, ['Back']),
+      h('button', {
+        className: 'ses-btn primary',
+        disabled: state.busy || !state.paymentElement,
+        onClick: confirmPayment,
+      }, [state.busy ? 'Processing…' : 'Pay £' + dep.toFixed(2) + ' & confirm']),
+    ]));
+    return wrap;
+  }
+
+  // STEP 6 — Confirmation
+  function renderStep6_confirmation() {
     var c = state.confirmation;
     var ap = c && c.appointment;
     var when = ap ? new Date(ap.starts_at).toLocaleString('en-GB', {
@@ -469,6 +617,8 @@
           h('div', {}, [h('strong', {}, ['When: ']), when]),
           ap.therapist_name ? h('div', {}, [h('strong', {}, ['Therapist: ']), ap.therapist_name]) : null,
           ap.room_name ? h('div', {}, [h('strong', {}, ['Room: ']), ap.room_name]) : null,
+          ap.deposit_amount > 0 ? h('div', {}, [h('strong', {}, ['Deposit paid: ']), '£' + Number(ap.deposit_amount).toFixed(2)]) : null,
+          ap.balance_due > 0   ? h('div', {}, [h('strong', {}, ['Balance on arrival: ']), '£' + Number(ap.balance_due).toFixed(2)]) : null,
           h('div', {}, [h('strong', {}, ['Reference: ']), '#' + ap.id]),
         ]) : null,
       ]),

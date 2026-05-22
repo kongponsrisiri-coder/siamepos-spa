@@ -126,6 +126,11 @@ export default function CheckoutScreen() {
 
   const subtotal = Number(bill.subtotal || 0);
   const total = subtotal + Number(tip || 0);
+  // SPA-PAY-001 — any deposit the customer paid online via Stripe is
+  // pre-credited. The operator only needs to collect `balance` at the
+  // till; the backend auto-records the deposit portion in split_payments.
+  const depositPaid = Number(appt.deposit_amount || 0);
+  const balance = +Math.max(0, total - depositPaid).toFixed(2);
   const paid = bill.payment_status === 'paid';
 
   return (
@@ -149,6 +154,17 @@ export default function CheckoutScreen() {
           <div className="row" style={{ justifyContent: 'space-between', marginTop: 10, fontWeight: 700, fontSize: 18 }}>
             <span>Total</span><span>{fmtMoney(total)}</span>
           </div>
+          {depositPaid > 0 && (
+            <>
+              <div className="row" style={{ justifyContent: 'space-between', marginTop: 8, color: '#16a34a', fontSize: 14 }}>
+                <span>💳 Deposit paid online</span>
+                <span>− {fmtMoney(depositPaid)}</span>
+              </div>
+              <div className="row" style={{ justifyContent: 'space-between', marginTop: 10, fontWeight: 700, fontSize: 20, background: '#fdf6ec', border: '1px solid #e0c884', borderRadius: 8, padding: '10px 14px', color: '#1e3a6e' }}>
+                <span>Balance due now</span><span>{fmtMoney(balance)}</span>
+              </div>
+            </>
+          )}
         </div>
 
         {!paid && (
@@ -301,7 +317,7 @@ export default function CheckoutScreen() {
 
       {showSplit && (
         <SplitPaymentModal
-          total={total}
+          total={balance}
           billId={bill.id}
           appointmentId={appointmentId}
           onClose={() => setShowSplit(false)}

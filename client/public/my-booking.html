@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Manage your booking</title>
+  <style>
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#faf7f2;color:#1c1c1c;font-size:16px}
+    .page{max-width:520px;margin:0 auto;padding:24px 18px;min-height:100dvh}
+    h1{font-family:Georgia,serif;color:#1e3a6e;margin:0 0 18px;font-size:24px}
+    .card{background:white;border:1px solid #e8e3d8;border-radius:12px;padding:20px;margin-bottom:14px;box-shadow:0 2px 8px rgba(20,38,74,0.06)}
+    .label{font-size:11px;color:#6b6b6b;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px}
+    .value{font-size:15px;color:#1c1c1c;font-weight:600;margin-bottom:12px}
+    .deposit{background:linear-gradient(180deg,#1e3a6e 0%,#14264a 100%);color:white;border:none}
+    .deposit .label{color:rgba(255,255,255,0.65)}
+    .deposit .value{color:#C9A84C;font-size:22px;font-weight:700}
+    .deposit small{color:rgba(255,255,255,0.7);font-size:13px}
+    .pill{display:inline-block;padding:3px 10px;border-radius:14px;font-size:11px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase}
+    .pill-paid{background:#dcfce7;color:#166534}
+    .pill-refunded{background:#dbeafe;color:#1e40af}
+    .pill-cancelled{background:#fee2e2;color:#991b1b}
+    .pill-forfeit{background:#fef3c7;color:#92400e}
+    .btn{display:inline-block;padding:14px 22px;font-size:15px;font-weight:600;border-radius:8px;border:1px solid transparent;cursor:pointer;width:100%;margin-bottom:8px;font-family:inherit}
+    .btn-primary{background:#C9A84C;color:#1e3a6e;border-color:#C9A84C}
+    .btn-secondary{background:white;color:#1e3a6e;border-color:#1e3a6e}
+    .btn-danger{background:#fef2f2;color:#991b1b;border-color:#fca5a5}
+    .btn:disabled{opacity:0.5;cursor:not-allowed}
+    .btn-row{display:grid;gap:8px;margin-top:14px}
+    .muted{color:#6b6b6b;font-size:13px;line-height:1.5}
+    .error{background:#fee2e2;border:1px solid #fca5a5;color:#991b1b;padding:12px;border-radius:8px;margin-bottom:12px;font-size:14px}
+    .success{background:#dcfce7;border:1px solid #86efac;color:#166534;padding:12px;border-radius:8px;margin-bottom:12px;font-size:14px}
+    .warn{background:#fef3c7;border:1px solid #fcd34d;color:#92400e;padding:12px;border-radius:8px;margin-bottom:12px;font-size:14px}
+    .slot-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;max-height:240px;overflow:auto;margin-top:8px}
+    .slot{padding:10px 0;text-align:center;border:1px solid #e8e3d8;border-radius:6px;background:white;font-size:14px;cursor:pointer}
+    .slot:hover{border-color:#C9A84C}
+    .slot.selected{background:#1e3a6e;color:white;border-color:#1e3a6e}
+    input[type="date"]{width:100%;padding:11px 12px;border:1px solid #e8e3d8;border-radius:6px;font-size:16px;font-family:inherit;margin-bottom:8px}
+    .therapist-list{display:grid;gap:6px;max-height:200px;overflow:auto;margin-top:8px}
+    .therapist-row{padding:10px 12px;border:1px solid #e8e3d8;border-radius:6px;background:white;cursor:pointer;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+    .therapist-row:hover{border-color:#C9A84C}
+    .therapist-row.selected{background:#fdf6ec;border-color:#C9A84C;font-weight:600}
+    h2{font-family:Georgia,serif;color:#1e3a6e;font-size:18px;margin:0 0 12px}
+    @media (max-width:380px){
+      .slot-grid{grid-template-columns:repeat(3,1fr)}
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+<div id="loading" class="muted" style="text-align:center;padding:60px 0">Loading your booking…</div>
+
+<div id="content" style="display:none">
+  <h1>Your booking</h1>
+  <div id="error-banner"></div>
+
+  <div class="card" id="booking-card">
+    <div id="status-pill" style="margin-bottom:14px"></div>
+    <div class="label">When</div><div class="value" id="when"></div>
+    <div class="label">Treatment</div><div class="value" id="treatment"></div>
+    <div class="label" id="therapist-label" style="display:none">Therapist</div><div class="value" id="therapist" style="display:none"></div>
+    <div class="label">Reference</div><div class="value" id="ref"></div>
+  </div>
+
+  <div class="card deposit" id="deposit-card" style="display:none">
+    <div class="label">Deposit paid</div>
+    <div class="value" id="deposit-amount"></div>
+    <small id="balance-line"></small>
+  </div>
+
+  <div class="card" id="policy-card">
+    <div class="label">Cancellation policy</div>
+    <div id="policy-text" class="muted" style="margin-bottom:10px"></div>
+    <div id="deadline-line" class="muted" style="font-size:12px"></div>
+  </div>
+
+  <!-- Actions -->
+  <div class="btn-row" id="actions" style="display:none">
+    <button class="btn btn-primary" id="btn-reschedule">📅 Reschedule</button>
+    <button class="btn btn-danger" id="btn-cancel">❌ Cancel booking</button>
+  </div>
+
+  <!-- Reschedule panel -->
+  <div class="card" id="reschedule-panel" style="display:none">
+    <h2>Reschedule</h2>
+    <label class="label">New date</label>
+    <input type="date" id="new-date" />
+    <div id="slots-area"></div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="btn-confirm-reschedule" disabled>Confirm new time</button>
+      <button class="btn btn-secondary" id="btn-cancel-reschedule">Back</button>
+    </div>
+  </div>
+
+  <!-- Past-deadline note -->
+  <div id="past-deadline" class="warn" style="display:none">
+    The booking is too close to the appointment time for self-service changes. Please contact the spa directly.
+  </div>
+
+  <div class="muted" style="text-align:center;margin-top:20px;font-size:12px">
+    Need help? Reply to the confirmation email and we'll sort it out.
+  </div>
+</div>
+
+</div>
+
+<script>
+(function () {
+  var API = window.location.origin;
+  var token = new URLSearchParams(window.location.search).get('token');
+  var data = null;
+
+  if (!token) {
+    show('error-banner', '<div class="error">Missing booking link token. Please use the link from your confirmation email.</div>');
+    showContent();
+    return;
+  }
+
+  fetch(API + '/api/booking/by-token/' + encodeURIComponent(token))
+    .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); })
+    .then(function (res) {
+      if (!res.ok) {
+        show('error-banner', '<div class="error">' + (res.data.error || 'This link is invalid or has expired.') + '</div>');
+        showContent();
+        return;
+      }
+      data = res.data;
+      renderBooking();
+    })
+    .catch(function (err) {
+      show('error-banner', '<div class="error">Network error: ' + err.message + '</div>');
+      showContent();
+    });
+
+  function show(id, html) { var el = document.getElementById(id); if (el) el.innerHTML = html; }
+  function showContent() {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('content').style.display = 'block';
+  }
+  function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
+  function fmtWhen(iso) {
+    return new Date(iso).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  }
+  function fmtTime(iso) {
+    return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function renderBooking() {
+    var b = data.booking, p = data.policy;
+    showContent();
+
+    // Status pill
+    var pillClass = 'pill-paid';
+    var pillText = 'CONFIRMED';
+    if (b.status === 'cancelled') {
+      pillClass = b.payment_status === 'refunded' ? 'pill-refunded' : 'pill-cancelled';
+      pillText = b.payment_status === 'refunded' ? 'CANCELLED · REFUNDED'
+              : b.payment_status === 'forfeit'  ? 'CANCELLED · DEPOSIT FORFEIT'
+              : 'CANCELLED';
+    } else if (b.status === 'completed') {
+      pillClass = 'pill-paid'; pillText = 'COMPLETED';
+    } else if (b.status === 'no_show') {
+      pillClass = 'pill-cancelled'; pillText = 'NO SHOW';
+    }
+    show('status-pill', '<span class="pill ' + pillClass + '">' + pillText + '</span>');
+
+    document.getElementById('when').textContent = fmtWhen(b.starts_at);
+    document.getElementById('treatment').textContent = b.treatment.name + ' (' + b.treatment.duration_minutes + ' min · ' + fmtMoney(b.treatment.price) + ')';
+    if (b.therapist) {
+      document.getElementById('therapist-label').style.display = '';
+      document.getElementById('therapist').style.display = '';
+      document.getElementById('therapist').textContent = b.therapist.name;
+    }
+    document.getElementById('ref').textContent = '#' + b.id;
+
+    // Deposit
+    if (b.deposit_amount > 0) {
+      document.getElementById('deposit-card').style.display = 'block';
+      document.getElementById('deposit-amount').textContent = fmtMoney(b.deposit_amount);
+      document.getElementById('balance-line').textContent = b.balance_due > 0
+        ? 'Balance of ' + fmtMoney(b.balance_due) + ' due on arrival'
+        : 'Fully paid online';
+    }
+
+    // Policy + deadline
+    document.getElementById('policy-text').textContent = p.cancel_policy_text || 'Contact us for our cancellation policy.';
+    if (p.deadline) {
+      var dl = new Date(p.deadline);
+      var msLeft = dl - Date.now();
+      if (msLeft > 0) {
+        var hrs = Math.floor(msLeft / 3600000);
+        var days = Math.floor(hrs / 24);
+        var disp = days > 0 ? days + ' day' + (days === 1 ? '' : 's') + ', ' + (hrs % 24) + 'h' : hrs + ' hour' + (hrs === 1 ? '' : 's');
+        document.getElementById('deadline-line').textContent = 'Free changes until ' + dl.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' (' + disp + ' left).';
+      } else {
+        document.getElementById('deadline-line').textContent = 'The free-change window has passed.';
+      }
+    }
+
+    // Action buttons
+    if (p.editable) {
+      document.getElementById('actions').style.display = 'grid';
+      document.getElementById('btn-reschedule').addEventListener('click', openReschedule);
+      document.getElementById('btn-cancel').addEventListener('click', cancelBooking);
+    } else {
+      document.getElementById('past-deadline').style.display = 'block';
+    }
+  }
+
+  // Reschedule flow
+  function openReschedule() {
+    document.getElementById('actions').style.display = 'none';
+    document.getElementById('reschedule-panel').style.display = 'block';
+    var di = document.getElementById('new-date');
+    var today = new Date();
+    di.min = today.toISOString().slice(0, 10);
+    di.value = data.booking.starts_at.slice(0, 10);
+    di.addEventListener('change', loadSlots);
+    document.getElementById('btn-cancel-reschedule').addEventListener('click', function () {
+      document.getElementById('reschedule-panel').style.display = 'none';
+      document.getElementById('actions').style.display = 'grid';
+    });
+    document.getElementById('btn-confirm-reschedule').addEventListener('click', submitReschedule);
+    loadSlots();
+  }
+
+  var chosenSlot = null;
+  function loadSlots() {
+    chosenSlot = null;
+    document.getElementById('btn-confirm-reschedule').disabled = true;
+    var date = document.getElementById('new-date').value;
+    var area = document.getElementById('slots-area');
+    area.innerHTML = '<div class="muted" style="padding:10px 0">Loading available times…</div>';
+    var url = API + '/api/widget/availability?treatment_id=' + data.booking.treatment.id + '&date=' + date;
+    if (data.booking.therapist) url += '&therapist_id=' + data.booking.therapist.id;
+    fetch(url).then(function (r) { return r.json(); }).then(function (r) {
+      if (!r.slots || r.slots.length === 0) {
+        area.innerHTML = '<div class="muted" style="padding:10px 0">No times available on this date.</div>';
+        return;
+      }
+      var grid = document.createElement('div');
+      grid.className = 'slot-grid';
+      r.slots.forEach(function (s) {
+        var btn = document.createElement('div');
+        btn.className = 'slot';
+        btn.textContent = fmtTime(s.starts_at);
+        btn.addEventListener('click', function () {
+          [].forEach.call(grid.querySelectorAll('.slot'), function (n) { n.classList.remove('selected'); });
+          btn.classList.add('selected');
+          chosenSlot = s.starts_at;
+          document.getElementById('btn-confirm-reschedule').disabled = false;
+        });
+        grid.appendChild(btn);
+      });
+      area.innerHTML = '';
+      area.appendChild(grid);
+    });
+  }
+
+  function submitReschedule() {
+    if (!chosenSlot) return;
+    var btn = document.getElementById('btn-confirm-reschedule');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    fetch(API + '/api/booking/by-token/' + encodeURIComponent(token), {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ starts_at: chosenSlot }),
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          show('error-banner', '<div class="error">' + (res.data.error || 'Could not reschedule. Please try again.') + '</div>');
+          btn.disabled = false; btn.textContent = 'Confirm new time';
+          window.scrollTo(0, 0);
+          return;
+        }
+        show('error-banner', '<div class="success">✓ Your booking has been moved. We\'ll see you then!</div>');
+        // Reload
+        setTimeout(function () { window.location.reload(); }, 1000);
+      });
+  }
+
+  function cancelBooking() {
+    var msg = data.booking.deposit_amount > 0
+      ? 'Cancel this booking?\n\nYour £' + Number(data.booking.deposit_amount).toFixed(2) + ' deposit will be refunded to the card you paid with (5–10 working days).'
+      : 'Cancel this booking?';
+    if (!confirm(msg)) return;
+    var btn = document.getElementById('btn-cancel');
+    btn.disabled = true; btn.textContent = 'Cancelling…';
+    fetch(API + '/api/booking/by-token/' + encodeURIComponent(token), { method: 'DELETE' })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, data: j }; }); })
+      .then(function (res) {
+        if (!res.ok) {
+          show('error-banner', '<div class="error">' + (res.data.error || 'Could not cancel. Please contact the spa.') + '</div>');
+          btn.disabled = false; btn.textContent = '❌ Cancel booking';
+          return;
+        }
+        var msg2 = res.data.refunded > 0
+          ? '✓ Booking cancelled. £' + Number(res.data.refunded).toFixed(2) + ' refunded to your card.'
+          : '✓ Booking cancelled.';
+        show('error-banner', '<div class="success">' + msg2 + '</div>');
+        setTimeout(function () { window.location.reload(); }, 1500);
+      });
+  }
+})();
+</script>
+</body>
+</html>
