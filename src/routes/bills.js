@@ -16,8 +16,12 @@ router.post('/', async (req, res) => {
     );
     if (existing.rows[0]) return res.json({ bill: existing.rows[0] });
 
+    // SPA-PRICE-SNAPSHOT — prefer the booking-time price. Only fall
+    // back to the live treatment price for legacy bookings made before
+    // the snapshot column existed (already backfilled by the migration,
+    // but the COALESCE is belt-and-braces).
     const ap = await pool.query(
-      `SELECT a.id, t.price
+      `SELECT a.id, COALESCE(a.price_at_booking, t.price) AS price
        FROM appointments a LEFT JOIN treatments t ON t.id = a.treatment_id
        WHERE a.id = $1`,
       [appointment_id],

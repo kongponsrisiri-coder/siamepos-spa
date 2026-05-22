@@ -272,11 +272,21 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // Snapshot the treatment price at booking time so subsequent price
+    // edits don't retroactively change the bill.
+    const priceRow = await pool.query('SELECT price FROM treatments WHERE id = $1', [treatment_id]);
+    const priceAtBooking = Number(priceRow.rows[0]?.price || 0);
+
     const { rows } = await pool.query(
       `INSERT INTO appointments
-         (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at, status, source, notes, therapist_requested)
-       VALUES ($1,$2,$3,$4,$5,$6,'booked',$7,$8,$9) RETURNING *`,
-      [client_id || null, treatment_id, therapist_id || null, room_id || null, starts_at, ends_at, source || 'walkin', notes || null, !!therapist_requested],
+         (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
+          status, source, notes, therapist_requested, price_at_booking)
+       VALUES ($1,$2,$3,$4,$5,$6,'booked',$7,$8,$9,$10) RETURNING *`,
+      [
+        client_id || null, treatment_id, therapist_id || null, room_id || null,
+        starts_at, ends_at, source || 'walkin', notes || null, !!therapist_requested,
+        priceAtBooking,
+      ],
     );
     const appt = rows[0];
     req.app.get('io')?.emit('new_appointment', appt);
@@ -445,19 +455,28 @@ router.put('/:id', async (req, res) => {
     const allowed_statuses = ['booked', 'in_progress', 'completed', 'cancelled', 'no_show'];
     const safeStatus = allowed_statuses.includes(status) ? status : null;
 
+    // If the treatment is being swapped, re-snapshot the price from the
+    // new treatment. Pure status/notes edits leave price_at_booking alone.
+    let newPriceAtBooking = null;
+    if (treatment_id) {
+      const pr = await pool.query('SELECT price FROM treatments WHERE id = $1', [treatment_id]);
+      newPriceAtBooking = Number(pr.rows[0]?.price || 0);
+    }
+
     const { rows } = await pool.query(
       `UPDATE appointments SET
          therapist_id         = COALESCE($2, therapist_id),
          room_id              = COALESCE($3, room_id),
          starts_at            = COALESCE($4, starts_at),
-         ends_at              = COALESCE($5, ends_at),
+         ends_at               = COALESCE($5, ends_at),
          treatment_id         = COALESCE($6, treatment_id),
          notes                = COALESCE($7, notes),
          client_id            = COALESCE($8, client_id),
          status               = COALESCE($9, status),
-         therapist_requested  = COALESCE($10, therapist_requested)
+         therapist_requested  = COALESCE($10, therapist_requested),
+         price_at_booking     = COALESCE($11, price_at_booking)
        WHERE id = $1 RETURNING *`,
-      [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null],
+      [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null, newPriceAtBooking],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     req.app.get('io')?.emit('appointment_updated', rows[0]);

@@ -365,6 +365,26 @@ async function initSchema() {
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS deposit_stripe_id TEXT;
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS payment_status    TEXT NOT NULL DEFAULT 'none';
 
+    -- SPA-PRICE-SNAPSHOT — capture treatment price AT BOOKING TIME so
+    -- edits to the treatment's price don't retroactively change a
+    -- customer's bill. Previously the bill read treatments.price live
+    -- at checkout — change the price between booking and checkout and
+    -- the customer paid the new price. Now the booking carries the
+    -- quoted price; the bill reads it with a fallback to the live
+    -- treatment price for legacy bookings.
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS price_at_booking NUMERIC(10,2);
+
+    -- Backfill existing rows so the column is never NULL going forward.
+    -- For past bookings the "right" price is unknowable; we set the
+    -- current treatment price (same value the bill would have computed
+    -- under the old code path). No behavioural change for past
+    -- bookings; locked-in pricing for everything new.
+    UPDATE appointments a
+       SET price_at_booking = t.price
+      FROM treatments t
+     WHERE a.treatment_id = t.id
+       AND a.price_at_booking IS NULL;
+
     -- Audit log so the spa knows who changed what and when (whether
     -- the customer self-serviced via the manage-link, or the
     -- receptionist edited from admin).

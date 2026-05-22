@@ -208,13 +208,22 @@ router.post('/webhook', async (req, res) => {
       b.notes ? String(b.notes) : null,
     ].filter(Boolean).join(' ') || null;
 
+    // Snapshot the treatment price at booking time. For un-matched
+    // treatments (treatmentId is NULL) this stays NULL — the bill
+    // falls back to 0 / manual override at checkout.
+    let priceAtBooking = null;
+    if (treatmentId) {
+      const pr = await client.query('SELECT price FROM treatments WHERE id = $1', [treatmentId]);
+      priceAtBooking = Number(pr.rows[0]?.price || 0);
+    }
+
     const ap = await client.query(
       `INSERT INTO appointments
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
-          status, source, notes, treatwell_booking_id)
-       VALUES ($1, $2, $3, $4, $5, $6, 'booked', 'treatwell', $7, $8)
+          status, source, notes, treatwell_booking_id, price_at_booking)
+       VALUES ($1, $2, $3, $4, $5, $6, 'booked', 'treatwell', $7, $8, $9)
        RETURNING *`,
-      [cli.id, treatmentId, preTherapistId, preRoomId, startsAt, endsAt, notes, bookingId],
+      [cli.id, treatmentId, preTherapistId, preRoomId, startsAt, endsAt, notes, bookingId, priceAtBooking],
     );
 
     await client.query('COMMIT');

@@ -205,13 +205,16 @@ router.post('/book', async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    // Treatment duration.
+    // Treatment duration + snapshot the current price so this booking
+    // locks in the quoted amount even if the treatment's price is
+    // edited later.
     const tr = await client.query(
       'SELECT id, duration_minutes, name, price FROM treatments WHERE id = $1 AND active = TRUE',
       [b.treatment_id],
     );
     if (!tr.rows[0]) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'treatment not found' }); }
     const ends_at = new Date(new Date(b.starts_at).getTime() + tr.rows[0].duration_minutes * 60_000);
+    const priceAtBooking = Number(tr.rows[0].price || 0);
 
     // Find or create client. Match by email if given, otherwise by phone.
     let cli;
@@ -264,14 +267,16 @@ router.post('/book', async (req, res) => {
       `INSERT INTO appointments
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
           status, source, notes,
-          deposit_amount, deposit_stripe_id, payment_status)
-       VALUES ($1,$2,$3,$4,$5,$6,'booked','online',$7,$8,$9,$10)
+          deposit_amount, deposit_stripe_id, payment_status,
+          price_at_booking)
+       VALUES ($1,$2,$3,$4,$5,$6,'booked','online',$7,$8,$9,$10,$11)
        RETURNING *`,
       [
         cli.id, b.treatment_id, therapist_id, room_id, b.starts_at, ends_at, b.notes || null,
         depositAmount > 0 ? depositAmount : null,
         depositStripeId,
         depositAmount > 0 ? 'deposit_paid' : 'none',
+        priceAtBooking,
       ],
     );
 
