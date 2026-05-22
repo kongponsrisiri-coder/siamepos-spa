@@ -9,6 +9,87 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
+// SPA-PAY-002 — Generates a deposit-payment link for a booking the
+// receptionist created over the phone/in-person. Shown only when no
+// deposit has been paid yet. Once generated, the link can be copied
+// or shared via WhatsApp (deep-link) or email.
+function PaymentLinkBlock({ appointment }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [link, setLink] = useState('');
+  const [copied, setCopied] = useState(false);
+  const isPending = appointment.payment_status === 'deposit_pending';
+
+  async function generate() {
+    setBusy(true); setError('');
+    try {
+      const r = await api.post(`/appointments/${appointment.id}/payment-link`);
+      setLink(r.url);
+    } catch (e) {
+      setError(e.message || 'Could not generate link. Check that Stripe is configured.');
+    } finally { setBusy(false); }
+  }
+
+  function copyLink() {
+    navigator.clipboard.writeText(link).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  }
+
+  const waText = link
+    ? `Hi! Here's the deposit link for your booking at ${appointment.spa_name || 'the spa'}:\n${link}`
+    : '';
+  const waUrl = link ? `https://wa.me/?text=${encodeURIComponent(waText)}` : '';
+
+  return (
+    <div style={{
+      background: isPending ? '#fef3c7' : '#fdf6ec',
+      border: `1px solid ${isPending ? '#fcd34d' : '#e0c884'}`,
+      borderRadius: 8,
+      padding: '12px 14px',
+      marginBottom: 14,
+      fontSize: 13,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <span style={{ color: '#7a4f1e' }}>
+          💳 <strong>{isPending ? 'Deposit link sent — awaiting payment' : 'Deposit not collected'}</strong>
+        </span>
+        {!link && (
+          <button onClick={generate} disabled={busy} style={{ background: '#C9A84C', color: '#1e3a6e', fontWeight: 700, padding: '6px 12px', fontSize: 12, border: 'none', borderRadius: 6 }}>
+            {busy ? 'Generating…' : isPending ? '🔄 New link' : '💳 Request deposit by link'}
+          </button>
+        )}
+      </div>
+      {error && <div style={{ color: 'var(--danger)', marginTop: 6 }}>{error}</div>}
+      {link && (
+        <div style={{ marginTop: 10 }}>
+          <input
+            value={link}
+            readOnly
+            onFocus={(e) => e.target.select()}
+            style={{ width: '100%', padding: 8, fontSize: 12, fontFamily: 'monospace' }}
+          />
+          <div className="row" style={{ marginTop: 6, gap: 6 }}>
+            <button onClick={copyLink} style={{ flex: 1, padding: '6px 10px', fontSize: 12 }}>{copied ? '✓ Copied' : '📋 Copy'}</button>
+            <a href={waUrl} target="_blank" rel="noreferrer" style={{ flex: 1, padding: '6px 10px', fontSize: 12, background: '#25D366', color: 'white', textAlign: 'center', textDecoration: 'none', borderRadius: 6, fontWeight: 600 }}>
+              📱 WhatsApp
+            </a>
+            {appointment.client_email && (
+              <a href={`mailto:${appointment.client_email}?subject=Your%20deposit%20link&body=${encodeURIComponent(`Hi,\n\nHere's the deposit link for your booking:\n\n${link}\n\nThanks!`)}`} style={{ flex: 1, padding: '6px 10px', fontSize: 12, background: '#1e3a6e', color: 'white', textAlign: 'center', textDecoration: 'none', borderRadius: 6, fontWeight: 600 }}>
+                ✉️ Email
+              </a>
+            )}
+          </div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+            The customer's booking is held as <strong>deposit_pending</strong>. They tap the link and pay — the booking auto-confirms.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Cancellation + no-show are handled by the dedicated "Cancel" button on
 // the timeline — and the timeline filters those rows out anyway — so the
 // edit-mode dropdown only exposes the "live" statuses. If an appointment
@@ -291,6 +372,14 @@ export default function NewAppointmentModal({
               </span>
             )}
           </div>
+        )}
+
+        {/* SPA-PAY-002 — payment-link generator. Shown when the booking
+            exists but no deposit has been collected yet — e.g. taken
+            over the phone. Receptionist gets a copy-able link to send
+            via WhatsApp/SMS. */}
+        {isEdit && appointment?.id && (!appointment.deposit_amount || appointment.payment_status === 'deposit_pending') && (
+          <PaymentLinkBlock appointment={appointment} />
         )}
 
         <div className="col" style={{ gap: 14 }}>

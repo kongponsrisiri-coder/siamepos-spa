@@ -89,6 +89,28 @@ router.get('/by-token/:token', async (req, res) => {
     const policy = await loadPolicy();
     const editable = withinCancelWindow(a.starts_at, policy.cancel_window_hours)
                   && !['cancelled', 'no_show', 'completed', 'in_progress'].includes(a.status);
+
+    // SPA-PAY-002 — if the spa generated a payment-link for this
+    // appointment, surface the Stripe client_secret + publishable key
+    // so the portal can render the Pay Now UI with Stripe Elements.
+    let payment = null;
+    if (a.payment_status === 'deposit_pending' && a.deposit_stripe_id) {
+      payment = {
+        deposit_amount:  Number(a.deposit_amount || 0),
+        publishable_key: process.env.STRIPE_PUBLISHABLE_KEY || null,
+      };
+      const s = stripeClient();
+      if (s) {
+        try {
+          const intent = await s.paymentIntents.retrieve(a.deposit_stripe_id);
+          payment.client_secret = intent.client_secret;
+          payment.intent_status = intent.status;
+        } catch (e) {
+          console.error('[booking] retrieve intent', e);
+        }
+      }
+    }
+
     res.json({
       booking: {
         id: a.id,
@@ -103,6 +125,7 @@ router.get('/by-token/:token', async (req, res) => {
         payment_status: a.payment_status || 'none',
         balance_due: +(Number(a.treatment_price || 0) - Number(a.deposit_amount || 0)).toFixed(2),
       },
+      payment,
       policy: {
         cancel_window_hours: policy.cancel_window_hours,
         cancel_policy_text:  policy.cancel_policy_text,
@@ -112,6 +135,40 @@ router.get('/by-token/:token', async (req, res) => {
     });
   } catch (err) {
     console.error('[booking] get', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// POST /api/booking/by-token/:token/confirm-payment
+// Public — called by the customer portal after Stripe confirmCardPayment
+// returns successfully. Verifies the PI is actually 'succeeded' against
+// Stripe (so we don't trust the client) and flips payment_status to
+// 'deposit_paid'. The Stripe webhook is the canonical signal in
+// production; this endpoint is a complementary fast-path so the customer
+// sees confirmation immediately without waiting for the webhook.
+router.post('/by-token/:token/confirm-payment', async (req, res) => {
+  const id = tokenAppointmentId(req, res);
+  if (!id) return;
+  try {
+    const cur = await loadAppointment(id);
+    if (!cur) return res.status(404).json({ error: 'booking not found' });
+    if (!cur.deposit_stripe_id) return res.status(400).json({ error: 'no payment intent on this booking' });
+    const s = stripeClient();
+    if (!s) return res.status(503).json({ error: 'stripe not configured' });
+    const intent = await s.paymentIntents.retrieve(cur.deposit_stripe_id);
+    if (intent.status !== 'succeeded') {
+      return res.status(402).json({ error: 'payment not yet succeeded', stripe_status: intent.status });
+    }
+    const depositAmount = +(intent.amount_received / 100).toFixed(2);
+    await pool.query(
+      `UPDATE appointments
+         SET deposit_amount = $2, payment_status = 'deposit_paid'
+       WHERE id = $1`,
+      [id, depositAmount],
+    );
+    res.json({ ok: true, deposit_amount: depositAmount });
+  } catch (err) {
+    console.error('[booking] confirm-payment', err);
     res.status(500).json({ error: 'server error' });
   }
 });

@@ -1,6 +1,14 @@
 const express = require('express');
+const Stripe = require('stripe');
 const { pool } = require('../db/database');
 const { computeAvailability, isTherapistWorking, buildAt, londonDateString } = require('../services/availability');
+const { bookingToken } = require('../services/emailService');
+
+function stripeClient() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return null;
+  return new Stripe(key, { apiVersion: '2024-06-20' });
+}
 
 // Build the rich rota-conflict 409 body. Same alternatives shape as the
 // time-conflict response so the modal can render one panel that
@@ -457,6 +465,88 @@ router.put('/:id', async (req, res) => {
   } catch (err) {
     console.error('[appointments] update', err);
     res.status(500).json({ error: 'server error' });
+  }
+});
+
+// SPA-PAY-002 — Generate a Stripe payment-link for an appointment.
+// Used when the receptionist takes a phone/WhatsApp booking and the
+// customer wants to pay the deposit without going through the website
+// widget. Returns the public manage-link URL; the customer-portal page
+// auto-detects payment_status='deposit_pending' and shows a Pay Now UI.
+//
+// POST /api/appointments/:id/payment-link
+router.post('/:id/payment-link', async (req, res) => {
+  const id = Number(req.params.id);
+  const s = stripeClient();
+  if (!s) return res.status(503).json({ error: 'stripe not configured' });
+  try {
+    const apptRow = await pool.query(
+      `SELECT a.id, a.deposit_amount, a.deposit_stripe_id, a.payment_status, a.client_id,
+              t.price AS treatment_price, t.name AS treatment_name,
+              c.email AS client_email, c.name AS client_name
+       FROM appointments a
+       LEFT JOIN treatments t ON t.id = a.treatment_id
+       LEFT JOIN clients    c ON c.id = a.client_id
+       WHERE a.id = $1`,
+      [id],
+    );
+    const a = apptRow.rows[0];
+    if (!a) return res.status(404).json({ error: 'appointment not found' });
+    if (a.payment_status === 'deposit_paid' || a.payment_status === 'fully_paid') {
+      return res.status(400).json({ error: `deposit already paid (payment_status=${a.payment_status})` });
+    }
+
+    // Resolve the deposit amount the same way the widget does. The
+    // policy may have changed since the appointment was created.
+    const policyRow = await pool.query(
+      `SELECT key, value FROM settings WHERE key IN
+         ('deposit_model','deposit_amount','deposit_percentage')`,
+    );
+    const policy = Object.fromEntries(policyRow.rows.map((r) => [r.key, r.value]));
+    const model      = policy.deposit_model      || 'fixed_amount';
+    const fixed      = Number(policy.deposit_amount || 25);
+    const percentage = Number(policy.deposit_percentage || 25);
+    const price      = Number(a.treatment_price || 0);
+    let depositAmount = 0;
+    if (model === 'full_prepay')      depositAmount = +price.toFixed(2);
+    else if (model === 'percentage')  depositAmount = +((price * percentage) / 100).toFixed(2);
+    else if (model === 'fixed_amount') depositAmount = +Math.min(fixed, price).toFixed(2);
+    if (depositAmount <= 0) return res.status(400).json({ error: 'deposit policy is "none" — no link needed' });
+
+    // Create a fresh PaymentIntent. Each call invalidates the previous
+    // link — Stripe auto-expires unconfirmed intents.
+    const intent = await s.paymentIntents.create({
+      amount: Math.round(depositAmount * 100),
+      currency: 'gbp',
+      automatic_payment_methods: { enabled: true },
+      receipt_email: a.client_email || undefined,
+      metadata: {
+        purpose: 'spa_deposit_link',
+        appointment_id: String(a.id),
+        treatment_name: String(a.treatment_name || ''),
+      },
+    });
+
+    await pool.query(
+      `UPDATE appointments
+         SET deposit_amount = $2, deposit_stripe_id = $3, payment_status = 'deposit_pending'
+       WHERE id = $1`,
+      [id, depositAmount, intent.id],
+    );
+
+    const apiBase = process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`;
+    const url = `${apiBase}/my-booking.html?token=${encodeURIComponent(bookingToken(id))}`;
+
+    res.json({
+      url,
+      deposit_amount: depositAmount,
+      payment_status: 'deposit_pending',
+      client_secret: intent.client_secret,
+      intent_id: intent.id,
+    });
+  } catch (err) {
+    console.error('[appointments] payment-link', err);
+    res.status(500).json({ error: err.message || 'server error' });
   }
 });
 

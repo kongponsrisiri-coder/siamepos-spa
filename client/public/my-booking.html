@@ -75,7 +75,18 @@
     <div id="deadline-line" class="muted" style="font-size:12px"></div>
   </div>
 
-  <!-- Actions -->
+  <!-- SPA-PAY-002 — Pay Now panel (only shows when payment_status='deposit_pending') -->
+  <div class="card" id="pay-card" style="display:none">
+    <h2 style="margin:0 0 4px">Pay your deposit</h2>
+    <div class="muted" style="margin-bottom:14px;font-size:14px">
+      Pay <strong id="pay-amount"></strong> now to confirm your booking. The balance is due at the spa on arrival.
+    </div>
+    <div id="payment-element" style="margin-bottom:10px"></div>
+    <div id="pay-error" style="color:#991b1b;font-size:13px;display:none;margin-bottom:8px"></div>
+    <button class="btn btn-primary" id="btn-pay">Pay deposit</button>
+  </div>
+
+  <!-- Actions (reschedule / cancel — only when paid + within window) -->
   <div class="btn-row" id="actions" style="display:none">
     <button class="btn btn-primary" id="btn-reschedule">📅 Reschedule</button>
     <button class="btn btn-danger" id="btn-cancel">❌ Cancel booking</button>
@@ -146,6 +157,17 @@
     return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   }
 
+  function loadStripeJs() {
+    if (window.Stripe) return Promise.resolve(window.Stripe);
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement('script');
+      s.src = 'https://js.stripe.com/v3/';
+      s.onload = function () { resolve(window.Stripe); };
+      s.onerror = function () { reject(new Error('Stripe.js load failed')); };
+      document.head.appendChild(s);
+    });
+  }
+
   function renderBooking() {
     var b = data.booking, p = data.policy;
     showContent();
@@ -198,6 +220,14 @@
       }
     }
 
+    // SPA-PAY-002 — payment-pending takes priority over the manage UI.
+    // Show the Pay Now panel; once paid the page reloads and the
+    // reschedule/cancel buttons take over.
+    if (b.payment_status === 'deposit_pending' && data.payment && data.payment.client_secret) {
+      openPaymentUI();
+      return;
+    }
+
     // Action buttons
     if (p.editable) {
       document.getElementById('actions').style.display = 'grid';
@@ -206,6 +236,52 @@
     } else {
       document.getElementById('past-deadline').style.display = 'block';
     }
+  }
+
+  // ── Pay deposit ──────────────────────────────────────────────────────
+  var stripeInstance = null, stripeElements = null;
+  function openPaymentUI() {
+    var pay = data.payment;
+    document.getElementById('pay-amount').textContent = '£' + Number(pay.deposit_amount).toFixed(2);
+    document.getElementById('pay-card').style.display = 'block';
+    if (!pay.publishable_key) {
+      payError('Payment temporarily unavailable. Please contact the spa.');
+      return;
+    }
+    loadStripeJs().then(function (Stripe) {
+      stripeInstance = Stripe(pay.publishable_key);
+      stripeElements = stripeInstance.elements({
+        clientSecret: pay.client_secret,
+        appearance: { theme: 'stripe', variables: { colorPrimary: '#1e3a6e' } },
+      });
+      var el = stripeElements.create('payment', { layout: 'tabs' });
+      el.mount('#payment-element');
+    }).catch(function () { payError('Could not load payment form.'); });
+    document.getElementById('btn-pay').addEventListener('click', confirmPayment);
+  }
+  function payError(msg) {
+    var e = document.getElementById('pay-error');
+    e.textContent = msg; e.style.display = 'block';
+  }
+  function confirmPayment() {
+    if (!stripeInstance || !stripeElements) return;
+    var btn = document.getElementById('btn-pay');
+    btn.disabled = true; btn.textContent = 'Processing…';
+    stripeInstance.confirmPayment({
+      elements: stripeElements,
+      redirect: 'if_required',
+    }).then(function (result) {
+      if (result.error) {
+        payError(result.error.message || 'Payment failed');
+        btn.disabled = false; btn.textContent = 'Pay deposit';
+        return;
+      }
+      fetch(API + '/api/booking/by-token/' + encodeURIComponent(token) + '/confirm-payment', { method: 'POST' })
+        .then(function () {
+          show('error-banner', '<div class="success">✓ Deposit received. Your booking is confirmed!</div>');
+          setTimeout(function () { window.location.reload(); }, 1500);
+        });
+    });
   }
 
   // Reschedule flow
