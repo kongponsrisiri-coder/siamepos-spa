@@ -182,6 +182,82 @@ router.post('/:id/pay', async (req, res) => {
   }
 });
 
+// PUT /api/bills/:id/method
+// Amend the payment method on a closed bill — for "I tapped Cash but
+// it was actually Card" mistakes at the till. Admin/manager only.
+// Mirrors the validation in POST /pay (incl. split_payments + the
+// deposit auto-credit) so the resulting row is structurally identical
+// to what we'd have written if the right method had been picked first.
+router.put('/:id/method', requireRole('admin', 'manager'), async (req, res) => {
+  const id = Number(req.params.id);
+  const { method, split_payments } = req.body || {};
+  if (!['cash', 'card', 'split', 'voucher', 'treatwell'].includes(method)) {
+    return res.status(400).json({ error: 'invalid method' });
+  }
+  try {
+    const billRow = await pool.query(
+      `SELECT b.id, b.total, b.appointment_id, COALESCE(a.deposit_amount, 0) AS deposit_amount
+       FROM bills b JOIN appointments a ON a.id = b.appointment_id
+       WHERE b.id = $1`,
+      [id],
+    );
+    if (!billRow.rows[0]) return res.status(404).json({ error: 'not found' });
+    const billTotal = Number(billRow.rows[0].total);
+    const depositAmount = Number(billRow.rows[0].deposit_amount || 0);
+
+    let splitJson = null;
+    let effectiveMethod = method;
+
+    if (method === 'split') {
+      if (!Array.isArray(split_payments) || split_payments.length === 0) {
+        return res.status(400).json({ error: 'split_payments required when method=split' });
+      }
+      const ALLOWED = ['cash', 'card', 'voucher'];
+      const clean = [];
+      for (const p of split_payments) {
+        const m = String(p.method || '').toLowerCase();
+        const a = Number(p.amount);
+        if (!ALLOWED.includes(m)) return res.status(400).json({ error: `split_payments: bad method "${p.method}"` });
+        if (!isFinite(a) || a <= 0)  return res.status(400).json({ error: `split_payments: amount must be > 0` });
+        clean.push({ method: m, amount: +a.toFixed(2) });
+      }
+      const expected = +(billTotal - depositAmount).toFixed(2);
+      const sum = +clean.reduce((s, p) => s + p.amount, 0).toFixed(2);
+      if (Math.abs(sum - expected) > 0.01) {
+        return res.status(400).json({
+          error: depositAmount > 0
+            ? `split_payments sum £${sum.toFixed(2)} should equal balance £${expected.toFixed(2)} (deposit £${depositAmount.toFixed(2)} auto-credited)`
+            : `split_payments sum £${sum.toFixed(2)} does not match bill total £${billTotal.toFixed(2)}`,
+        });
+      }
+      const finalRows = depositAmount > 0
+        ? [{ method: 'deposit', amount: depositAmount }, ...clean]
+        : clean;
+      splitJson = JSON.stringify(finalRows);
+    } else if (depositAmount > 0) {
+      // Non-split method on a deposit-paid appointment — auto-credit
+      // the same way POST /pay does.
+      const balance = +(billTotal - depositAmount).toFixed(2);
+      effectiveMethod = 'split';
+      splitJson = JSON.stringify(
+        balance > 0
+          ? [{ method: 'deposit', amount: depositAmount }, { method, amount: balance }]
+          : [{ method: 'deposit', amount: billTotal }],
+      );
+    }
+
+    const { rows } = await pool.query(
+      `UPDATE bills SET payment_method = $2, split_payments = $3::jsonb
+       WHERE id = $1 RETURNING *`,
+      [id, effectiveMethod, splitJson],
+    );
+    res.json({ bill: rows[0] });
+  } catch (err) {
+    console.error('[bills] amend method', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 // GET /api/bills?from=&to=
 router.get('/', async (req, res) => {
   const { from, to } = req.query;

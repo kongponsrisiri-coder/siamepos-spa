@@ -9,6 +9,118 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
+// SPA-PAYMENT-EDIT — Amend the payment method on a closed bill. Loads
+// the bill for the appointment so we know the current method, then
+// shows a method picker. Single-method changes only — switching to
+// 'split' from the timeline modal is too complex; route those edits
+// to Admin → Bills.
+function PaymentEditBlock({ appointment, onUpdated }) {
+  const [bill, setBill]   = useState(null);
+  const [open, setOpen]   = useState(false);
+  const [newMethod, setNewMethod] = useState('');
+  const [busy, setBusy]   = useState(false);
+  const [error, setError] = useState('');
+  const [ok, setOk]       = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await api.get(`/bills?appointment_id=${appointment.id}`);
+        const b = (r.bills || []).find((x) => x.appointment_id === appointment.id);
+        if (alive) setBill(b || null);
+      } catch {}
+    })();
+    return () => { alive = false; };
+  }, [appointment.id]);
+
+  if (!bill) return null;
+
+  const METHODS = [
+    { id: 'cash',      label: 'Cash',      bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
+    { id: 'card',      label: 'Card',      bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
+    { id: 'voucher',   label: '🎁 Voucher', bg: '#dcfce7', border: '#16a34a', text: '#14532d' },
+    { id: 'treatwell', label: '🌐 Treatwell', bg: '#fef9c3', border: '#eab308', text: '#854d0e' },
+  ];
+
+  async function save() {
+    if (!newMethod || newMethod === bill.payment_method) { setOpen(false); return; }
+    setBusy(true); setError('');
+    try {
+      const r = await api.put(`/bills/${bill.id}/method`, { method: newMethod });
+      setBill(r.bill);
+      setOpen(false); setNewMethod('');
+      setOk(true);
+      setTimeout(() => setOk(false), 1800);
+      onUpdated && onUpdated(r.bill);
+    } catch (e) {
+      setError(e.message || 'Failed to update method');
+    } finally { setBusy(false); }
+  }
+
+  const currentLabel = bill.payment_method === 'split'
+    ? '⇄ Split (edit via Admin → Bills)'
+    : (METHODS.find((m) => m.id === bill.payment_method)?.label || bill.payment_method || '—');
+
+  return (
+    <div style={{
+      background: '#f3f4f6',
+      border: '1px solid var(--border)',
+      borderRadius: 8,
+      padding: '10px 14px',
+      marginBottom: 14,
+      fontSize: 13,
+    }}>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <span>
+          💰 Paid by <strong>{currentLabel}</strong> · {bill.subtotal && bill.total ? `£${Number(bill.total).toFixed(2)}` : ''}
+          {ok && <span style={{ color: '#16a34a', marginLeft: 8 }}>✓ updated</span>}
+        </span>
+        {bill.payment_method !== 'split' && !open && (
+          <button onClick={() => { setOpen(true); setNewMethod(bill.payment_method); }} style={{ fontSize: 12, padding: '4px 10px' }}>
+            Edit
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="col" style={{ marginTop: 8, gap: 8 }}>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            {METHODS.map((m) => {
+              const active = newMethod === m.id;
+              return (
+                <button
+                  key={m.id}
+                  onClick={() => setNewMethod(m.id)}
+                  style={{
+                    flex: '1 1 100px',
+                    padding: '8px 10px',
+                    background: active ? m.border : m.bg,
+                    color: active ? 'white' : m.text,
+                    border: `2px solid ${m.border}`,
+                    fontWeight: 700,
+                    borderRadius: 6,
+                  }}
+                >{m.label}</button>
+              );
+            })}
+          </div>
+          {error && <div style={{ color: 'var(--danger)', fontSize: 12 }}>{error}</div>}
+          <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+            <button onClick={() => { setOpen(false); setNewMethod(''); setError(''); }} style={{ fontSize: 12, padding: '4px 12px' }}>Cancel</button>
+            <button onClick={save} disabled={busy || !newMethod || newMethod === bill.payment_method} className="primary" style={{ fontSize: 12, padding: '4px 14px' }}>
+              {busy ? 'Saving…' : 'Save change'}
+            </button>
+          </div>
+          <div className="muted" style={{ fontSize: 11 }}>
+            For a deposit-paid booking, the deposit row is preserved automatically.
+            Splitting into multiple methods? Use <strong>Admin → 🧾 Bills</strong>.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // SPA-PAY-002 — Generates a deposit-payment link for a booking the
 // receptionist created over the phone/in-person. Shown only when no
 // deposit has been paid yet. Once generated, the link can be copied
@@ -380,6 +492,20 @@ export default function NewAppointmentModal({
             via WhatsApp/SMS. */}
         {isEdit && appointment?.id && (!appointment.deposit_amount || appointment.payment_status === 'deposit_pending') && (
           <PaymentLinkBlock appointment={appointment} />
+        )}
+
+        {/* SPA-PAYMENT-EDIT — Amend the payment method on a closed bill.
+            For "I tapped Cash but it was actually Card" mistakes. Only
+            renders when the appointment is completed (i.e. the bill is
+            closed). Admin/manager only — non-managers see a read-only
+            label. */}
+        {isEdit && appointment?.id && appointment.status === 'completed' && (
+          <PaymentEditBlock appointment={appointment} onUpdated={(b) => {
+            // Reflect the new method in the modal's view of the
+            // appointment so a second edit reads the latest value.
+            // (The timeline will pick it up via socket too.)
+            if (appointment) appointment.payment_method = b.payment_method;
+          }} />
         )}
 
         <div className="col" style={{ gap: 14 }}>

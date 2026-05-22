@@ -157,21 +157,59 @@ router.get('/therapist', async (req, res) => {
     let where = "WHERE b.closed_at IS NOT NULL";
     if (from) { params.push(from); where += ` AND b.closed_at::date >= $${params.length}::date`; }
     if (to)   { params.push(to);   where += ` AND b.closed_at::date <= $${params.length}::date`; }
-    const { rows } = await pool.query(
+    // Therapist totals + hours worked + customer-requested hours.
+    // `therapist_requested = TRUE` means the customer asked for that
+    // specific therapist when booking (vs being auto-assigned), which
+    // is a useful loyalty/popularity metric for spa owners.
+    const { rows: therapists } = await pool.query(
       `SELECT th.id, th.name,
-              COUNT(b.id)::int AS bills,
-              COALESCE(SUM(b.subtotal),0)::numeric AS revenue,
-              COALESCE(SUM(b.tip),0)::numeric      AS tips,
-              COALESCE(SUM(b.total),0)::numeric    AS total
+              COUNT(b.id)::int                                          AS bills,
+              COALESCE(SUM(b.subtotal),0)::numeric                      AS revenue,
+              COALESCE(SUM(b.tip),0)::numeric                           AS tips,
+              COALESCE(SUM(b.total),0)::numeric                         AS total,
+              COALESCE(SUM(t.duration_minutes), 0)::int                 AS minutes_worked,
+              COALESCE(SUM(t.duration_minutes) FILTER (WHERE a.therapist_requested), 0)::int AS minutes_requested,
+              COUNT(b.id) FILTER (WHERE a.therapist_requested)::int     AS requested_bookings
        FROM bills b
-       JOIN appointments a ON a.id = b.appointment_id
+       JOIN appointments a   ON a.id = b.appointment_id
        LEFT JOIN therapists th ON th.id = a.therapist_id
+       LEFT JOIN treatments t  ON t.id = a.treatment_id
        ${where}
        GROUP BY th.id, th.name
        ORDER BY revenue DESC`,
       params,
     );
-    res.json({ therapists: rows });
+
+    // Payment-method breakdown for the same range — split-aware (one
+    // 'split' bill contributes to multiple methods via split_payments).
+    const { rows: byMethod } = await pool.query(
+      `WITH non_split AS (
+         SELECT payment_method, total::numeric AS amount
+         FROM bills
+         WHERE closed_at IS NOT NULL
+           AND ($1::date IS NULL OR closed_at::date >= $1::date)
+           AND ($2::date IS NULL OR closed_at::date <= $2::date)
+           AND payment_method != 'split'
+       ),
+       splits AS (
+         SELECT (elem->>'method')::text  AS payment_method,
+                (elem->>'amount')::numeric AS amount
+         FROM bills b, LATERAL jsonb_array_elements(COALESCE(b.split_payments, '[]'::jsonb)) elem
+         WHERE b.closed_at IS NOT NULL
+           AND ($1::date IS NULL OR b.closed_at::date >= $1::date)
+           AND ($2::date IS NULL OR b.closed_at::date <= $2::date)
+           AND b.payment_method = 'split'
+       )
+       SELECT payment_method,
+              COUNT(*)::int                       AS n,
+              COALESCE(SUM(amount), 0)::numeric   AS revenue
+       FROM (SELECT * FROM non_split UNION ALL SELECT * FROM splits) all_payments
+       GROUP BY payment_method
+       ORDER BY revenue DESC`,
+      [from || null, to || null],
+    );
+
+    res.json({ therapists, by_payment_method: byMethod });
   } catch (err) {
     console.error('[reports] therapist', err);
     res.status(500).json({ error: 'server error' });
