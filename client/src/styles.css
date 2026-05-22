@@ -459,3 +459,17 @@ tbody tr:hover td { background: var(--navy-muted); }
     padding-bottom: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
   }
 }
+
+/* ── Print: clean Z-report (and any other) layout ───────────────────
+   Hides nav, sidebar, action buttons; keeps the content + tables. */
+@media print {
+  body { background: white !important; }
+  .top-nav, .bottom-nav, .admin-sidebar, .section-header .row, .modal-backdrop { display: none !important; }
+  .admin-layout { display: block !important; height: auto !important; overflow: visible !important; margin: 0 !important; width: 100% !important; }
+  .admin-content { padding: 0 !important; }
+  .card { box-shadow: none !important; border: 1px solid #ccc !important; page-break-inside: avoid; }
+  button { display: none !important; }
+  input[type="date"] { border: none !important; padding: 0 !important; font-size: 14px !important; background: transparent !important; }
+  table { font-size: 12px !important; width: 100% !important; }
+  a[href]:after { content: ''; }
+}

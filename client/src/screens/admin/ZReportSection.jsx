@@ -9,14 +9,39 @@ function todayISO() {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
 
+// Quote a CSV cell — escape double-quotes, wrap in quotes if the value
+// contains comma / quote / newline. Safe for Excel + Numbers.
+function csvCell(v) {
+  if (v === null || v === undefined) return '';
+  const s = String(v);
+  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+function downloadCsv(filename, rows) {
+  const csv = rows.map((r) => r.map(csvCell).join(',')).join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export default function ZReportSection() {
   const [date, setDate] = useState(todayISO());
   const [data, setData] = useState(null);
+  const [bills, setBills] = useState([]);
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
-    const r = await api.get(`/reports/z-report?date=${date}`);
+    // Pull summary + line-by-line bills together so the export has both.
+    const [r, bs] = await Promise.all([
+      api.get(`/reports/z-report?date=${date}`),
+      api.get(`/bills?from=${date}&to=${date}`),
+    ]);
     setData(r);
+    setBills(bs.bills || []);
   }, [date]);
 
   useEffect(() => { load(); }, [load]);
@@ -30,6 +55,79 @@ export default function ZReportSection() {
     } finally { setBusy(false); }
   }
 
+  // SPA-PAY-001 — CSV export. One row per bill closed that day, with
+  // the underlying split rows broken out into per-method columns so an
+  // accountant can sum cash / card / voucher / deposit straight off the
+  // sheet. Summary block follows the detail rows.
+  function exportCsv() {
+    if (!data || bills.length === 0) {
+      alert('No bills closed on this date — nothing to export.');
+      return;
+    }
+    const METHODS = ['cash', 'card', 'voucher', 'deposit', 'treatwell'];
+    const header = [
+      'Date', 'Time', 'Bill #', 'Client', 'Treatment',
+      'Subtotal £', 'Tip £', 'Total £',
+      'Method',
+      ...METHODS.map((m) => `${m[0].toUpperCase()}${m.slice(1)} £`),
+      'Status',
+    ];
+    const rows = [header];
+
+    // Per-bill detail rows
+    for (const b of bills) {
+      const closed = new Date(b.closed_at);
+      const breakdown = Object.fromEntries(METHODS.map((m) => [m, 0]));
+      if (b.payment_method === 'split' && Array.isArray(b.split_payments)) {
+        for (const p of b.split_payments) {
+          if (breakdown[p.method] !== undefined) breakdown[p.method] += Number(p.amount || 0);
+        }
+      } else if (METHODS.includes(b.payment_method)) {
+        breakdown[b.payment_method] = Number(b.total || 0);
+      }
+      rows.push([
+        date,
+        closed.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }),
+        b.id,
+        b.client_name || 'Walk-in',
+        b.treatment_name || '',
+        Number(b.subtotal || 0).toFixed(2),
+        Number(b.tip || 0).toFixed(2),
+        Number(b.total || 0).toFixed(2),
+        b.payment_method || '',
+        ...METHODS.map((m) => breakdown[m] > 0 ? breakdown[m].toFixed(2) : ''),
+        b.payment_status || '',
+      ]);
+    }
+
+    // Blank separator
+    rows.push([]);
+    // Summary block
+    rows.push(['Summary']);
+    rows.push(['', '', '', '', '',
+      Number(data.totals.subtotal || 0).toFixed(2),
+      Number(data.totals.tips || 0).toFixed(2),
+      Number(data.totals.total || 0).toFixed(2),
+      `${data.totals.bills} bills`,
+    ]);
+    rows.push([]);
+    rows.push(['By payment method', 'Count', 'Revenue £']);
+    for (const m of data.by_payment_method || []) {
+      rows.push([m.payment_method, m.n, Number(m.revenue).toFixed(2)]);
+    }
+    if (data.online_deposits) {
+      rows.push([]);
+      rows.push(['Online deposits (Stripe)']);
+      rows.push(['Taken today',     '', Number(data.online_deposits.total_taken    || 0).toFixed(2)]);
+      rows.push(['Refunded',        '', Number(data.online_deposits.total_refunded || 0).toFixed(2)]);
+      rows.push(['Pending (upcoming)',     data.online_deposits.count_pending  || 0]);
+      rows.push(['Consumed (paid in full)', data.online_deposits.count_consumed || 0]);
+      rows.push(['Forfeit (late cancel)',  data.online_deposits.count_forfeit || 0]);
+    }
+
+    downloadCsv(`z-report_${date}.csv`, rows);
+  }
+
   if (!data) return <div className="muted">Loading…</div>;
   const closed = data.last_closed_date === date;
 
@@ -40,9 +138,11 @@ export default function ZReportSection() {
           <h2>Z Report</h2>
           <div className="sub">End-of-day revenue summary</div>
         </div>
-        <div className="row" style={{ gap: 8 }}>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 170 }} />
           <button onClick={() => setDate(todayISO())}>Today</button>
+          <button onClick={exportCsv} disabled={!data || bills.length === 0} title="Download line-by-line CSV with split breakdown + summary">📥 Export CSV</button>
+          <button onClick={() => window.print()} title="Print-friendly view of this Z report">🖨 Print</button>
         </div>
       </div>
       <div className="card col">
@@ -109,6 +209,54 @@ export default function ZReportSection() {
           </button>
         </div>
       </div>
+
+      {/* Bills detail — gives the operator a scannable on-screen view
+          and feeds the print preview. The CSV export uses the same
+          underlying rows. */}
+      {bills.length > 0 && (
+        <div className="card col">
+          <h3 style={{ margin: 0 }}>Bills closed — {date}</h3>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  <th style={{ padding: '6px' }}>Time</th>
+                  <th style={{ padding: '6px' }}>#</th>
+                  <th style={{ padding: '6px' }}>Client</th>
+                  <th style={{ padding: '6px' }}>Treatment</th>
+                  <th style={{ padding: '6px', textAlign: 'right' }}>Subtotal</th>
+                  <th style={{ padding: '6px', textAlign: 'right' }}>Tip</th>
+                  <th style={{ padding: '6px', textAlign: 'right' }}>Total</th>
+                  <th style={{ padding: '6px' }}>Method</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bills.map((b) => (
+                  <tr key={b.id} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: '8px 6px', whiteSpace: 'nowrap' }}>{new Date(b.closed_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</td>
+                    <td style={{ padding: '8px 6px', color: 'var(--muted)' }}>{b.id}</td>
+                    <td style={{ padding: '8px 6px' }}>{b.client_name || <span className="muted">Walk-in</span>}</td>
+                    <td style={{ padding: '8px 6px', color: 'var(--muted)' }}>{b.treatment_name || '—'}</td>
+                    <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: 'monospace' }}>{fmtMoney(b.subtotal)}</td>
+                    <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: 'monospace', color: b.tip > 0 ? 'var(--success)' : 'var(--muted)' }}>{fmtMoney(b.tip)}</td>
+                    <td style={{ padding: '8px 6px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>{fmtMoney(b.total)}</td>
+                    <td style={{ padding: '8px 6px' }}>
+                      {b.payment_method || '—'}
+                      {b.payment_method === 'split' && Array.isArray(b.split_payments) && (
+                        <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4 }}>
+                          {b.split_payments.map((p, i) => (
+                            <div key={i}>{p.method} £{Number(p.amount).toFixed(2)}</div>
+                          ))}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
