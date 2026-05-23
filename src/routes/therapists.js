@@ -36,6 +36,51 @@ router.post('/', requireRole('admin', 'manager'), async (req, res) => {
   }
 });
 
+// SPA-TURN-ORDER — set the column order for a given date. MUST BE
+// DEFINED BEFORE the `/:id` route below, otherwise Express matches
+// `PUT /turn-order` against `PUT /:id` with id='turn-order' and 500s.
+//   body: { date: 'YYYY-MM-DD', order: [therapist_id, …] }
+router.put('/turn-order', requireRole('admin', 'manager', 'reception'), async (req, res) => {
+  const { date, order } = req.body || {};
+  if (!date)                  return res.status(400).json({ error: 'date required' });
+  if (!Array.isArray(order))  return res.status(400).json({ error: 'order array required' });
+  try {
+    await pool.query('BEGIN');
+    await pool.query('DELETE FROM therapist_turn_order WHERE date = $1', [date]);
+    for (let i = 0; i < order.length; i++) {
+      const tid = Number(order[i]);
+      if (!Number.isInteger(tid) || tid <= 0) continue;
+      await pool.query(
+        `INSERT INTO therapist_turn_order (date, therapist_id, position, set_by)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (date, therapist_id) DO UPDATE SET position = EXCLUDED.position, set_by = EXCLUDED.set_by, set_at = now()`,
+        [date, tid, i + 1, req.staff?.id || null],
+      );
+    }
+    await pool.query('COMMIT');
+    req.app.get('io')?.emit('turn_order_updated', { date, order });
+    res.json({ ok: true, date, order });
+  } catch (err) {
+    await pool.query('ROLLBACK').catch(() => {});
+    console.error('[therapists] turn-order PUT', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// DELETE /api/therapists/turn-order?date=YYYY-MM-DD — clear the order
+router.delete('/turn-order', requireRole('admin', 'manager', 'reception'), async (req, res) => {
+  const date = req.query.date;
+  if (!date) return res.status(400).json({ error: 'date required' });
+  try {
+    await pool.query('DELETE FROM therapist_turn_order WHERE date = $1', [date]);
+    req.app.get('io')?.emit('turn_order_updated', { date, order: [] });
+    res.json({ ok: true, date });
+  } catch (err) {
+    console.error('[therapists] turn-order DELETE', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 // PUT /api/therapists/:id  body: { name?, pin?, role?, specialisms?, photo_url?, active? }
 router.put('/:id', requireRole('admin', 'manager'), async (req, res) => {
   const id = Number(req.params.id);
@@ -124,7 +169,7 @@ router.get('/rota', requireAuth, async (req, res) => {
     const lastDay = new Date(Date.UTC(yyyy, mm, 0)).getUTCDate();
     const monthEnd = `${month}-${String(lastDay).padStart(2, '0')}`;
 
-    const [therapistsRes, rotaRes, overridesRes] = await Promise.all([
+    const [therapistsRes, rotaRes, overridesRes, turnOrderRes] = await Promise.all([
       pool.query('SELECT id, name, role, specialisms FROM therapists WHERE active = TRUE ORDER BY name'),
       pool.query(
         `SELECT therapist_id, day_of_week, start_time, end_time
@@ -137,12 +182,21 @@ router.get('/rota', requireAuth, async (req, res) => {
          ORDER BY date, therapist_id`,
         [monthStart, monthEnd],
       ),
+      // SPA-TURN-ORDER — per-day column order set by the receptionist.
+      pool.query(
+        `SELECT date::text AS date, therapist_id, position
+         FROM therapist_turn_order
+         WHERE date BETWEEN $1 AND $2
+         ORDER BY date, position`,
+        [monthStart, monthEnd],
+      ),
     ]);
 
     res.json({
       therapists:  therapistsRes.rows,
       weekly_rota: rotaRes.rows,
       overrides:   overridesRes.rows,
+      turn_order:  turnOrderRes.rows,
     });
   } catch (err) {
     console.error('[therapists] rota GET', err);

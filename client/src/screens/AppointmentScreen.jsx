@@ -565,6 +565,8 @@ export default function AppointmentScreen() {
   const [rotaOverrides, setRotaOverrides] = useState([]);
   const [rotaMonth, setRotaMonth]         = useState('');
   const [columnOrder, setColumnOrder]     = useState(null);
+  const [turnOrder,    setTurnOrder]      = useState([]);   // SPA-TURN-ORDER — backend-saved order
+  const [showTurnModal, setShowTurnModal] = useState(false);
 
   // Responsive breakpoint — drives column widths + action sheet vs action bar
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
@@ -583,6 +585,7 @@ export default function AppointmentScreen() {
       setAllTherapists(r.therapists || []);
       setWeeklyRota(r.weekly_rota || []);
       setRotaOverrides(r.overrides || []);
+      setTurnOrder(r.turn_order || []);
       setRotaMonth(m);
     } catch { /* fall back to appointment-derived columns */ }
   }, []);
@@ -594,7 +597,11 @@ export default function AppointmentScreen() {
   useEffect(() => {
     const onRotaUpdated = () => refreshRota(month);
     socket.on('rota_updated', onRotaUpdated);
-    return () => socket.off('rota_updated', onRotaUpdated);
+    socket.on('turn_order_updated', onRotaUpdated);
+    return () => {
+      socket.off('rota_updated', onRotaUpdated);
+      socket.off('turn_order_updated', onRotaUpdated);
+    };
   }, [month, refreshRota]);
 
   useEffect(() => {
@@ -613,10 +620,20 @@ export default function AppointmentScreen() {
       return { ...t, isOff, workStart: hours?.start || null, workEnd: hours?.end || null, isOverride: hasOverride };
     });
 
-  const orderedTherapistColumns = columnOrder
+  // SPA-TURN-ORDER — backend-saved order for THIS DATE.
+  const turnOrderToday = turnOrder
+    .filter(r => String(r.date).slice(0, 10) === date)
+    .sort((a, b) => a.position - b.position)
+    .map(r => r.therapist_id);
+
+  // Sort priority: 1) per-tablet drag override (localStorage) wins,
+  // 2) then the backend-saved turn order for the day, 3) otherwise
+  // alphabetical (the natural order from the rota endpoint).
+  const orderedTherapistColumns = (columnOrder || turnOrderToday.length > 0)
     ? [...therapistColumns].sort((a, b) => {
-        const ai = columnOrder.indexOf(a.id);
-        const bi = columnOrder.indexOf(b.id);
+        const list = columnOrder && columnOrder.length > 0 ? columnOrder : turnOrderToday;
+        const ai = list.indexOf(a.id);
+        const bi = list.indexOf(b.id);
         return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
       })
     : therapistColumns;
@@ -750,6 +767,9 @@ export default function AppointmentScreen() {
           <div className="row" style={{ gap: 6 }}>
             <button className={view === 'timeline' ? 'primary' : ''} onClick={() => setView('timeline')} style={{ fontSize: 13 }}>⏱ Timeline</button>
             <button className={view === 'list'     ? 'primary' : ''} onClick={() => setView('list')}     style={{ fontSize: 13 }}>☰ List</button>
+            {view === 'timeline' && (
+              <button onClick={() => setShowTurnModal(true)} style={{ fontSize: 13 }} title="Set today's column order">🔢 Set turn order</button>
+            )}
             <button className="primary" onClick={() => setModal({})}>+ New</button>
           </div>
         </div>
@@ -907,6 +927,134 @@ export default function AppointmentScreen() {
           onSaved={() => { setModal(null); setSelected(null); load(); }}
         />
       )}
+
+      {/* SPA-TURN-ORDER — set today's column order ─────────────────────── */}
+      {showTurnModal && (
+        <TurnOrderModal
+          date={date}
+          therapists={orderedTherapistColumns.filter(t => !t.isOff)}
+          currentOrder={turnOrderToday}
+          onClose={() => setShowTurnModal(false)}
+          onSaved={() => { setShowTurnModal(false); refreshRota(month); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// SPA-TURN-ORDER — modal for the receptionist to drag therapists into
+// the day's working order. Saves to the server so all tablets see it
+// (unlike the per-tablet drag-on-column-header behaviour, which stays
+// as a one-off override).
+function TurnOrderModal({ date, therapists, currentOrder, onClose, onSaved }) {
+  const initial = currentOrder && currentOrder.length > 0
+    ? [
+        // Start with previously-saved order, drop anyone no longer in the list.
+        ...currentOrder.filter(id => therapists.some(t => t.id === id)),
+        // Then any new therapists not yet ordered, alphabetical.
+        ...therapists.filter(t => !currentOrder.includes(t.id)).sort((a,b) => a.name.localeCompare(b.name)).map(t => t.id),
+      ]
+    : therapists.map(t => t.id);
+
+  const [order, setOrder] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [dragSrc, setDragSrc] = useState(null);
+
+  const byId = Object.fromEntries(therapists.map(t => [t.id, t]));
+
+  function reorder(from, to) {
+    setOrder(o => {
+      const next = o.slice();
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  }
+  function moveUp(i) { if (i > 0) reorder(i, i - 1); }
+  function moveDown(i) { if (i < order.length - 1) reorder(i, i + 1); }
+
+  async function save() {
+    setBusy(true); setError('');
+    try {
+      await api.put('/therapists/turn-order', { date, order });
+      onSaved && onSaved();
+    } catch (e) {
+      setError(e.message || 'Failed to save order');
+    } finally { setBusy(false); }
+  }
+  async function clearAll() {
+    if (!confirm('Reset today\'s order to alphabetical?')) return;
+    setBusy(true); setError('');
+    try {
+      await api.del(`/therapists/turn-order?date=${date}`);
+      onSaved && onSaved();
+    } catch (e) {
+      setError(e.message || 'Failed to clear');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 420 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <h3 style={{ margin: 0 }}>🔢 Turn order — {date}</h3>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>✕</button>
+        </div>
+        <p className="muted" style={{ fontSize: 13, margin: '0 0 12px' }}>
+          Drag — or use the arrows — to set who takes which turn today.
+          The first therapist gets column 1 on the timeline; new walk-ins go to whoever's next in line.
+        </p>
+
+        <div className="col" style={{ gap: 6, marginBottom: 12 }}>
+          {order.length === 0 && <div className="muted">No therapists working today.</div>}
+          {order.map((tid, i) => {
+            const t = byId[tid];
+            if (!t) return null;
+            const isDragOver = dragSrc !== null && dragSrc !== i;
+            return (
+              <div
+                key={tid}
+                draggable
+                onDragStart={() => setDragSrc(i)}
+                onDragOver={e => { e.preventDefault(); }}
+                onDrop={e => {
+                  e.preventDefault();
+                  if (dragSrc !== null && dragSrc !== i) reorder(dragSrc, i);
+                  setDragSrc(null);
+                }}
+                onDragEnd={() => setDragSrc(null)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 12px',
+                  background: dragSrc === i ? '#fdf6ec' : isDragOver ? '#f3f4f6' : 'white',
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  cursor: 'grab',
+                }}
+              >
+                <span style={{ color: '#C9A84C', fontWeight: 800, fontSize: 16, minWidth: 24, textAlign: 'right' }}>{i + 1}.</span>
+                <span style={{ color: 'var(--muted)', fontSize: 14 }}>⠿</span>
+                <span style={{ flex: 1, fontWeight: 600 }}>{t.name}</span>
+                <button onClick={() => moveUp(i)}   disabled={i === 0}                   style={{ padding: '3px 9px', fontSize: 12 }}>↑</button>
+                <button onClick={() => moveDown(i)} disabled={i === order.length - 1}    style={{ padding: '3px 9px', fontSize: 12 }}>↓</button>
+              </div>
+            );
+          })}
+        </div>
+
+        {error && <div style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 8 }}>{error}</div>}
+
+        <div className="row" style={{ justifyContent: 'space-between', gap: 8 }}>
+          <button onClick={clearAll} disabled={busy} style={{ fontSize: 12 }}>↻ Reset to alphabetical</button>
+          <div className="row" style={{ gap: 6 }}>
+            <button onClick={onClose} disabled={busy}>Cancel</button>
+            <button className="primary" onClick={save} disabled={busy || order.length === 0}>
+              {busy ? 'Saving…' : 'Save order'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

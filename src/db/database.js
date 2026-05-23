@@ -365,6 +365,20 @@ async function initSchema() {
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS deposit_stripe_id TEXT;
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS payment_status    TEXT NOT NULL DEFAULT 'none';
 
+    -- SPA-TURN-ORDER — receptionist-set column order on the timeline,
+    -- per date. The "who's next in line" rotation common in Thai spas
+    -- (whoever arrived first that day gets the first walk-in's turn).
+    -- One row per (therapist, date); the row's position is 1-based.
+    CREATE TABLE IF NOT EXISTS therapist_turn_order (
+      date          DATE NOT NULL,
+      therapist_id  INT  NOT NULL REFERENCES therapists(id) ON DELETE CASCADE,
+      position      INT  NOT NULL,
+      set_by        INT  REFERENCES therapists(id) ON DELETE SET NULL,
+      set_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+      PRIMARY KEY (date, therapist_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_turn_order_date ON therapist_turn_order (date);
+
     -- SPA-PRICE-SNAPSHOT — capture treatment price AT BOOKING TIME so
     -- edits to the treatment's price don't retroactively change a
     -- customer's bill. Previously the bill read treatments.price live
