@@ -49,7 +49,7 @@ router.put('/:id/tip', async (req, res) => {
   if (Number.isNaN(tipNum) || tipNum < 0) return res.status(400).json({ error: 'invalid tip' });
   try {
     const { rows } = await pool.query(
-      `UPDATE bills SET tip = $2, total = subtotal + $2
+      `UPDATE bills SET tip = $2, total = subtotal - COALESCE(discount, 0) + $2
        WHERE id = $1 RETURNING *`,
       [id, tipNum],
     );
@@ -178,6 +178,31 @@ router.post('/:id/pay', async (req, res) => {
     res.json({ bill: rows[0] });
   } catch (err) {
     console.error('[bills] pay', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// SPA-DISCOUNT — PUT /api/bills/:id/discount
+//   body: { discount: number, reason?: string }
+// Whole-bill discount in £. total recomputed = subtotal - discount + tip.
+router.put('/:id/discount', requireRole('admin', 'manager', 'reception'), async (req, res) => {
+  const id = Number(req.params.id);
+  const { discount, reason } = req.body || {};
+  const d = Number(discount);
+  if (!isFinite(d) || d < 0) return res.status(400).json({ error: 'discount must be a number >= 0' });
+  try {
+    const { rows } = await pool.query(
+      `UPDATE bills
+          SET discount = $2,
+              discount_reason = $3,
+              total = subtotal - $2 + COALESCE(tip, 0)
+        WHERE id = $1 RETURNING *`,
+      [id, +d.toFixed(2), reason || null],
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    res.json({ bill: rows[0] });
+  } catch (err) {
+    console.error('[bills] discount', err);
     res.status(500).json({ error: 'server error' });
   }
 });

@@ -9,6 +9,57 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
+// SPA-TREATWELL-COLOR — small inline selector for the Treatwell
+// payment type. Drives the timeline colour (green = full prepay,
+// amber = partial deposit). PATCHes the appointment.
+function TreatwellTypeBlock({ appointment }) {
+  const [val, setVal] = useState(appointment.treatwell_payment_type || 'partial');
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+  async function save(next) {
+    setBusy(true);
+    try {
+      await api.put(`/appointments/${appointment.id}`, { treatwell_payment_type: next });
+      setVal(next);
+      appointment.treatwell_payment_type = next;
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1500);
+    } catch {} finally { setBusy(false); }
+  }
+  return (
+    <div style={{
+      background: val === 'full' ? '#dcfce7' : '#fef3c7',
+      border: `1px solid ${val === 'full' ? '#86efac' : '#fcd34d'}`,
+      borderRadius: 8,
+      padding: '10px 14px',
+      marginBottom: 14,
+      fontSize: 13,
+    }}>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <span style={{ color: val === 'full' ? '#166534' : '#92400e' }}>
+          🌐 <strong>Treatwell payment:</strong>{' '}
+          {val === 'full'
+            ? 'Customer paid Treatwell in full — no till charge'
+            : 'Customer paid Treatwell a deposit — balance due at till'}
+          {saved && <span style={{ marginLeft: 6 }}>✓</span>}
+        </span>
+        <div className="row" style={{ gap: 4 }}>
+          <button
+            onClick={() => save('full')}
+            disabled={busy || val === 'full'}
+            style={{ fontSize: 11, padding: '4px 10px', background: val === 'full' ? '#16a34a' : 'white', color: val === 'full' ? 'white' : '#166534', border: '1px solid #16a34a', fontWeight: 700 }}
+          >Full</button>
+          <button
+            onClick={() => save('partial')}
+            disabled={busy || val === 'partial'}
+            style={{ fontSize: 11, padding: '4px 10px', background: val === 'partial' ? '#f59e0b' : 'white', color: val === 'partial' ? 'white' : '#92400e', border: '1px solid #f59e0b', fontWeight: 700 }}
+          >Partial</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // SPA-PAYMENT-EDIT — Amend the payment method on a closed bill. Loads
 // the bill for the appointment so we know the current method, then
 // shows a method picker. Single-method changes only — switching to
@@ -506,6 +557,14 @@ export default function NewAppointmentModal({
             // (The timeline will pick it up via socket too.)
             if (appointment) appointment.payment_method = b.payment_method;
           }} />
+        )}
+
+        {/* SPA-TREATWELL-COLOR — for Treatwell bookings, let the
+            receptionist flip between full-prepay and partial-deposit
+            so the timeline colour is right. Webhook makes a best
+            guess; this is the manual override. */}
+        {isEdit && appointment?.source === 'treatwell' && (
+          <TreatwellTypeBlock appointment={appointment} />
         )}
 
         <div className="col" style={{ gap: 14 }}>

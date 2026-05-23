@@ -19,6 +19,8 @@ export default function CheckoutScreen() {
   const [voucherError, setVoucherError]   = useState('');
   const [showVoucher, setShowVoucher]     = useState(false);
   const [showSplit, setShowSplit]         = useState(false);
+  const [showDiscount, setShowDiscount]   = useState(false);
+  const [discountReason, setDiscountReason] = useState('');
 
   const load = useCallback(async () => {
     setError('');
@@ -57,6 +59,14 @@ export default function CheckoutScreen() {
     try {
       const r = await api.put(`/bills/${bill.id}/tip`, { tip: value });
       setBill(r.bill);
+    } catch (e) { setError(e.message); }
+  }
+
+  async function saveDiscount(amount, reason) {
+    try {
+      const r = await api.put(`/bills/${bill.id}/discount`, { discount: amount, reason });
+      setBill(r.bill);
+      setDiscountReason(reason || '');
     } catch (e) { setError(e.message); }
   }
 
@@ -125,7 +135,8 @@ export default function CheckoutScreen() {
   if (!appt || !bill) return <div className="muted">Loading…</div>;
 
   const subtotal = Number(bill.subtotal || 0);
-  const total = subtotal + Number(tip || 0);
+  const discount = Number(bill.discount || 0);
+  const total = +Math.max(0, subtotal - discount + Number(tip || 0)).toFixed(2);
   // SPA-PAY-001 — any deposit the customer paid online via Stripe is
   // pre-credited. The operator only needs to collect `balance` at the
   // till; the backend auto-records the deposit portion in split_payments.
@@ -148,6 +159,12 @@ export default function CheckoutScreen() {
           <div className="row" style={{ justifyContent: 'space-between' }}>
             <span>Treatment</span><span>{fmtMoney(subtotal)}</span>
           </div>
+          {discount > 0 && (
+            <div className="row" style={{ justifyContent: 'space-between', marginTop: 6, color: '#ec4899' }}>
+              <span>🏷 Discount{bill.discount_reason ? ` (${bill.discount_reason})` : ''}</span>
+              <span>− {fmtMoney(discount)}</span>
+            </div>
+          )}
           <div className="row" style={{ justifyContent: 'space-between', marginTop: 6 }}>
             <span>Tip</span><span>{fmtMoney(tip)}</span>
           </div>
@@ -193,6 +210,44 @@ export default function CheckoutScreen() {
               </div>
             </div>
 
+            {/* SPA-DISCOUNT — receptionist-applied whole-bill discount.
+                Quick-percentage buttons + custom £ + reason note. */}
+            <div>
+              <label>🏷 Discount</label>
+              <div className="row" style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                {[10, 15, 20].map((p) => {
+                  const amount = +(subtotal * p / 100).toFixed(2);
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => saveDiscount(amount, `${p}% off`)}
+                      style={{ flex: '0 0 auto', padding: '8px 12px' }}
+                    >
+                      {p}% (−{fmtMoney(amount)})
+                    </button>
+                  );
+                })}
+                <input
+                  type="number" step="0.5" min="0"
+                  placeholder="Custom £"
+                  value={discount || ''}
+                  onChange={(e) => saveDiscount(Number(e.target.value) || 0, discountReason)}
+                  style={{ width: 90 }}
+                />
+                <input
+                  type="text"
+                  placeholder="Reason (e.g. Loyalty)"
+                  value={discountReason}
+                  onChange={(e) => setDiscountReason(e.target.value)}
+                  onBlur={(e) => discount > 0 && saveDiscount(discount, e.target.value)}
+                  style={{ flex: 1, minWidth: 130 }}
+                />
+                {discount > 0 && (
+                  <button onClick={() => saveDiscount(0, null)} style={{ fontSize: 12, padding: '4px 10px' }}>✕ Clear</button>
+                )}
+              </div>
+            </div>
+
             <div>
               <label>Payment method</label>
               <div className="row" style={{ flexWrap: 'wrap' }}>
@@ -230,6 +285,21 @@ export default function CheckoutScreen() {
             {showVoucher && (
               <div style={{ background: '#fffbeb', border: '1px solid #C9A84C', borderRadius: 10, padding: 14 }} className="col">
                 <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, color: '#1e3a6e' }}>🎁 Redeem Gift Voucher</div>
+                {/* Legacy-voucher escape hatch: spas migrating from a
+                    previous system may have outstanding vouchers we
+                    don't track. Tap below to close the bill as voucher-
+                    paid without a code (no redemption recorded). */}
+                <button
+                  onClick={async () => {
+                    if (!confirm('Close this bill as paid by a legacy voucher (no code recorded)?')) return;
+                    await pay('voucher');
+                  }}
+                  disabled={busy}
+                  style={{ alignSelf: 'flex-start', fontSize: 12, padding: '6px 12px', background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', marginBottom: 8 }}
+                  title="For vouchers issued by your previous EPOS — no code lookup, just closes the bill as voucher-paid"
+                >
+                  📜 No code — legacy voucher
+                </button>
                 <div className="row" style={{ gap: 8 }}>
                   <input
                     placeholder="Voucher code e.g. SPA-A1B2C3D4"

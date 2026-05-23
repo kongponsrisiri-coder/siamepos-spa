@@ -354,6 +354,22 @@ async function initSchema() {
     -- "split" bucket. JSONB array of { method, amount }.
     ALTER TABLE bills ADD COLUMN IF NOT EXISTS split_payments JSONB;
 
+    -- SPA-DISCOUNT — whole-bill discount in £. discount_reason stores
+    -- the receptionist's free-text note ("VIP 10%", "Loyalty",
+    -- "Senior", etc.). Default 0 so existing maths is unchanged.
+    ALTER TABLE bills ADD COLUMN IF NOT EXISTS discount        NUMERIC(10,2) NOT NULL DEFAULT 0;
+    ALTER TABLE bills ADD COLUMN IF NOT EXISTS discount_reason TEXT;
+
+    -- SPA-TREATWELL-COLOR — Treatwell bookings come in two flavours:
+    -- 'full'    = customer prepaid the full price to Treatwell
+    --              (the spa just closes the bill at £0 — Treatwell
+    --              settles to the bank net of commission)
+    -- 'partial' = customer paid a deposit only to Treatwell; spa
+    --              collects the balance at the till.
+    -- NULL = legacy / non-treatwell. Used to drive the colour
+    -- distinction the operator asked for on the timeline.
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS treatwell_payment_type TEXT;
+
     -- SPA-PAY-001: online booking deposit + self-service amendments.
     -- deposit_amount = what the customer prepaid via Stripe when they
     -- booked online. deposit_stripe_id = the PaymentIntent ref so we

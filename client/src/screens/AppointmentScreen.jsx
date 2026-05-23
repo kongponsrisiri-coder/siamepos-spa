@@ -51,29 +51,38 @@ const COL_W_MOB  = 110;   // mobile column width — fits ~3 on a 375px phone
 const LBL_W      = 52;    // desktop time-label width
 const LBL_W_MOB  = 42;    // mobile time-label width
 const DAY_START  = 9;
-const DAY_END    = 21;
+// Extended to 22 so the 20:00 row has visual breathing room — operators
+// couldn't see the bottom of the 20:00 slot when the grid ended at 21.
+const DAY_END    = 22;
 const NUM_HOURS  = DAY_END - DAY_START;
 const HEADER_H   = 52;
 
-const STATUS_STYLE = {
-  booked:      { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },
-  in_progress: { bg: '#dcfce7', border: '#22c55e', text: '#14532d' },
-  completed:   { bg: '#f3f4f6', border: '#9ca3af', text: '#4b5563' },
-  cancelled:   { bg: '#f3f4f6', border: '#9ca3af', text: '#4b5563' },
-  no_show:     { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' },
-};
-const PAYMENT_STYLE = {
-  cash:      { bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
-  card:      { bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
-  voucher:   { bg: '#dcfce7', border: '#16a34a', text: '#14532d' },
-  treatwell: { bg: '#fef9c3', border: '#eab308', text: '#854d0e' },
-  split:     { bg: '#ede9fe', border: '#7c3aed', text: '#4c1d95' },
+// SPA-SOURCE-COLOR — colour the appointment block by where the booking
+// came from, NOT by status. Spa wanted "phone / online / Treatwell" at a
+// glance. Treatwell split into full-prepay vs partial since that drives
+// whether the till collects anything.
+//
+//   walkin/staff = in-person or staff-created (phone bookings live here
+//                  currently — no separate 'phone' source in the schema)
+//   online        = website widget
+//   treatwell·full    = customer prepaid in full to Treatwell
+//   treatwell·partial = customer paid a deposit; balance due at till
+const SOURCE_STYLE = {
+  walkin:           { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3' },  // indigo — in-store / phone
+  staff:            { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3' },
+  online:           { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },  // blue — widget
+  treatwell_full:   { bg: '#dcfce7', border: '#16a34a', text: '#14532d' },  // green — Treatwell prepaid in full
+  treatwell_partial:{ bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },  // amber — Treatwell partial
+  cancelled:        { bg: '#f3f4f6', border: '#9ca3af', text: '#9ca3af' },  // grey — cancelled
+  no_show:          { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' },  // red — no-show
 };
 function apptStyle(a) {
-  if (a.status === 'completed' && a.payment_method) {
-    return PAYMENT_STYLE[a.payment_method] || { bg: '#e0e7ff', border: '#8b5cf6', text: '#4c1d95' };
+  if (a.status === 'cancelled') return SOURCE_STYLE.cancelled;
+  if (a.status === 'no_show')   return SOURCE_STYLE.no_show;
+  if (a.source === 'treatwell') {
+    return SOURCE_STYLE[a.treatwell_payment_type === 'full' ? 'treatwell_full' : 'treatwell_partial'];
   }
-  return STATUS_STYLE[a.status] || STATUS_STYLE.booked;
+  return SOURCE_STYLE[a.source] || SOURCE_STYLE.walkin;
 }
 const COL_COLORS = ['#0D1B3E','#1A2F6B','#071028','#0f2456','#162e5c','#0e2260'];
 
@@ -297,7 +306,9 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
         overflowX: 'auto',
         // On mobile allow vertical scroll so the owner can scroll through time.
         // On desktop keep overflow hidden — the whole day is visible at once.
-        overflowY: isMobile ? 'auto' : 'hidden',
+        // Allow scroll on every device so the full grid (incl. the
+        // bottom 20:00–22:00 area) is reachable even on short screens.
+        overflowY: 'auto',
         border: '1px solid var(--border)', borderRadius: 10,
         display: 'flex', flexDirection: 'column',
         // Mobile: let height be natural (scrollable). Desktop: fills container.
@@ -528,22 +539,27 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
         </div>
       </div>
 
-      {/* Legend — desktop only */}
+      {/* Legend — desktop only. Re-keyed to booking source after the
+          SPA-SOURCE-COLOR change so the legend matches what's on the
+          timeline. */}
       {!isMobile && (
         <div style={{ padding: '8px 12px', background: '#fafafa', borderTop: '1px solid var(--border)', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
-          {Object.entries(STATUS_STYLE).filter(([s]) => s !== 'completed').map(([status, s]) => (
-            <span key={status} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}`, display: 'inline-block' }} />
-              <span style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>{status.replace('_', ' ')}</span>
-            </span>
-          ))}
-          <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
-          {Object.entries(PAYMENT_STYLE).map(([method, s]) => (
-            <span key={method} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}`, display: 'inline-block' }} />
-              <span style={{ color: 'var(--muted)', textTransform: 'capitalize' }}>Paid · {method}</span>
-            </span>
-          ))}
+          {[
+            { key: 'walkin',            label: 'Phone / In-store' },
+            { key: 'online',            label: 'Online widget' },
+            { key: 'treatwell_full',    label: 'Treatwell · prepaid' },
+            { key: 'treatwell_partial', label: 'Treatwell · deposit' },
+            { key: 'cancelled',         label: 'Cancelled' },
+            { key: 'no_show',           label: 'No-show' },
+          ].map(({ key, label }) => {
+            const s = SOURCE_STYLE[key];
+            return (
+              <span key={key} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}`, display: 'inline-block' }} />
+                <span style={{ color: 'var(--muted)' }}>{label}</span>
+              </span>
+            );
+          })}
           <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
           <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ fontSize: 10 }}>⭐</span> Therapist requested

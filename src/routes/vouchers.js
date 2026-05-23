@@ -269,15 +269,26 @@ router.post('/:id/redeem', async (req, res) => {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'No sessions remaining on this voucher' });
       }
-      // Treatment match check — only enforced when the voucher is tied
-      // to a specific treatment. Voucher with treatment_id = NULL is a
-      // "any treatment" bundle.
+      // Treatment match — relaxed: allow if EITHER the IDs match OR
+      // the durations match. So a "10 × 60-min Thai massage" voucher
+      // can be used against ANY 60-minute treatment, not just the
+      // exact treatment it was sold for. Voucher with treatment_id =
+      // NULL is "any treatment" so this whole block is skipped.
       if (v.treatment_id && treatment_id && Number(treatment_id) !== Number(v.treatment_id)) {
-        await client.query('ROLLBACK');
-        const tName = await pool.query('SELECT name FROM treatments WHERE id = $1', [v.treatment_id]);
-        return res.status(400).json({
-          error: `This voucher is valid only for ${tName.rows[0]?.name || 'a specific treatment'}`,
-        });
+        const durations = await pool.query(
+          'SELECT id, name, duration_minutes FROM treatments WHERE id = ANY($1::int[])',
+          [[Number(v.treatment_id), Number(treatment_id)]],
+        );
+        const voucherTreatment = durations.rows.find(t => t.id === Number(v.treatment_id));
+        const billTreatment    = durations.rows.find(t => t.id === Number(treatment_id));
+        const durationsMatch = voucherTreatment && billTreatment
+          && Number(voucherTreatment.duration_minutes) === Number(billTreatment.duration_minutes);
+        if (!durationsMatch) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            error: `This voucher is for ${voucherTreatment?.name || 'a specific treatment'} (${voucherTreatment?.duration_minutes || '?'}min). The chosen treatment is ${billTreatment?.duration_minutes || '?'}min — durations don't match.`,
+          });
+        }
       }
       const sessionsValue = Number(v.total_sessions) > 0
         ? +(Number(v.initial_value) / Number(v.total_sessions)).toFixed(2)

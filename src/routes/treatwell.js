@@ -209,21 +209,33 @@ router.post('/webhook', async (req, res) => {
     ].filter(Boolean).join(' ') || null;
 
     // Snapshot the treatment price at booking time. For un-matched
-    // treatments (treatmentId is NULL) this stays NULL — the bill
-    // falls back to 0 / manual override at checkout.
+    // treatments (treatmentId is NULL) this stays NULL.
     let priceAtBooking = null;
     if (treatmentId) {
       const pr = await client.query('SELECT price FROM treatments WHERE id = $1', [treatmentId]);
       priceAtBooking = Number(pr.rows[0]?.price || 0);
     }
 
+    // SPA-TREATWELL-COLOR — Treatwell payload may carry an explicit
+    // prepay flag (b.payment_type or b.prepaid). When missing, fall
+    // back to a heuristic: treatment name starting with "TW prepaid"
+    // / "TW prepay" → 'full'; otherwise 'partial'. The operator can
+    // also flip this on the appointment Edit modal.
+    let twPaymentType = null;
+    const pt = String(b.payment_type || (b.prepaid ? 'full' : '')).toLowerCase();
+    if (pt === 'full' || pt === 'prepaid' || pt === 'paid')      twPaymentType = 'full';
+    else if (pt === 'partial' || pt === 'deposit')               twPaymentType = 'partial';
+    else if (/tw\s*pre.?pa(id|y)/i.test(service?.name || ''))    twPaymentType = 'full';
+    else                                                          twPaymentType = 'partial';
+
     const ap = await client.query(
       `INSERT INTO appointments
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
-          status, source, notes, treatwell_booking_id, price_at_booking)
-       VALUES ($1, $2, $3, $4, $5, $6, 'booked', 'treatwell', $7, $8, $9)
+          status, source, notes, treatwell_booking_id, price_at_booking,
+          treatwell_payment_type)
+       VALUES ($1, $2, $3, $4, $5, $6, 'booked', 'treatwell', $7, $8, $9, $10)
        RETURNING *`,
-      [cli.id, treatmentId, preTherapistId, preRoomId, startsAt, endsAt, notes, bookingId, priceAtBooking],
+      [cli.id, treatmentId, preTherapistId, preRoomId, startsAt, endsAt, notes, bookingId, priceAtBooking, twPaymentType],
     );
 
     await client.query('COMMIT');

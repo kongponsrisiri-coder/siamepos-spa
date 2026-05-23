@@ -300,7 +300,7 @@ router.post('/', async (req, res) => {
 // PUT /api/appointments/:id  — reschedule / reassign / edit any field
 router.put('/:id', async (req, res) => {
   const id = Number(req.params.id);
-  const { therapist_id, room_id, starts_at, notes, treatment_id, client_id, status, therapist_requested } = req.body || {};
+  const { therapist_id, room_id, starts_at, notes, treatment_id, client_id, status, therapist_requested, treatwell_payment_type } = req.body || {};
   try {
     // Recompute ends_at if starts_at or treatment changed.
     let newEnds = null;
@@ -463,6 +463,12 @@ router.put('/:id', async (req, res) => {
       newPriceAtBooking = Number(pr.rows[0]?.price || 0);
     }
 
+    // Allow the receptionist to flip Treatwell's full/partial flag on
+    // an existing appointment (e.g. webhook guessed wrong, or admin
+    // wants to recolour the timeline). Empty string / null clears it.
+    const safeTwType = treatwell_payment_type === undefined ? null
+                     : (['full', 'partial'].includes(treatwell_payment_type) ? treatwell_payment_type : null);
+
     const { rows } = await pool.query(
       `UPDATE appointments SET
          therapist_id         = COALESCE($2, therapist_id),
@@ -474,9 +480,10 @@ router.put('/:id', async (req, res) => {
          client_id            = COALESCE($8, client_id),
          status               = COALESCE($9, status),
          therapist_requested  = COALESCE($10, therapist_requested),
-         price_at_booking     = COALESCE($11, price_at_booking)
+         price_at_booking     = COALESCE($11, price_at_booking),
+         treatwell_payment_type = COALESCE($12, treatwell_payment_type)
        WHERE id = $1 RETURNING *`,
-      [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null, newPriceAtBooking],
+      [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null, newPriceAtBooking, safeTwType],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
 
