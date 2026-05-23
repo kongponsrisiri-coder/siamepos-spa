@@ -252,6 +252,8 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
       ? workingTherapists
       : null;
   if (sourceList) {
+    // Parent already applied the turn order / drag override; preserve
+    // it verbatim — DO NOT alphabetically re-sort here.
     columns = sourceList.map(t => ({ id: t.id, name: t.name, isOff: !!t.isOff, workStart: t.workStart || null, workEnd: t.workEnd || null, isOverride: !!t.isOverride, appts: apptMap[t.id] || [] }));
     Object.keys(apptMap).forEach(tid => {
       const id = Number(tid);
@@ -261,6 +263,8 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
       }
     });
   } else {
+    // Fallback path — columns derived from the appointment list only
+    // (no rota loaded). Alphabetical is sensible here.
     const map = {};
     visibleAppts.forEach(a => {
       const key = a.therapist_id || 0;
@@ -268,8 +272,8 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
       map[key].appts.push(a);
     });
     columns = Object.values(map);
+    columns.sort((a, b) => a.name.localeCompare(b.name));
   }
-  columns.sort((a, b) => a.name.localeCompare(b.name));
 
   const now     = new Date();
   const nowMins = now.getHours() * 60 + now.getMinutes();
