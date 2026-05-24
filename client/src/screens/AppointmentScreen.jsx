@@ -231,11 +231,14 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // VERTICAL TIMELINE
 // ══════════════════════════════════════════════════════════════════════════════
-function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder, onSwap, isMobile }) {
+function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder, onSwap, onMove, isMobile }) {
   // SPA-SWAP — track which appointment block is being dragged so the
   // drop target can highlight + we can fire the swap on drop.
   const [draggedApptId, setDraggedApptId] = useState(null);
   const [dragOverApptId, setDragOverApptId] = useState(null);
+  // SPA-MOVE-DND — track the column being hovered while dragging onto
+  // an empty area so we can highlight the destination column.
+  const [dragOverColId, setDragOverColId] = useState(null);
   const nowRef       = useRef(null);
   const containerRef = useRef(null);
   const [containerH, setContainerH] = useState(0);
@@ -440,7 +443,8 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   cursor: col.isOff ? 'default' : 'crosshair',
                   background: col.isOff
                     ? 'repeating-linear-gradient(135deg, #f5f5f5 0px, #f5f5f5 8px, #ececec 8px, #ececec 16px)'
-                    : 'white',
+                    : (dragOverColId === col.id && draggedApptId ? '#fdf6ec' : 'white'),
+                  transition: 'background 0.1s',
                 }}
                 onClick={col.isOff ? undefined : e => {
                   if (e.target !== e.currentTarget) return;
@@ -457,6 +461,29 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   const h = Math.floor(mins / 60);
                   const m = mins % 60;
                   onSlotClick({ therapistId: col.id, therapistName: col.name, time: `${pad(h)}:${pad(m)}` });
+                }}
+                // SPA-MOVE-DND — accept appointment drops on empty column
+                // area. Drops on appointment blocks bubble e.stopPropagation
+                // so this fires only on misses.
+                onDragOver={col.isOff ? undefined : e => {
+                  if (!draggedApptId) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  setDragOverColId(col.id);
+                }}
+                onDragLeave={() => setDragOverColId(prev => prev === col.id ? null : prev)}
+                onDrop={col.isOff ? undefined : e => {
+                  e.preventDefault();
+                  const sourceId = Number(e.dataTransfer.getData('text/plain'));
+                  setDragOverColId(null); setDraggedApptId(null); setDragOverApptId(null);
+                  if (!sourceId || !onMove) return;
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const dropY = e.clientY - rect.top;
+                  const rawMins = (dropY / HOUR_H) * 60 + DAY_START * 60;
+                  const mins = Math.max(DAY_START * 60, Math.min(DAY_END * 60 - 15, Math.round(rawMins / 15) * 15));
+                  const h = Math.floor(mins / 60);
+                  const m = mins % 60;
+                  onMove(sourceId, col.id, `${pad(h)}:${pad(m)}`);
                 }}
               >
                 {/* Grid lines */}
@@ -892,11 +919,29 @@ export default function AppointmentScreen() {
               onSwap={async (idA, idB) => {
                 try {
                   await api.post('/appointments/swap', { id_a: idA, id_b: idB });
-                  // Reload — socket events will refresh other tablets;
-                  // we just need to re-fetch to update this view.
                   load();
                 } catch (e) {
                   alert(e.message || 'Swap failed');
+                }
+              }}
+              onMove={async (apptId, newTherapistId, newTime) => {
+                try {
+                  // Construct full starts_at from the appointment's
+                  // current date + the dropped time. Keep date intact
+                  // (drag doesn't change days — that requires the
+                  // Edit modal).
+                  const newStartsAt = new Date(`${date}T${newTime}:00`).toISOString();
+                  await api.put(`/appointments/${apptId}`, {
+                    therapist_id: Number(newTherapistId),
+                    starts_at:    newStartsAt,
+                  });
+                  load();
+                } catch (e) {
+                  // Rota / conflict errors come back as rich JSON.
+                  const msg = e.data?.error || e.message || 'Could not move booking';
+                  alert(msg);
+                  // Force a reload so the block snaps back to its DB state.
+                  load();
                 }
               }}
               isMobile={isMobile}
