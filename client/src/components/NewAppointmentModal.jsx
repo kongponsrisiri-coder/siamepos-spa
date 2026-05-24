@@ -345,6 +345,10 @@ export default function NewAppointmentModal({
   const [time, setTime]     = useState(initTime);
   const [notes, setNotes]   = useState(appointment?.notes || '');
   const [status, setStatus] = useState(appointment?.status || 'booked');
+  // SPA-SOURCE-DROPDOWN — booking reference. Drives the timeline colour.
+  // Default 'phone' for new bookings (most common admin-created path).
+  const [source, setSource] = useState(appointment?.source || 'phone');
+  const [twType, setTwType] = useState(appointment?.treatwell_payment_type || 'partial');
 
   // Slot picker (for create mode convenience)
   const [slots, setSlots]   = useState([]);
@@ -451,6 +455,8 @@ export default function NewAppointmentModal({
           starts_at,
           notes:               notes || null,
           status,
+          source,
+          treatwell_payment_type: source === 'treatwell' ? twType : null,
           therapist_requested: therapistId ? therapistRequested : false,
         };
         const r = await api.put(`/appointments/${appointment.id}`, body);
@@ -463,7 +469,8 @@ export default function NewAppointmentModal({
           room_id:             roomId      ? Number(roomId)      : null,
           starts_at,
           notes:               notes || null,
-          source:              'walkin',
+          source,
+          treatwell_payment_type: source === 'treatwell' ? twType : null,
           therapist_requested: therapistId ? therapistRequested : false,
         };
         const r = await api.post('/appointments', body);
@@ -782,16 +789,83 @@ export default function NewAppointmentModal({
             </div>
           )}
 
-          {/* ── Status (edit only) ── */}
+          {/* SPA-SOURCE-DROPDOWN — Booking reference / source. Drives
+              the colour on the timeline. For Treatwell, a second
+              toggle (Full / Partial) appears below. */}
+          <div>
+            <label>Booking source</label>
+            <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+              {[
+                { id: 'phone',     label: '📞 Phone',    border: '#0d9488', bg: '#ccfbf1', text: '#115e59' },
+                { id: 'walkin',    label: '🚶 Walk-in',  border: '#6366f1', bg: '#e0e7ff', text: '#3730a3' },
+                { id: 'online',    label: '🪷 Online',   border: '#3b82f6', bg: '#dbeafe', text: '#1e40af' },
+                { id: 'treatwell', label: '🌐 Treatwell', border: '#eab308', bg: '#fef9c3', text: '#854d0e' },
+              ].map(s => {
+                const active = source === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setSource(s.id)}
+                    style={{
+                      flex: '1 1 100px',
+                      padding: '8px 10px',
+                      background: active ? s.border : s.bg,
+                      color: active ? 'white' : s.text,
+                      border: `2px solid ${s.border}`,
+                      fontWeight: 700,
+                      fontSize: 13,
+                      borderRadius: 6,
+                    }}
+                  >{s.label}</button>
+                );
+              })}
+            </div>
+            {/* Treatwell sub-type — only shown when source=treatwell */}
+            {source === 'treatwell' && (
+              <div className="row" style={{ gap: 6, marginTop: 8, alignItems: 'center' }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Treatwell payment:</span>
+                <button
+                  type="button"
+                  onClick={() => setTwType('full')}
+                  style={{
+                    flex: 1, fontSize: 12, padding: '5px 10px',
+                    background: twType === 'full' ? '#16a34a' : 'white',
+                    color:      twType === 'full' ? 'white'   : '#166534',
+                    border: '1px solid #16a34a', fontWeight: 700,
+                  }}
+                >💚 Full prepay</button>
+                <button
+                  type="button"
+                  onClick={() => setTwType('partial')}
+                  style={{
+                    flex: 1, fontSize: 12, padding: '5px 10px',
+                    background: twType === 'partial' ? '#f59e0b' : 'white',
+                    color:      twType === 'partial' ? 'white'   : '#92400e',
+                    border: '1px solid #f59e0b', fontWeight: 700,
+                  }}
+                >🟡 Deposit only</button>
+              </div>
+            )}
+            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+              The colour of this booking on the timeline depends on the source.
+            </div>
+          </div>
+
+          {/* ── Status (edit only) — kept for completeness but the
+              receptionist typically updates status via the timeline
+              action buttons (Start / Checkout / Cancel), not here. */}
           {isEdit && (
-            <div>
-              <label>Status</label>
-              <select value={status} onChange={e => setStatus(e.target.value)}>
+            <details>
+              <summary style={{ cursor: 'pointer', fontSize: 13, color: 'var(--muted)' }}>
+                Status: <strong style={{ color: '#1e3a6e' }}>{status.replace('_', ' ')}</strong> — change manually
+              </summary>
+              <select value={status} onChange={e => setStatus(e.target.value)} style={{ marginTop: 6 }}>
                 {[...STATUSES, ...(STATUSES.includes(status) ? [] : [status])].map(s => (
                   <option key={s} value={s}>{s.replace('_', ' ')}</option>
                 ))}
               </select>
-            </div>
+            </details>
           )}
 
           {/* ── Therapist requested ── */}

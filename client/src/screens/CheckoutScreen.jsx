@@ -21,6 +21,8 @@ export default function CheckoutScreen() {
   const [showSplit, setShowSplit]         = useState(false);
   const [showDiscount, setShowDiscount]   = useState(false);
   const [discountReason, setDiscountReason] = useState('');
+  const [showLegacy, setShowLegacy]       = useState(false);
+  const [legacyAmount, setLegacyAmount]   = useState('');
 
   const load = useCallback(async () => {
     setError('');
@@ -99,32 +101,56 @@ export default function CheckoutScreen() {
     }
   }
 
-  async function payWithVoucher() {
+  async function payWithVoucher(customAmount) {
     if (!voucherLookup) return;
     const v = voucherLookup.voucher;
     setBusy(true); setError('');
     try {
       if (v.voucher_type === 'sessions') {
         // Session voucher — one session consumed per redemption.
-        // Server validates treatment match (if voucher is tied to a
-        // specific treatment) and returns 400 if mismatched.
+        // Server validates treatment match (or same-duration treatment).
         await api.post(`/vouchers/${v.id}/redeem`, {
           bill_id: bill.id,
           treatment_id: appt.treatment_id,
           notes: `Checkout for appointment #${appointmentId}`,
         });
-      } else {
-        // Monetary voucher — deduct min(remaining, total).
-        const amountToUse = Math.min(Number(v.remaining_value), total);
-        await api.post(`/vouchers/${v.id}/redeem`, {
-          amount: amountToUse,
-          bill_id: bill.id,
-          notes: `Checkout for appointment #${appointmentId}`,
-        });
+        await api.post(`/bills/${bill.id}/pay`, { method: 'voucher' });
+        navigate('/', { replace: true });
+        return;
       }
-      // Mark the bill as paid by voucher
-      await api.post(`/bills/${bill.id}/pay`, { method: 'voucher' });
-      navigate('/', { replace: true });
+
+      // Monetary voucher — operator may specify a custom amount.
+      // Default: min(remaining, total). Cap at min(remaining, total).
+      const cap = Math.min(Number(v.remaining_value), total);
+      const amountToUse = customAmount !== undefined
+        ? +Math.min(cap, Math.max(0, Number(customAmount))).toFixed(2)
+        : cap;
+      if (amountToUse <= 0) { setError('Enter a positive amount'); setBusy(false); return; }
+
+      await api.post(`/vouchers/${v.id}/redeem`, {
+        amount: amountToUse,
+        bill_id: bill.id,
+        notes: `Checkout for appointment #${appointmentId}`,
+      });
+
+      if (Math.abs(amountToUse - total) < 0.01) {
+        // Full coverage — close the bill as voucher.
+        await api.post(`/bills/${bill.id}/pay`, { method: 'voucher' });
+        navigate('/', { replace: true });
+      } else {
+        // Partial — record the voucher slice as a discount so the
+        // remaining balance is what the operator needs to collect.
+        // Existing bill.discount can already coexist; we ADD the
+        // voucher amount to whatever's there.
+        const newDiscount = +(Number(bill.discount || 0) + amountToUse).toFixed(2);
+        const newReason = [bill.discount_reason, `Voucher ${v.code} −£${amountToUse.toFixed(2)}`].filter(Boolean).join(' + ');
+        const r = await api.put(`/bills/${bill.id}/discount`, { discount: newDiscount, reason: newReason });
+        setBill(r.bill);
+        setShowVoucher(false);
+        setVoucherCode(''); setVoucherLookup(null);
+        setBusy(false);
+        // Operator picks Cash/Card/Split to close the remaining balance.
+      }
     } catch (e) {
       setError(e.message || 'Voucher redemption failed');
       setBusy(false);
@@ -285,21 +311,43 @@ export default function CheckoutScreen() {
             {showVoucher && (
               <div style={{ background: '#fffbeb', border: '1px solid #C9A84C', borderRadius: 10, padding: 14 }} className="col">
                 <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, color: '#1e3a6e' }}>🎁 Redeem Gift Voucher</div>
-                {/* Legacy-voucher escape hatch: spas migrating from a
-                    previous system may have outstanding vouchers we
-                    don't track. Tap below to close the bill as voucher-
-                    paid without a code (no redemption recorded). */}
-                <button
-                  onClick={async () => {
-                    if (!confirm('Close this bill as paid by a legacy voucher (no code recorded)?')) return;
-                    await pay('voucher');
-                  }}
-                  disabled={busy}
-                  style={{ alignSelf: 'flex-start', fontSize: 12, padding: '6px 12px', background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', marginBottom: 8 }}
-                  title="For vouchers issued by your previous EPOS — no code lookup, just closes the bill as voucher-paid"
-                >
-                  📜 No code — legacy voucher
-                </button>
+                {/* Legacy-voucher escape hatch — supports partial
+                    amounts too. Toggle to a small panel where the
+                    operator enters £X. Full bill → close as voucher;
+                    partial → record as discount + leave bill open. */}
+                {!showLegacy ? (
+                  <button
+                    onClick={() => { setShowLegacy(true); setLegacyAmount(String(total.toFixed(2))); }}
+                    disabled={busy}
+                    style={{ alignSelf: 'flex-start', fontSize: 12, padding: '6px 12px', background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', marginBottom: 8 }}
+                    title="For vouchers from your previous EPOS — no code, just enter the amount the customer is using"
+                  >
+                    📜 No code — legacy voucher
+                  </button>
+                ) : (
+                  <LegacyVoucherPanel
+                    total={total}
+                    busy={busy}
+                    amount={legacyAmount}
+                    setAmount={setLegacyAmount}
+                    onCancel={() => { setShowLegacy(false); setLegacyAmount(''); }}
+                    onConfirm={async (amt) => {
+                      if (Math.abs(amt - total) < 0.01) {
+                        if (!confirm(`Close this bill as paid by a legacy voucher (£${amt.toFixed(2)})?`)) return;
+                        await pay('voucher');
+                      } else {
+                        // Partial — record as a discount, leave bill open
+                        const newDiscount = +(Number(bill.discount || 0) + amt).toFixed(2);
+                        const newReason = [bill.discount_reason, `Legacy voucher −£${amt.toFixed(2)}`].filter(Boolean).join(' + ');
+                        const r = await api.put(`/bills/${bill.id}/discount`, { discount: newDiscount, reason: newReason });
+                        setBill(r.bill);
+                        setShowLegacy(false);
+                        setLegacyAmount('');
+                        setShowVoucher(false);
+                      }
+                    }}
+                  />
+                )}
                 <div className="row" style={{ gap: 8 }}>
                   <input
                     placeholder="Voucher code e.g. SPA-A1B2C3D4"
@@ -351,22 +399,31 @@ export default function CheckoutScreen() {
                         ❌ This voucher is valid for <strong>{v.treatment_name}</strong> only — this appointment is a different treatment.
                       </div>
                     )}
-                    {!isSessions && Number(v.remaining_value) < total && (
-                      <div style={{ fontSize: 13, color: '#b45309', background: '#fef3c7', padding: '8px 12px', borderRadius: 8, marginTop: 8 }}>
-                        ⚠️ Voucher covers £{Number(v.remaining_value).toFixed(2)} of £{total.toFixed(2)} — remainder will be waived in this transaction.
-                      </div>
+                    {/* Monetary voucher — editable amount. Default is
+                        min(remaining, total). Operator may choose to
+                        redeem less (saves the rest for next visit).
+                        If < total: applied as a discount, bill stays
+                        open, operator picks Cash/Card for the balance. */}
+                    {!isSessions && (
+                      <MonetaryVoucherPanel
+                        v={v}
+                        total={total}
+                        busy={busy}
+                        onRedeem={(amt) => payWithVoucher(amt)}
+                      />
                     )}
-                    <button
-                      className="gold"
-                      onClick={payWithVoucher}
-                      disabled={busy || treatmentMismatch}
-                      style={{ width: '100%', padding: 14, marginTop: 8 }}
-                    >
-                      {busy ? 'Processing…'
-                        : isSessions
-                          ? `Use 1 session & close bill (${Number(v.sessions_remaining || 0) - 1} left)`
-                          : `Redeem £${Math.min(Number(v.remaining_value), total).toFixed(2)} & Close Bill`}
-                    </button>
+                    {isSessions && (
+                      <button
+                        className="gold"
+                        onClick={() => payWithVoucher()}
+                        disabled={busy || treatmentMismatch}
+                        style={{ width: '100%', padding: 14, marginTop: 8 }}
+                      >
+                        {busy
+                          ? 'Processing…'
+                          : `Use 1 session & close bill (${Number(v.sessions_remaining || 0) - 1} left)`}
+                      </button>
+                    )}
                   </div>
                   );
                 })()}
@@ -415,6 +472,116 @@ export default function CheckoutScreen() {
 // Cash + £20 Card, or £40 Voucher + £25 Card. Sum must equal the bill
 // total. Backend stores the breakdown on bills.split_payments so the
 // daily report attributes the cash/card/voucher portions correctly.
+// Legacy voucher (no code, from a previous EPOS). Operator enters £X
+// the customer wants to use. Full = close bill as voucher; partial =
+// recorded as discount on the bill with reason "Legacy voucher −£X".
+function LegacyVoucherPanel({ total, busy, amount, setAmount, onCancel, onConfirm }) {
+  const safe = Math.max(0, Math.min(total, Number(amount) || 0));
+  const willClose = Math.abs(safe - total) < 0.01;
+  const remainder = +(total - safe).toFixed(2);
+  return (
+    <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: 10, marginBottom: 8 }} className="col">
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#92400e' }}>📜 Legacy voucher (no code)</div>
+      <div style={{ fontSize: 11, color: '#7a4f1e', marginBottom: 6 }}>
+        Enter the amount the customer is using from their old voucher. No code lookup; nothing recorded in the voucher table.
+      </div>
+      <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+        <span style={{ fontSize: 16, fontWeight: 700 }}>£</span>
+        <input
+          type="number" step="0.01" min="0" max={total}
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          onFocus={(e) => e.target.select()}
+          style={{ width: 110, fontSize: 16, fontWeight: 700, textAlign: 'right' }}
+        />
+        <button
+          type="button"
+          onClick={() => setAmount(String(total.toFixed(2)))}
+          disabled={Math.abs(safe - total) < 0.01}
+          style={{ fontSize: 11, padding: '4px 10px' }}
+        >Full £{total.toFixed(2)}</button>
+      </div>
+      <div style={{ fontSize: 12, color: '#7a4f1e', marginTop: 4 }}>
+        {willClose
+          ? `✓ Covers the full £${total.toFixed(2)} bill — closes as voucher-paid.`
+          : `Applies £${safe.toFixed(2)} as a discount. Remaining £${remainder.toFixed(2)} — pick Cash / Card / Split after.`}
+      </div>
+      <div className="row" style={{ gap: 6, marginTop: 6 }}>
+        <button onClick={onCancel} disabled={busy} style={{ flex: 1, fontSize: 12 }}>Cancel</button>
+        <button
+          className="gold"
+          onClick={() => onConfirm(safe)}
+          disabled={busy || safe <= 0}
+          style={{ flex: 2, fontSize: 13, padding: '8px 12px' }}
+        >
+          {busy ? 'Processing…' : willClose ? `Use £${safe.toFixed(2)} & close bill` : `Use £${safe.toFixed(2)} (legacy voucher)`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Editable-amount panel for monetary vouchers. Default = min(remaining,
+// total). Operator can drop the amount lower to save the balance for
+// next time — then the bill stays open and the receptionist picks
+// another method (cash/card/split) for the rest.
+function MonetaryVoucherPanel({ v, total, busy, onRedeem }) {
+  const remaining = Number(v.remaining_value || 0);
+  const cap = +Math.min(remaining, total).toFixed(2);
+  const [amount, setAmount] = useState(cap);
+
+  const safe = Math.max(0, Math.min(cap, Number(amount) || 0));
+  const willClose = Math.abs(safe - total) < 0.01;
+  const remainderAfter = +(total - safe).toFixed(2);
+
+  return (
+    <div className="col" style={{ gap: 8, marginTop: 8 }}>
+      {remaining < total && (
+        <div style={{ fontSize: 12, color: '#b45309', background: '#fef3c7', padding: '6px 10px', borderRadius: 6 }}>
+          ⚠️ Voucher balance £{remaining.toFixed(2)} is less than bill total £{total.toFixed(2)}.
+        </div>
+      )}
+      <div>
+        <label style={{ fontSize: 12 }}>Amount to redeem</label>
+        <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+          <span style={{ fontSize: 16, fontWeight: 700 }}>£</span>
+          <input
+            type="number" step="0.01" min="0" max={cap}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            onFocus={(e) => e.target.select()}
+            style={{ width: 110, fontSize: 16, fontWeight: 700, textAlign: 'right' }}
+          />
+          <button
+            type="button"
+            onClick={() => setAmount(cap)}
+            disabled={safe === cap}
+            style={{ fontSize: 11, padding: '4px 10px' }}
+            title="Use the maximum"
+          >Max £{cap.toFixed(2)}</button>
+        </div>
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+        {willClose
+          ? `✓ Covers the full £${total.toFixed(2)} bill — pressing Redeem closes the bill.`
+          : `Voucher pays £${safe.toFixed(2)}. Remaining £${remainderAfter.toFixed(2)} — pick Cash / Card / Split after.`}
+      </div>
+      <button
+        className="gold"
+        onClick={() => onRedeem(safe)}
+        disabled={busy || safe <= 0}
+        style={{ width: '100%', padding: 14, marginTop: 4 }}
+      >
+        {busy
+          ? 'Processing…'
+          : willClose
+            ? `Redeem £${safe.toFixed(2)} & close bill`
+            : `Redeem £${safe.toFixed(2)} (save £${(remaining - safe).toFixed(2)} for next time)`}
+      </button>
+    </div>
+  );
+}
+
 function SplitPaymentModal({ total, onClose, onConfirm }) {
   const [rows, setRows] = useState([
     { method: 'cash', amount: '' },

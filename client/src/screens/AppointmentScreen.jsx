@@ -68,8 +68,9 @@ const HEADER_H   = 52;
 //   treatwell·full    = customer prepaid in full to Treatwell
 //   treatwell·partial = customer paid a deposit; balance due at till
 const SOURCE_STYLE = {
-  walkin:           { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3' },  // indigo — in-store / phone
-  staff:            { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3' },
+  phone:            { bg: '#ccfbf1', border: '#0d9488', text: '#115e59' },  // teal — phone
+  walkin:           { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3' },  // indigo — in-store
+  staff:            { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3' },  // indigo — staff-created
   online:           { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },  // blue — widget
   treatwell_full:   { bg: '#dcfce7', border: '#16a34a', text: '#14532d' },  // green — Treatwell prepaid in full
   treatwell_partial:{ bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },  // amber — Treatwell partial
@@ -545,10 +546,11 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
       {!isMobile && (
         <div style={{ padding: '8px 12px', background: '#fafafa', borderTop: '1px solid var(--border)', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
           {[
-            { key: 'walkin',            label: 'Phone / In-store' },
-            { key: 'online',            label: 'Online widget' },
-            { key: 'treatwell_full',    label: 'Treatwell · prepaid' },
-            { key: 'treatwell_partial', label: 'Treatwell · deposit' },
+            { key: 'phone',             label: '📞 Phone' },
+            { key: 'walkin',            label: '🚶 Walk-in' },
+            { key: 'online',            label: '🪷 Online' },
+            { key: 'treatwell_full',    label: '🌐 Treatwell · prepaid' },
+            { key: 'treatwell_partial', label: '🌐 Treatwell · deposit' },
             { key: 'cancelled',         label: 'Cancelled' },
             { key: 'no_show',           label: 'No-show' },
           ].map(({ key, label }) => {

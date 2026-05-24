@@ -156,7 +156,7 @@ router.get('/availability', async (req, res) => {
 // POST /api/appointments
 // body: { client_id, treatment_id, therapist_id?, room_id?, starts_at, notes?, source? }
 router.post('/', async (req, res) => {
-  const { client_id, treatment_id, therapist_id, room_id, starts_at, notes, source, therapist_requested } = req.body || {};
+  const { client_id, treatment_id, therapist_id, room_id, starts_at, notes, source, therapist_requested, treatwell_payment_type } = req.body || {};
   if (!treatment_id || !starts_at) {
     return res.status(400).json({ error: 'treatment_id + starts_at required' });
   }
@@ -277,15 +277,22 @@ router.post('/', async (req, res) => {
     const priceRow = await pool.query('SELECT price FROM treatments WHERE id = $1', [treatment_id]);
     const priceAtBooking = Number(priceRow.rows[0]?.price || 0);
 
+    // SPA-SOURCE-DROPDOWN — accept the receptionist's chosen source.
+    // Treatwell payment type only stored when source='treatwell'.
+    const validSource = ['phone', 'walkin', 'staff', 'online', 'treatwell'].includes(source)
+      ? source : 'walkin';
+    const validTwType = validSource === 'treatwell' && ['full', 'partial'].includes(treatwell_payment_type)
+      ? treatwell_payment_type : null;
+
     const { rows } = await pool.query(
       `INSERT INTO appointments
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
-          status, source, notes, therapist_requested, price_at_booking)
-       VALUES ($1,$2,$3,$4,$5,$6,'booked',$7,$8,$9,$10) RETURNING *`,
+          status, source, notes, therapist_requested, price_at_booking, treatwell_payment_type)
+       VALUES ($1,$2,$3,$4,$5,$6,'booked',$7,$8,$9,$10,$11) RETURNING *`,
       [
         client_id || null, treatment_id, therapist_id || null, room_id || null,
-        starts_at, ends_at, source || 'walkin', notes || null, !!therapist_requested,
-        priceAtBooking,
+        starts_at, ends_at, validSource, notes || null, !!therapist_requested,
+        priceAtBooking, validTwType,
       ],
     );
     const appt = rows[0];
