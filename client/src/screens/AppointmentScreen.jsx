@@ -75,7 +75,7 @@ const SOURCE_STYLE = {
   phone:            { bg: '#f3e8ff', border: '#a855f7', text: '#6b21a8' },  // PURPLE — phone (changed from teal: too similar to treatwell-full's green)
   walkin:           { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3' },  // indigo — in-store
   staff:            { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3' },  // indigo — staff-created
-  online:           { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },  // blue — widget
+  online:           { bg: '#f5e6d3', border: '#8b4513', text: '#5a3a1f' },  // brown — widget (was blue, too similar to walkin indigo)
   treatwell_full:   { bg: '#dcfce7', border: '#16a34a', text: '#14532d' },  // green — Treatwell prepaid in full
   treatwell_partial:{ bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },  // amber — Treatwell partial deposit
   cancelled:        { bg: '#f3f4f6', border: '#9ca3af', text: '#9ca3af' },  // grey — used by apptStyle, not in legend

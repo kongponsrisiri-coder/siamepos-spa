@@ -798,7 +798,7 @@ export default function NewAppointmentModal({
               {[
                 { id: 'phone',     label: '📞 Phone',    border: '#a855f7', bg: '#f3e8ff', text: '#6b21a8' },
                 { id: 'walkin',    label: '🚶 Walk-in',  border: '#6366f1', bg: '#e0e7ff', text: '#3730a3' },
-                { id: 'online',    label: '🪷 Online',   border: '#3b82f6', bg: '#dbeafe', text: '#1e40af' },
+                { id: 'online',    label: '🪷 Online',   border: '#8b4513', bg: '#f5e6d3', text: '#5a3a1f' },
                 { id: 'treatwell', label: '🌐 Treatwell', border: '#eab308', bg: '#fef9c3', text: '#854d0e' },
               ].map(s => {
                 const active = source === s.id;
