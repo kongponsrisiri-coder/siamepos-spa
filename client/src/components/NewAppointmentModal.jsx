@@ -9,6 +9,93 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
+// SPA-SWAP — exchange therapist + room with another booking on the
+// same day. Atomic on the server — rota + conflict checks run on the
+// NEW pair for both bookings; either both swap or nothing does.
+function SwapBlock({ appointment, onSwapped }) {
+  const [open, setOpen]   = useState(false);
+  const [list, setList]   = useState([]);
+  const [targetId, setTargetId] = useState('');
+  const [busy, setBusy]   = useState(false);
+  const [error, setError] = useState('');
+
+  // Lazy-load today's other bookings when the picker opens.
+  async function expand() {
+    setOpen(true); setError(''); setBusy(true);
+    try {
+      const date = String(appointment.starts_at).slice(0, 10);
+      const r = await api.get(`/appointments?date=${date}`);
+      const others = (r.appointments || [])
+        .filter((a) => a.id !== appointment.id)
+        .filter((a) => !['completed', 'cancelled', 'no_show'].includes(a.status));
+      setList(others);
+    } catch (e) {
+      setError(e.message || 'Could not load bookings');
+    } finally { setBusy(false); }
+  }
+  async function confirm() {
+    if (!targetId) return;
+    setBusy(true); setError('');
+    try {
+      await api.post('/appointments/swap', { id_a: appointment.id, id_b: Number(targetId) });
+      onSwapped && onSwapped({ id: appointment.id });   // closes modal + reloads
+    } catch (e) {
+      setError(e.message || 'Swap failed');
+      setBusy(false);
+    }
+  }
+  return (
+    <div style={{
+      background: '#f3f4f6',
+      border: '1px solid var(--border)',
+      borderRadius: 8,
+      padding: '10px 14px',
+      marginBottom: 14,
+      fontSize: 13,
+    }}>
+      {!open ? (
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>↔ <strong>Swap with another booking</strong> — exchange therapist + room</span>
+          <button onClick={expand} style={{ fontSize: 12, padding: '4px 10px' }}>Pick…</button>
+        </div>
+      ) : (
+        <div className="col" style={{ gap: 6 }}>
+          <div style={{ fontWeight: 600 }}>↔ Swap with…</div>
+          {busy && list.length === 0 && <div className="muted">Loading today's bookings…</div>}
+          {!busy && list.length === 0 && <div className="muted">No other active bookings today.</div>}
+          {list.length > 0 && (
+            <select value={targetId} onChange={(e) => setTargetId(e.target.value)}>
+              <option value="">— Pick the booking to swap with —</option>
+              {list.map((a) => {
+                const when = new Date(a.starts_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+                const who = a.therapist_name || 'unassigned';
+                const tx  = a.treatment_name || '';
+                const cl  = a.client_name || 'Walk-in';
+                return (
+                  <option key={a.id} value={a.id}>
+                    #{a.id} · {when} · {cl} · {tx} · {who}
+                  </option>
+                );
+              })}
+            </select>
+          )}
+          {error && <div style={{ color: 'var(--danger)', fontSize: 12 }}>{error}</div>}
+          <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+            <button onClick={() => { setOpen(false); setTargetId(''); setError(''); }} disabled={busy}>Cancel</button>
+            <button className="primary" onClick={confirm} disabled={busy || !targetId}>
+              {busy ? 'Swapping…' : '↔ Swap'}
+            </button>
+          </div>
+          <div className="muted" style={{ fontSize: 11 }}>
+            Both bookings keep their original time. Only the therapist + room are exchanged.
+            Server checks the rota and other bookings — either both swap or nothing changes.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // SPA-TREATWELL-COLOR — small inline selector for the Treatwell
 // payment type. Drives the timeline colour (green = full prepay,
 // amber = partial deposit). PATCHes the appointment.
@@ -572,6 +659,14 @@ export default function NewAppointmentModal({
             guess; this is the manual override. */}
         {isEdit && appointment?.source === 'treatwell' && (
           <TreatwellTypeBlock appointment={appointment} />
+        )}
+
+        {/* SPA-SWAP — swap therapist+room with another booking on the
+            same day. Saves the dance of moving one to a temp slot to
+            clear the conflict guard. Only shown on Edit mode for
+            non-completed bookings. */}
+        {isEdit && appointment?.id && !['completed', 'cancelled', 'no_show'].includes(appointment?.status) && (
+          <SwapBlock appointment={appointment} onSwapped={handleSaved} />
         )}
 
         <div className="col" style={{ gap: 14 }}>

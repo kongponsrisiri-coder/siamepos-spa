@@ -545,6 +545,105 @@ router.put('/:id', async (req, res) => {
 // auto-detects payment_status='deposit_pending' and shows a Pay Now UI.
 //
 // POST /api/appointments/:id/payment-link
+// SPA-SWAP — swap the therapist (and room) between two appointments
+// atomically. Saves the receptionist the dance of moving one to a
+// temp slot first to clear the conflict guard.
+//   body: { id_a, id_b }
+// Both bookings keep their original starts_at and treatment; only
+// therapist + room exchange. Validation: neither booking may be
+// cancelled / completed / no_show; each new pairing must pass rota
+// (therapist on shift at the OTHER booking's time) AND have no other
+// conflicting booking once the swap takes effect.
+router.post('/swap', async (req, res) => {
+  const { id_a, id_b } = req.body || {};
+  if (!id_a || !id_b) return res.status(400).json({ error: 'id_a + id_b required' });
+  if (Number(id_a) === Number(id_b)) return res.status(400).json({ error: 'cannot swap an appointment with itself' });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const both = await client.query(
+      `SELECT id, therapist_id, room_id, starts_at, ends_at, status
+       FROM appointments WHERE id = ANY($1::int[])
+       FOR UPDATE`,
+      [[Number(id_a), Number(id_b)]],
+    );
+    if (both.rows.length !== 2) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'one or both appointments not found' }); }
+    const a = both.rows.find(r => r.id === Number(id_a));
+    const b = both.rows.find(r => r.id === Number(id_b));
+    for (const x of [a, b]) {
+      if (['cancelled', 'no_show', 'completed'].includes(x.status)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `cannot swap — appointment #${x.id} is ${x.status}` });
+      }
+    }
+    // After swap: A gets B's therapist+room, B gets A's.
+    const newA = { therapist_id: b.therapist_id, room_id: b.room_id };
+    const newB = { therapist_id: a.therapist_id, room_id: a.room_id };
+
+    // Rota check: each new therapist must be working at the OTHER's
+    // time. PG returns starts_at/ends_at as JS Date objects; convert
+    // to ISO strings so isTherapistWorking parses them correctly.
+    for (const [appt, newPair] of [[a, newA], [b, newB]]) {
+      if (newPair.therapist_id) {
+        const startsIso = appt.starts_at instanceof Date ? appt.starts_at.toISOString() : String(appt.starts_at);
+        const endsIso   = appt.ends_at   instanceof Date ? appt.ends_at.toISOString()   : String(appt.ends_at);
+        const rc = await isTherapistWorking(newPair.therapist_id, startsIso, endsIso);
+        if (!rc.working) {
+          await client.query('ROLLBACK');
+          return res.status(409).json({
+            error: `Therapist not on shift at appointment #${appt.id}'s time`,
+            rota_conflict: { therapist_id: newPair.therapist_id, working_window: rc.window },
+          });
+        }
+      }
+    }
+    // Conflict check: any OTHER booking on the new therapist that overlaps
+    // the OLD appointment's time? Exclude both swap participants.
+    for (const [appt, newPair] of [[a, newA], [b, newB]]) {
+      if (!newPair.therapist_id) continue;
+      const clash = await client.query(
+        `SELECT id FROM appointments
+         WHERE therapist_id = $1
+           AND id NOT IN ($2, $3)
+           AND status NOT IN ('cancelled','no_show')
+           AND NOT (ends_at <= $4 OR starts_at >= $5)
+         LIMIT 1`,
+        [newPair.therapist_id, a.id, b.id, appt.starts_at, appt.ends_at],
+      );
+      if (clash.rows[0]) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: `Therapist already has another booking at appointment #${appt.id}'s time (clash with #${clash.rows[0].id})` });
+      }
+    }
+    // All clear — swap.
+    await client.query(
+      `UPDATE appointments SET therapist_id = $2, room_id = $3 WHERE id = $1`,
+      [a.id, newA.therapist_id, newA.room_id],
+    );
+    await client.query(
+      `UPDATE appointments SET therapist_id = $2, room_id = $3 WHERE id = $1`,
+      [b.id, newB.therapist_id, newB.room_id],
+    );
+    await client.query('COMMIT');
+
+    // Broadcast both updates so all tablets re-render.
+    const refreshed = await pool.query(
+      `SELECT * FROM appointments WHERE id = ANY($1::int[])`,
+      [[a.id, b.id]],
+    );
+    const io = req.app.get('io');
+    refreshed.rows.forEach(r => io?.emit('appointment_updated', r));
+
+    res.json({ ok: true, appointments: refreshed.rows });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[appointments] swap', err);
+    res.status(500).json({ error: 'server error' });
+  } finally {
+    client.release();
+  }
+});
+
 router.post('/:id/payment-link', async (req, res) => {
   const id = Number(req.params.id);
   const s = stripeClient();
