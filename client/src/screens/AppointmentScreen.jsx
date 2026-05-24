@@ -67,19 +67,33 @@ const HEADER_H   = 52;
 //   online        = website widget
 //   treatwell·full    = customer prepaid in full to Treatwell
 //   treatwell·partial = customer paid a deposit; balance due at till
+// Colour the appointment block by its **booking source** while it's
+// still scheduled. Once it COMPLETES, switch to the payment-method
+// colour so the receptionist can see at a glance how each customer
+// settled the bill.
 const SOURCE_STYLE = {
-  phone:            { bg: '#ccfbf1', border: '#0d9488', text: '#115e59' },  // teal — phone
+  phone:            { bg: '#f3e8ff', border: '#a855f7', text: '#6b21a8' },  // PURPLE — phone (changed from teal: too similar to treatwell-full's green)
   walkin:           { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3' },  // indigo — in-store
   staff:            { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3' },  // indigo — staff-created
   online:           { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },  // blue — widget
   treatwell_full:   { bg: '#dcfce7', border: '#16a34a', text: '#14532d' },  // green — Treatwell prepaid in full
-  treatwell_partial:{ bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },  // amber — Treatwell partial
-  cancelled:        { bg: '#f3f4f6', border: '#9ca3af', text: '#9ca3af' },  // grey — cancelled
-  no_show:          { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' },  // red — no-show
+  treatwell_partial:{ bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },  // amber — Treatwell partial deposit
+  cancelled:        { bg: '#f3f4f6', border: '#9ca3af', text: '#9ca3af' },  // grey — used by apptStyle, not in legend
+  no_show:          { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' },  // red  — used by apptStyle, not in legend
+};
+const PAYMENT_STYLE = {
+  cash:      { bg: '#ffedd5', border: '#f97316', text: '#9a3412' },  // orange
+  card:      { bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },  // pink
+  voucher:   { bg: '#d1fae5', border: '#10b981', text: '#065f46' },  // emerald — distinct from treatwell-full's green
+  treatwell: { bg: '#fef9c3', border: '#eab308', text: '#854d0e' },  // yellow
+  split:     { bg: '#ede9fe', border: '#7c3aed', text: '#4c1d95' },  // violet
 };
 function apptStyle(a) {
   if (a.status === 'cancelled') return SOURCE_STYLE.cancelled;
   if (a.status === 'no_show')   return SOURCE_STYLE.no_show;
+  if (a.status === 'completed' && a.payment_method) {
+    return PAYMENT_STYLE[a.payment_method] || PAYMENT_STYLE.split;
+  }
   if (a.source === 'treatwell') {
     return SOURCE_STYLE[a.treatwell_payment_type === 'full' ? 'treatwell_full' : 'treatwell_partial'];
   }
@@ -540,21 +554,37 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
         </div>
       </div>
 
-      {/* Legend — desktop only. Re-keyed to booking source after the
-          SPA-SOURCE-COLOR change so the legend matches what's on the
-          timeline. */}
+      {/* Legend — desktop only. Two groups: booking source (used while
+          the appointment is still booked / in-progress) and payment
+          method (used once it's completed). */}
       {!isMobile && (
         <div style={{ padding: '8px 12px', background: '#fafafa', borderTop: '1px solid var(--border)', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
+          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Source</span>
           {[
-            { key: 'phone',             label: '📞 Phone' },
-            { key: 'walkin',            label: '🚶 Walk-in' },
-            { key: 'online',            label: '🪷 Online' },
-            { key: 'treatwell_full',    label: '🌐 Treatwell · prepaid' },
-            { key: 'treatwell_partial', label: '🌐 Treatwell · deposit' },
-            { key: 'cancelled',         label: 'Cancelled' },
-            { key: 'no_show',           label: 'No-show' },
+            { palette: SOURCE_STYLE, key: 'phone',             label: '📞 Phone' },
+            { palette: SOURCE_STYLE, key: 'walkin',            label: '🚶 Walk-in' },
+            { palette: SOURCE_STYLE, key: 'online',            label: '🪷 Online' },
+            { palette: SOURCE_STYLE, key: 'treatwell_full',    label: '🌐 Treatwell · prepaid' },
+            { palette: SOURCE_STYLE, key: 'treatwell_partial', label: '🌐 Treatwell · deposit' },
+          ].map(({ palette, key, label }) => {
+            const s = palette[key];
+            return (
+              <span key={key} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}`, display: 'inline-block' }} />
+                <span style={{ color: 'var(--muted)' }}>{label}</span>
+              </span>
+            );
+          })}
+          <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
+          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Paid by</span>
+          {[
+            { key: 'cash',      label: '💵 Cash' },
+            { key: 'card',      label: '💳 Card' },
+            { key: 'voucher',   label: '🎁 Voucher' },
+            { key: 'treatwell', label: '🌐 Treatwell' },
+            { key: 'split',     label: '⇄ Split' },
           ].map(({ key, label }) => {
-            const s = SOURCE_STYLE[key];
+            const s = PAYMENT_STYLE[key];
             return (
               <span key={key} style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}>
                 <span style={{ width: 10, height: 10, borderRadius: 3, background: s.bg, border: `2px solid ${s.border}`, display: 'inline-block' }} />

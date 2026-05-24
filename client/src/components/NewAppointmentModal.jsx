@@ -796,7 +796,7 @@ export default function NewAppointmentModal({
             <label>Booking source</label>
             <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
               {[
-                { id: 'phone',     label: '📞 Phone',    border: '#0d9488', bg: '#ccfbf1', text: '#115e59' },
+                { id: 'phone',     label: '📞 Phone',    border: '#a855f7', bg: '#f3e8ff', text: '#6b21a8' },
                 { id: 'walkin',    label: '🚶 Walk-in',  border: '#6366f1', bg: '#e0e7ff', text: '#3730a3' },
                 { id: 'online',    label: '🪷 Online',   border: '#3b82f6', bg: '#dbeafe', text: '#1e40af' },
                 { id: 'treatwell', label: '🌐 Treatwell', border: '#eab308', bg: '#fef9c3', text: '#854d0e' },
