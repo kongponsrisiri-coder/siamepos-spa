@@ -23,6 +23,8 @@ export default function CheckoutScreen() {
   const [discountReason, setDiscountReason] = useState('');
   const [showLegacy, setShowLegacy]       = useState(false);
   const [legacyAmount, setLegacyAmount]   = useState('');
+  const [showTreatwell, setShowTreatwell] = useState(false);
+  const [treatwellAmount, setTreatwellAmount] = useState('');
 
   const load = useCallback(async () => {
     setError('');
@@ -291,19 +293,49 @@ export default function CheckoutScreen() {
                   style={{ flex: 1, padding: 14, minWidth: 80, background: showVoucher ? '#16a34a' : '#dcfce7', color: showVoucher ? 'white' : '#14532d', border: '1px solid #16a34a', fontWeight: 600 }}
                 >🎁 Voucher</button>
                 <button
-                  onClick={() => pay('treatwell')} disabled={busy}
-                  title="Customer paid Treatwell directly — Treatwell settles minus commission. Closes the bill without taking cash here."
-                  style={{ flex: 1, padding: 14, minWidth: 100, background: '#fef9c3', color: '#854d0e', border: '1px solid #eab308', fontWeight: 600 }}
+                  onClick={() => { setShowTreatwell(true); setTreatwellAmount(String(total.toFixed(2))); }}
+                  disabled={busy}
+                  title="Customer paid Treatwell (full or partial). Pick the amount Treatwell covered — if less than total, the rest is collected at the till."
+                  style={{ flex: 1, padding: 14, minWidth: 100, background: showTreatwell ? '#eab308' : '#fef9c3', color: showTreatwell ? 'white' : '#854d0e', border: '1px solid #eab308', fontWeight: 600 }}
                 >🌐 Treatwell</button>
                 <button
                   onClick={() => setShowSplit(true)} disabled={busy}
                   style={{ flex: 1, padding: 14, minWidth: 80, background: '#ede9fe', color: '#4c1d95', border: '1px solid #7c3aed', fontWeight: 600 }}
                 >⇄ Split</button>
               </div>
-              {appt.source === 'treatwell' && (
+              {appt.source === 'treatwell' && !showTreatwell && (
                 <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 6, padding: '8px 12px', color: '#9a3412' }}>
-                  🌐 This appointment came from <strong>Treatwell</strong>. The customer paid Treatwell directly — use the 🌐 Treatwell button to close the bill without recording cash. Treatwell will settle (minus commission) on their next statement.
+                  🌐 This appointment came from <strong>Treatwell</strong>{appt.treatwell_payment_type === 'partial' ? ' as a deposit booking' : ''}.
+                  Tap 🌐 Treatwell to record how much Treatwell paid — full closes the bill, partial leaves the balance to collect at the till.
                 </div>
+              )}
+              {/* SPA-TREATWELL-PARTIAL — editable amount panel.
+                  Full prepay → close bill as method='treatwell'.
+                  Partial deposit → record as discount with reason
+                  "Treatwell paid £X", bill stays open for Cash/Card/Split. */}
+              {showTreatwell && (
+                <TreatwellPaymentPanel
+                  total={total}
+                  busy={busy}
+                  amount={treatwellAmount}
+                  setAmount={setTreatwellAmount}
+                  defaultsToPartial={appt.treatwell_payment_type === 'partial'}
+                  onCancel={() => { setShowTreatwell(false); setTreatwellAmount(''); }}
+                  onConfirm={async (amt) => {
+                    if (Math.abs(amt - total) < 0.01) {
+                      // Full Treatwell payment — close bill as treatwell-paid.
+                      await pay('treatwell');
+                    } else {
+                      // Partial — record as discount, leave bill open
+                      const newDiscount = +(Number(bill.discount || 0) + amt).toFixed(2);
+                      const newReason = [bill.discount_reason, `Treatwell paid −£${amt.toFixed(2)}`].filter(Boolean).join(' + ');
+                      const r = await api.put(`/bills/${bill.id}/discount`, { discount: newDiscount, reason: newReason });
+                      setBill(r.bill);
+                      setShowTreatwell(false);
+                      setTreatwellAmount('');
+                    }
+                  }}
+                />
               )}
             </div>
 
@@ -472,6 +504,58 @@ export default function CheckoutScreen() {
 // Cash + £20 Card, or £40 Voucher + £25 Card. Sum must equal the bill
 // total. Backend stores the breakdown on bills.split_payments so the
 // daily report attributes the cash/card/voucher portions correctly.
+// Treatwell payment — full prepay or partial deposit. Operator types
+// how much Treatwell paid. Full closes the bill as method='treatwell';
+// partial is recorded as a discount with reason "Treatwell paid £X"
+// so the till collects only the remainder.
+function TreatwellPaymentPanel({ total, busy, amount, setAmount, defaultsToPartial, onCancel, onConfirm }) {
+  const safe = Math.max(0, Math.min(total, Number(amount) || 0));
+  const willClose = Math.abs(safe - total) < 0.01;
+  const remainder = +(total - safe).toFixed(2);
+  return (
+    <div style={{ background: '#fef9c3', border: '1px solid #eab308', borderRadius: 8, padding: 10, marginTop: 6 }} className="col">
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#854d0e' }}>🌐 Treatwell payment</div>
+      <div style={{ fontSize: 11, color: '#7a4f1e', marginBottom: 6 }}>
+        {defaultsToPartial
+          ? 'This booking is flagged as a Treatwell deposit. Enter what Treatwell paid; the balance is due at the till.'
+          : 'Enter what Treatwell paid. If they covered the full price, the bill closes; otherwise the rest is due at the till.'}
+      </div>
+      <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+        <span style={{ fontSize: 16, fontWeight: 700 }}>£</span>
+        <input
+          type="number" step="0.01" min="0" max={total}
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          onFocus={(e) => e.target.select()}
+          style={{ width: 110, fontSize: 16, fontWeight: 700, textAlign: 'right' }}
+        />
+        <button
+          type="button"
+          onClick={() => setAmount(String(total.toFixed(2)))}
+          disabled={Math.abs(safe - total) < 0.01}
+          style={{ fontSize: 11, padding: '4px 10px' }}
+        >Full £{total.toFixed(2)}</button>
+      </div>
+      <div style={{ fontSize: 12, color: '#7a4f1e', marginTop: 4 }}>
+        {willClose
+          ? `✓ Treatwell covered the full £${total.toFixed(2)} — closes the bill, Treatwell settles to your account minus commission.`
+          : `Treatwell paid £${safe.toFixed(2)}. Remaining £${remainder.toFixed(2)} — pick Cash / Card / Split after.`}
+      </div>
+      <div className="row" style={{ gap: 6, marginTop: 6 }}>
+        <button onClick={onCancel} disabled={busy} style={{ flex: 1, fontSize: 12 }}>Cancel</button>
+        <button
+          className="gold"
+          onClick={() => onConfirm(safe)}
+          disabled={busy || safe <= 0}
+          style={{ flex: 2, fontSize: 13, padding: '8px 12px' }}
+        >
+          {busy ? 'Processing…' : willClose ? `Treatwell £${safe.toFixed(2)} & close bill` : `Treatwell paid £${safe.toFixed(2)}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // Legacy voucher (no code, from a previous EPOS). Operator enters £X
 // the customer wants to use. Full = close bill as voucher; partial =
 // recorded as discount on the bill with reason "Legacy voucher −£X".
