@@ -307,7 +307,7 @@ router.post('/', async (req, res) => {
 // PUT /api/appointments/:id  — reschedule / reassign / edit any field
 router.put('/:id', async (req, res) => {
   const id = Number(req.params.id);
-  const { therapist_id, room_id, starts_at, notes, treatment_id, client_id, status, therapist_requested, treatwell_payment_type } = req.body || {};
+  const { therapist_id, room_id, starts_at, notes, treatment_id, client_id, status, therapist_requested, treatwell_payment_type, source } = req.body || {};
   try {
     // Recompute ends_at if starts_at or treatment changed.
     let newEnds = null;
@@ -470,27 +470,48 @@ router.put('/:id', async (req, res) => {
       newPriceAtBooking = Number(pr.rows[0]?.price || 0);
     }
 
-    // Allow the receptionist to flip Treatwell's full/partial flag on
-    // an existing appointment (e.g. webhook guessed wrong, or admin
-    // wants to recolour the timeline). Empty string / null clears it.
-    const safeTwType = treatwell_payment_type === undefined ? null
-                     : (['full', 'partial'].includes(treatwell_payment_type) ? treatwell_payment_type : null);
+    // SPA-SOURCE-DROPDOWN — source + treatwell_payment_type are special:
+    // they can be deliberately changed FROM one value TO another (or
+    // cleared), so we don't use COALESCE for them. We compute the new
+    // values from the current row + the request body, then write them
+    // explicitly. Reading the current row also lets us auto-clear
+    // tw_type when source changes away from 'treatwell'.
+    const curRes = await pool.query(
+      'SELECT source, treatwell_payment_type FROM appointments WHERE id = $1',
+      [id],
+    );
+    if (!curRes.rows[0]) return res.status(404).json({ error: 'not found' });
+    const curr = curRes.rows[0];
+    const validSources = ['phone', 'walkin', 'staff', 'online', 'treatwell'];
+    const newSource = (source !== undefined && validSources.includes(source))
+      ? source
+      : curr.source;
+    let newTwType;
+    if (newSource !== 'treatwell') {
+      // Source changed away from Treatwell → clear the payment type.
+      newTwType = null;
+    } else if (treatwell_payment_type !== undefined) {
+      newTwType = ['full', 'partial'].includes(treatwell_payment_type) ? treatwell_payment_type : null;
+    } else {
+      newTwType = curr.treatwell_payment_type;
+    }
 
     const { rows } = await pool.query(
       `UPDATE appointments SET
          therapist_id         = COALESCE($2, therapist_id),
          room_id              = COALESCE($3, room_id),
          starts_at            = COALESCE($4, starts_at),
-         ends_at               = COALESCE($5, ends_at),
+         ends_at              = COALESCE($5, ends_at),
          treatment_id         = COALESCE($6, treatment_id),
          notes                = COALESCE($7, notes),
          client_id            = COALESCE($8, client_id),
          status               = COALESCE($9, status),
          therapist_requested  = COALESCE($10, therapist_requested),
          price_at_booking     = COALESCE($11, price_at_booking),
-         treatwell_payment_type = COALESCE($12, treatwell_payment_type)
+         source               = $12,
+         treatwell_payment_type = $13
        WHERE id = $1 RETURNING *`,
-      [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null, newPriceAtBooking, safeTwType],
+      [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null, newPriceAtBooking, newSource, newTwType],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
 
