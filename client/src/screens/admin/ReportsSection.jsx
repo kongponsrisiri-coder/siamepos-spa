@@ -94,6 +94,11 @@ export default function ReportsSection() {
   function exportCsv() {
     if (!therapistData) return;
     const rows = [];
+    // Shop identity header for the CSV
+    const id = therapistData?.identity;
+    if (id?.spa_name) rows.push([id.spa_name]);
+    if (id?.spa_address) rows.push([id.spa_address]);
+    if (id?.spa_phone || id?.spa_email) rows.push([[id.spa_phone, id.spa_email].filter(Boolean).join(' · ')]);
     rows.push([`Reports ${from} → ${to}`]);
     rows.push([]);
     rows.push(['Therapist breakdown']);
@@ -134,6 +139,25 @@ export default function ReportsSection() {
           <button onClick={() => window.print()}>🖨 Print</button>
         </div>
       </div>
+
+      {/* Spa identity header — printed/exported reports carry the
+          business name. Pulled from settings.spa_name (+ address /
+          phone / email) by the backend. */}
+      {therapistData?.identity?.spa_name && (
+        <div style={{ textAlign: 'center', borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
+          <div style={{ fontFamily: 'Georgia, serif', fontSize: 22, fontWeight: 700, color: '#1e3a6e', letterSpacing: '0.02em' }}>
+            {therapistData.identity.spa_name}
+          </div>
+          {(therapistData.identity.spa_address || therapistData.identity.spa_phone) && (
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+              {[therapistData.identity.spa_address, therapistData.identity.spa_phone].filter(Boolean).join(' · ')}
+            </div>
+          )}
+          {therapistData.identity.spa_email && (
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{therapistData.identity.spa_email}</div>
+          )}
+        </div>
+      )}
 
       {/* Date range + quick presets */}
       <div className="card col" style={{ gap: 8 }}>

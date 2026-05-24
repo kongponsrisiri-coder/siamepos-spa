@@ -15,6 +15,23 @@ function today() {
   }).format(new Date()); // 'en-CA' yields YYYY-MM-DD
 }
 
+// Shared spa identity loader — used by every report endpoint so the
+// CSV / print / on-screen header all carry the business name. Settings
+// table wins; env-var fallbacks; ultimate fallback to "SiamEPOS Spa".
+async function loadIdentity() {
+  const ident = await pool.query(
+    `SELECT key, value FROM settings WHERE key IN
+       ('spa_name','spa_email','spa_address','spa_phone')`,
+  );
+  const map = Object.fromEntries(ident.rows.map((r) => [r.key, r.value]));
+  return {
+    spa_name:    map.spa_name    || process.env.SPA_NAME    || 'SiamEPOS Spa',
+    spa_email:   map.spa_email   || process.env.SPA_EMAIL   || null,
+    spa_address: map.spa_address || process.env.SPA_ADDRESS || null,
+    spa_phone:   map.spa_phone   || null,
+  };
+}
+
 // GET /api/reports/trading?date=YYYY-MM-DD  (default: today)
 router.get('/trading', async (req, res) => {
   const date = req.query.date || today();
@@ -131,6 +148,7 @@ router.get('/trading', async (req, res) => {
 
     res.json({
       date,
+      identity: await loadIdentity(),
       totals: totals.rows[0],
       appointments: appts.rows[0],
       top_treatments: top.rows,
@@ -209,7 +227,7 @@ router.get('/therapist', async (req, res) => {
       [from || null, to || null],
     );
 
-    res.json({ therapists, by_payment_method: byMethod });
+    res.json({ identity: await loadIdentity(), therapists, by_payment_method: byMethod });
   } catch (err) {
     console.error('[reports] therapist', err);
     res.status(500).json({ error: 'server error' });

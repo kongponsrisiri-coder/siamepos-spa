@@ -81,6 +81,24 @@ export default function TradingSection() {
         </div>
       </div>
 
+      {/* Spa identity header — same pattern as Z-Report so print /
+          PDF / screenshots all carry the business name. */}
+      {data.identity?.spa_name && (
+        <div style={{ textAlign: 'center', borderBottom: '1px solid var(--border)', paddingBottom: 10 }}>
+          <div style={{ fontFamily: 'Georgia, serif', fontSize: 22, fontWeight: 700, color: '#1e3a6e', letterSpacing: '0.02em' }}>
+            {data.identity.spa_name}
+          </div>
+          {(data.identity.spa_address || data.identity.spa_phone) && (
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+              {[data.identity.spa_address, data.identity.spa_phone].filter(Boolean).join(' · ')}
+            </div>
+          )}
+          {data.identity.spa_email && (
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>{data.identity.spa_email}</div>
+          )}
+        </div>
+      )}
+
       {/* ── Stat cards ─────────────────────────────────────────── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
         <StatCard label="Revenue"      value={fmtMoney(data.totals.revenue)}          color={COLORS.revenue} />
