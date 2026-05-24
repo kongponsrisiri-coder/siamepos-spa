@@ -231,7 +231,11 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // VERTICAL TIMELINE
 // ══════════════════════════════════════════════════════════════════════════════
-function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder, isMobile }) {
+function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder, onSwap, isMobile }) {
+  // SPA-SWAP — track which appointment block is being dragged so the
+  // drop target can highlight + we can fire the swap on drop.
+  const [draggedApptId, setDraggedApptId] = useState(null);
+  const [dragOverApptId, setDragOverApptId] = useState(null);
   const nowRef       = useRef(null);
   const containerRef = useRef(null);
   const [containerH, setContainerH] = useState(0);
@@ -483,17 +487,49 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   const s      = apptStyle(a);
                   const hasPm  = Boolean(a.payment_method);
                   const isReq  = Boolean(a.therapist_requested);
+                  // SPA-SWAP — only active (non-final) appointments can
+                  // participate in swap. Completed/cancelled/no-show
+                  // stay static — they're closed events.
+                  const swappable = !['completed', 'cancelled', 'no_show'].includes(a.status);
+                  const isBeingDragged = draggedApptId === a.id;
+                  const isDropTarget   = dragOverApptId === a.id && draggedApptId && draggedApptId !== a.id;
                   return (
                     <div key={a.id}
+                      draggable={!isMobile && swappable}
+                      onDragStart={e => {
+                        if (isMobile || !swappable) return;
+                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.setData('text/plain', String(a.id));
+                        setDraggedApptId(a.id);
+                      }}
+                      onDragOver={e => {
+                        if (!swappable || !draggedApptId || draggedApptId === a.id) return;
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        setDragOverApptId(a.id);
+                      }}
+                      onDragLeave={() => setDragOverApptId(prev => prev === a.id ? null : prev)}
+                      onDrop={e => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const sourceId = Number(e.dataTransfer.getData('text/plain'));
+                        if (sourceId && sourceId !== a.id) onSwap && onSwap(sourceId, a.id);
+                        setDraggedApptId(null); setDragOverApptId(null);
+                      }}
+                      onDragEnd={() => { setDraggedApptId(null); setDragOverApptId(null); }}
                       onClick={e => { e.stopPropagation(); onSelect(isSel ? null : a); }}
                       onDoubleClick={e => { e.stopPropagation(); !isMobile && onEditClick && onEditClick(a); }}
                       style={{
                         position: 'absolute', left: 3, right: 3, top, height,
-                        borderRadius: isMobile ? 6 : 7, cursor: 'pointer',
+                        borderRadius: isMobile ? 6 : 7,
+                        cursor: !isMobile && swappable ? 'grab' : 'pointer',
                         background: isSel ? COL_COLORS[ci % COL_COLORS.length] : s.bg,
-                        border: `2px solid ${isSel ? COL_COLORS[ci % COL_COLORS.length] : s.border}`,
+                        border: isDropTarget
+                          ? '3px dashed #C9A84C'
+                          : `2px solid ${isSel ? COL_COLORS[ci % COL_COLORS.length] : s.border}`,
                         padding: '3px 5px', overflow: 'hidden',
                         boxShadow: isSel ? '0 4px 14px rgba(0,0,0,0.22)' : '0 1px 3px rgba(0,0,0,0.07)',
+                        opacity: isBeingDragged ? 0.45 : 1,
                         zIndex: isSel ? 8 : 4, transition: 'all 0.12s',
                         WebkitTapHighlightColor: 'transparent',
                         touchAction: 'manipulation',
@@ -853,6 +889,16 @@ export default function AppointmentScreen() {
               onSlotClick={({ therapistId, time }) => setModal({ therapistId, time })}
               onEditClick={appt => setModal({ appointment: appt })}
               onColumnReorder={handleColumnReorder}
+              onSwap={async (idA, idB) => {
+                try {
+                  await api.post('/appointments/swap', { id_a: idA, id_b: idB });
+                  // Reload — socket events will refresh other tablets;
+                  // we just need to re-fetch to update this view.
+                  load();
+                } catch (e) {
+                  alert(e.message || 'Swap failed');
+                }
+              }}
               isMobile={isMobile}
             />
 
