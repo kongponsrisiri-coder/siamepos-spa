@@ -3,14 +3,28 @@ const { pool } = require('../db/database');
 
 const router = express.Router();
 
-// GET /api/treatments  — active treatments grouped by category
-router.get('/', async (_req, res) => {
+// GET /api/treatments
+//   ?include_inactive=1 — admin view, returns hidden treatments too
+//   ?with_booking_count=1 — adds booking_count + last_booked_at columns
+//     so the admin can see whether a treatment is safe to hard-delete
+router.get('/', async (req, res) => {
+  const includeInactive   = req.query.include_inactive === '1' || req.query.include_inactive === 'true';
+  const withBookingCount  = req.query.with_booking_count === '1' || req.query.with_booking_count === 'true';
+  const activeClause = includeInactive ? '' : 'WHERE t.active = TRUE';
+  const bookingJoin = withBookingCount
+    ? `LEFT JOIN LATERAL (
+         SELECT COUNT(*)::int AS booking_count, MAX(a.starts_at) AS last_booked_at
+         FROM appointments a WHERE a.treatment_id = t.id
+       ) bk ON TRUE`
+    : '';
+  const bookingCols = withBookingCount ? ', bk.booking_count, bk.last_booked_at' : '';
   try {
     const treatments = await pool.query(`
-      SELECT t.*, c.name AS category_name, c.sort_order AS category_sort
+      SELECT t.*, c.name AS category_name, c.sort_order AS category_sort${bookingCols}
       FROM treatments t
       LEFT JOIN treatment_categories c ON c.id = t.category_id
-      WHERE t.active = TRUE
+      ${bookingJoin}
+      ${activeClause}
       ORDER BY c.sort_order NULLS LAST, c.name NULLS LAST, t.name
     `);
     res.json({ treatments: treatments.rows });
@@ -76,16 +90,36 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/treatments/:id  — soft delete (active=false)
+// DELETE /api/treatments/:id
+//   default          — soft delete (active=false). Preserves history.
+//   ?hard=1          — permanent removal. Fails 409 if appointments
+//                      reference the row (operator must use soft delete).
 router.delete('/:id', async (req, res) => {
   const id = Number(req.params.id);
+  const hard = req.query.hard === '1' || req.query.hard === 'true';
   try {
+    if (hard) {
+      const ref = await pool.query(
+        'SELECT COUNT(*)::int AS n FROM appointments WHERE treatment_id = $1',
+        [id],
+      );
+      const count = ref.rows[0]?.n || 0;
+      if (count > 0) {
+        return res.status(409).json({
+          error: `Cannot delete — ${count} appointment${count === 1 ? '' : 's'} reference this treatment. Hide it instead so past bookings keep their record.`,
+          booking_count: count,
+        });
+      }
+      const { rowCount } = await pool.query('DELETE FROM treatments WHERE id = $1', [id]);
+      if (!rowCount) return res.status(404).json({ error: 'not found' });
+      return res.json({ ok: true, deleted: true });
+    }
     const { rowCount } = await pool.query(
       'UPDATE treatments SET active = FALSE WHERE id = $1',
       [id],
     );
     if (!rowCount) return res.status(404).json({ error: 'not found' });
-    res.json({ ok: true });
+    res.json({ ok: true, hidden: true });
   } catch (err) {
     console.error('[treatments] delete', err);
     res.status(500).json({ error: 'server error' });
@@ -104,6 +138,44 @@ router.post('/categories', async (req, res) => {
     res.status(201).json({ category: rows[0] });
   } catch (err) {
     console.error('[treatments] create category', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// PUT /api/treatments/categories/:id — rename / reorder a category
+router.put('/categories/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  const { name, sort_order } = req.body || {};
+  try {
+    const { rows } = await pool.query(
+      `UPDATE treatment_categories
+         SET name       = COALESCE($2, name),
+             sort_order = COALESCE($3, sort_order)
+         WHERE id = $1 RETURNING *`,
+      [id, name ?? null, sort_order ?? null],
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    res.json({ category: rows[0] });
+  } catch (err) {
+    console.error('[treatments] update category', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// DELETE /api/treatments/categories/:id — removes the category and
+// moves any treatments using it to category_id=NULL (uncategorised).
+router.delete('/categories/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    await pool.query('BEGIN');
+    await pool.query('UPDATE treatments SET category_id = NULL WHERE category_id = $1', [id]);
+    const { rowCount } = await pool.query('DELETE FROM treatment_categories WHERE id = $1', [id]);
+    await pool.query('COMMIT');
+    if (!rowCount) return res.status(404).json({ error: 'not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    await pool.query('ROLLBACK').catch(() => {});
+    console.error('[treatments] delete category', err);
     res.status(500).json({ error: 'server error' });
   }
 });
