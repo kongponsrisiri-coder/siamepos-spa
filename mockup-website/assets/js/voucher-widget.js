@@ -395,11 +395,36 @@
       var btn = document.getElementById('bss-v-pay');
       btn.textContent = 'Processing…';
       btn.disabled = true;
-      setTimeout(function () {
-        state.code = randomCode();
-        state.step = 4;
-        render();
-      }, 1400);
+
+      // POST to the spa API to create a real voucher record
+      var body = {
+        value:           state.tab === 'amount' ? state.amount : Number(state.treatment.price),
+        purchased_by:    state.sender,
+        purchased_for:   state.recipient,
+        recipient_email: state.recipientEmail,
+        message:         state.message || null,
+      };
+      if (state.tab === 'treatment' && state.treatment) {
+        body.treatment_id = state.treatment.id;
+      }
+
+      fetch(window.SPA_API + '/api/widget/vouchers', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          state.code = (data.voucher && data.voucher.code) ? data.voucher.code : randomCode();
+          state.step = 4;
+          render();
+        })
+        .catch(function () {
+          // Fallback: show success with a client-side code if API is unreachable
+          state.code = randomCode();
+          state.step = 4;
+          render();
+        });
     });
   }
 

@@ -5,7 +5,7 @@ const express = require('express');
 const Stripe = require('stripe');
 const { pool } = require('../db/database');
 const { computeAvailability } = require('../services/availability');
-const { sendBookingConfirmation } = require('../services/emailService');
+const { sendBookingConfirmation, sendVoucherGiftEmail } = require('../services/emailService');
 
 const router = express.Router();
 
@@ -325,6 +325,71 @@ router.post('/book', async (req, res) => {
     res.status(500).json({ error: 'server error' });
   } finally {
     client.release();
+  }
+});
+
+// POST /api/widget/vouchers
+// Public endpoint — called by the Baan Siam website voucher widget.
+// Creates a voucher record for online purchases (payment_method always 'card').
+// body: { value, purchased_by, purchased_for, recipient_email, message?,
+//          treatment_id?, treatment_name? }
+router.post('/vouchers', async (req, res) => {
+  const { value, purchased_by, purchased_for, recipient_email, message, treatment_id } = req.body || {};
+  if (!value || Number(value) <= 0) return res.status(400).json({ error: 'value required' });
+
+  // Generate unique code (SPA-XXXXXXXX)
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code;
+  for (let i = 0; i < 10; i++) {
+    let c = 'SPA-';
+    for (let j = 0; j < 8; j++) c += chars[Math.floor(Math.random() * chars.length)];
+    const exists = await pool.query('SELECT id FROM vouchers WHERE code = $1', [c]);
+    if (!exists.rows[0]) { code = c; break; }
+  }
+  if (!code) return res.status(500).json({ error: 'Could not generate unique code' });
+
+  // Expiry = 1 year from today
+  const expires = new Date();
+  expires.setFullYear(expires.getFullYear() + 1);
+  const expiresAt = expires.toISOString().slice(0, 10);
+
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO vouchers
+         (code, initial_value, remaining_value, purchased_by, purchased_for,
+          recipient_email, payment_method, notes, expires_at, treatment_id)
+       VALUES ($1,$2,$2,$3,$4,$5,'card',$6,$7,$8) RETURNING *`,
+      [
+        code,
+        Number(value),
+        purchased_by  || null,
+        purchased_for || null,
+        recipient_email || null,
+        message       || null,
+        expiresAt,
+        treatment_id  ? Number(treatment_id) : null,
+      ],
+    );
+    const voucher = rows[0];
+
+    // Fire-and-forget gift email
+    if (voucher.recipient_email) {
+      const tName = treatment_id
+        ? (await pool.query('SELECT name FROM treatments WHERE id = $1', [Number(treatment_id)])).rows[0]?.name
+        : null;
+      sendVoucherGiftEmail({ voucher, treatment_name: tName })
+        .then(async (r) => {
+          if (r && r.ok) {
+            await pool.query('UPDATE vouchers SET email_sent_at = now() WHERE id = $1', [voucher.id]);
+          }
+        })
+        .catch((e) => console.error('[widget/vouchers] email failed', e));
+    }
+
+    res.status(201).json({ voucher });
+  } catch (err) {
+    console.error('[widget/vouchers] create', err);
+    res.status(500).json({ error: 'server error' });
   }
 });
 
