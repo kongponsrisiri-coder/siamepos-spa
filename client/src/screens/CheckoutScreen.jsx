@@ -82,6 +82,18 @@ export default function CheckoutScreen() {
     } catch (e) { setError(e.message); }
   }
 
+  // Confirm-before-close wrapper for the single-tap payment buttons.
+  // The Split / Voucher / Treatwell-partial paths already have inline
+  // confirmation in their own panels/modals — this just gates the
+  // "Cash", "Card" and one-tap Treatwell-full-prepay buttons.
+  function payConfirm(method, label) {
+    const amountText = method === 'treatwell'
+      ? `close this bill as paid by ${label}? (Till takes £0; Treatwell settles to your account)`
+      : `take ${fmtMoney(balance)} by ${label} and close this bill?`;
+    if (!confirm(`Confirm: ${amountText}`)) return;
+    pay(method);
+  }
+
   // Guard for % preset buttons — if the existing discount already includes
   // a partial Treatwell or voucher payment, replacing it would lose that
   // record. Warn the operator and require confirmation.
@@ -312,11 +324,11 @@ export default function CheckoutScreen() {
               <div className="row" style={{ flexWrap: 'wrap' }}>
                 {/* Order: Cash · Card · Voucher · Treatwell · Split */}
                 <button
-                  onClick={() => pay('cash')} disabled={busy}
+                  onClick={() => payConfirm('cash', 'CASH')} disabled={busy}
                   style={{ flex: 1, padding: 14, minWidth: 80, background: '#ffedd5', color: '#9a3412', border: '1px solid #f97316', fontWeight: 600 }}
                 >Cash</button>
                 <button
-                  onClick={() => pay('card')} disabled={busy}
+                  onClick={() => payConfirm('card', 'CARD')} disabled={busy}
                   style={{ flex: 1, padding: 14, minWidth: 80, background: '#fce7f3', color: '#9d174d', border: '1px solid #ec4899', fontWeight: 600 }}
                 >Card</button>
                 <button
@@ -338,7 +350,7 @@ export default function CheckoutScreen() {
                       setShowTreatwell(true);
                       setTreatwellAmount(String(total.toFixed(2)));
                     } else {
-                      pay('treatwell');
+                      payConfirm('treatwell', 'TREATWELL');
                     }
                   }}
                   disabled={busy}
