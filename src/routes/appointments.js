@@ -747,6 +747,117 @@ router.post('/:id/payment-link', async (req, res) => {
   }
 });
 
+// POST /api/appointments/:id/deposit-manual
+// Record a deposit taken by cash or card AT THE TILL (phone bookings
+// where the customer reads their card to staff, walk-in deposits, etc.).
+// body: { amount, method: 'cash'|'card' }
+//
+// Rejects if a Stripe deposit (deposit_stripe_id) already exists on the
+// booking — those are managed via the Stripe webhook, not by staff.
+// If a previous manual deposit is on the booking, this OVERWRITES it
+// (operator amending). Use DELETE /:id/deposit-manual to clear.
+router.post('/:id/deposit-manual', async (req, res) => {
+  const id = Number(req.params.id);
+  const { amount, method } = req.body || {};
+  const amt = Number(amount);
+  if (!isFinite(amt) || amt <= 0) {
+    return res.status(400).json({ error: 'amount must be a positive number' });
+  }
+  if (!['cash', 'card'].includes(method)) {
+    return res.status(400).json({ error: 'method must be cash or card' });
+  }
+  try {
+    const cur = await pool.query(
+      `SELECT id, deposit_stripe_id, payment_status, status FROM appointments WHERE id = $1`,
+      [id],
+    );
+    if (!cur.rows[0]) return res.status(404).json({ error: 'appointment not found' });
+    const a = cur.rows[0];
+    if (a.deposit_stripe_id) {
+      return res.status(409).json({ error: 'online (Stripe) deposit already on this booking — manage via Stripe' });
+    }
+    if (a.payment_status === 'fully_paid') {
+      return res.status(409).json({ error: 'bill is already closed — deposit cannot be amended' });
+    }
+    const { rows } = await pool.query(
+      `UPDATE appointments
+         SET deposit_amount   = $2,
+             deposit_method   = $3,
+             deposit_taken_at = now(),
+             deposit_taken_by = $4,
+             payment_status   = 'deposit_paid'
+       WHERE id = $1 RETURNING *`,
+      [id, +amt.toFixed(2), method, req.staff?.id || null],
+    );
+    req.app.get('io')?.emit('appointment_updated', rows[0]);
+    res.json({ appointment: rows[0] });
+  } catch (err) {
+    console.error('[appointments] deposit-manual', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// DELETE /api/appointments/:id/deposit-manual — clear a manual deposit
+// (operator mistake / refund-at-till). Refuses to touch online deposits.
+router.delete('/:id/deposit-manual', async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    const cur = await pool.query(
+      `SELECT deposit_stripe_id, payment_status FROM appointments WHERE id = $1`,
+      [id],
+    );
+    if (!cur.rows[0]) return res.status(404).json({ error: 'appointment not found' });
+    if (cur.rows[0].deposit_stripe_id) {
+      return res.status(409).json({ error: 'cannot clear an online deposit from here' });
+    }
+    if (cur.rows[0].payment_status === 'fully_paid') {
+      return res.status(409).json({ error: 'bill is already closed' });
+    }
+    const { rows } = await pool.query(
+      `UPDATE appointments
+         SET deposit_amount   = NULL,
+             deposit_method   = NULL,
+             deposit_taken_at = NULL,
+             deposit_taken_by = NULL,
+             payment_status   = 'none'
+       WHERE id = $1 RETURNING *`,
+      [id],
+    );
+    req.app.get('io')?.emit('appointment_updated', rows[0]);
+    res.json({ appointment: rows[0] });
+  } catch (err) {
+    console.error('[appointments] deposit-manual delete', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// GET /api/appointments/deposit-summary?date=YYYY-MM-DD
+// SPA-DEPOSIT-DAILY — totals for the daily summary card on the
+// Appointments screen. Counts deposits regardless of channel.
+router.get('/deposit-summary', async (req, res) => {
+  const date = req.query.date || new Date().toISOString().slice(0, 10);
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         COUNT(*)::int                                                          AS total_bookings,
+         COUNT(*) FILTER (WHERE COALESCE(deposit_amount, 0) > 0)::int           AS with_deposit_count,
+         COALESCE(SUM(deposit_amount) FILTER (WHERE deposit_amount > 0), 0)::numeric(10,2) AS total_deposit_collected,
+         COALESCE(SUM(deposit_amount) FILTER (WHERE deposit_stripe_id IS NOT NULL),  0)::numeric(10,2) AS online_total,
+         COALESCE(SUM(deposit_amount) FILTER (WHERE deposit_method = 'cash'),       0)::numeric(10,2) AS cash_total,
+         COALESCE(SUM(deposit_amount) FILTER (WHERE deposit_method = 'card'),       0)::numeric(10,2) AS card_total,
+         COUNT(*) FILTER (WHERE payment_status = 'deposit_pending')::int        AS pending_count
+       FROM appointments
+       WHERE starts_at::date = $1::date
+         AND status NOT IN ('cancelled','no_show')`,
+      [date],
+    );
+    res.json({ date, summary: rows[0] });
+  } catch (err) {
+    console.error('[appointments] deposit-summary', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 // PUT /api/appointments/:id/status  body: { status: 'in_progress'|'completed'|'cancelled'|'no_show' }
 router.put('/:id/status', async (req, res) => {
   const id = Number(req.params.id);

@@ -172,6 +172,148 @@ function PaymentEditBlock({ appointment, onUpdated }) {
   );
 }
 
+// SPA-DEPOSIT-MANUAL — Receptionist records a deposit taken at the
+// till (e.g. customer phones, gives card details over the phone, or
+// drops in to pay a deposit in person). Shown only when NO online
+// Stripe deposit exists. Re-tapping amends; "Clear" removes.
+function ManualDepositBlock({ appointment, onUpdated }) {
+  const policyDefault = 25;
+  const treatmentPrice = Number(appointment.price_at_booking || appointment.treatment_price || 0);
+  const suggested = Math.min(policyDefault, treatmentPrice || policyDefault);
+  const [amount, setAmount] = useState(String(suggested.toFixed(2)));
+  const [busy, setBusy]     = useState(false);
+  const [error, setError]   = useState('');
+  const [open, setOpen]     = useState(false);
+
+  const existing = Number(appointment.deposit_amount || 0);
+  const existingMethod = appointment.deposit_method || null;
+
+  // If a Stripe deposit was already paid, this whole block hides — the
+  // operator should not be able to manually overwrite an online deposit.
+  if (appointment.deposit_stripe_id) return null;
+  // Bill closed → nothing to do.
+  if (appointment.payment_status === 'fully_paid') return null;
+
+  async function take(method) {
+    const amt = Number(amount);
+    if (!isFinite(amt) || amt <= 0) { setError('Enter a positive amount'); return; }
+    if (!confirm(`Record £${amt.toFixed(2)} ${method.toUpperCase()} deposit on this booking?`)) return;
+    setBusy(true); setError('');
+    try {
+      const r = await api.post(`/appointments/${appointment.id}/deposit-manual`, { amount: amt, method });
+      Object.assign(appointment, r.appointment);
+      onUpdated && onUpdated(r.appointment);
+      setOpen(false);
+    } catch (e) {
+      setError(e.message || 'Failed to record deposit');
+    } finally { setBusy(false); }
+  }
+
+  async function clear() {
+    if (!confirm('Clear this deposit? The customer will need to pay the full bill at checkout.')) return;
+    setBusy(true); setError('');
+    try {
+      const r = await api.del(`/appointments/${appointment.id}/deposit-manual`);
+      Object.assign(appointment, r.appointment);
+      onUpdated && onUpdated(r.appointment);
+    } catch (e) {
+      setError(e.message || 'Failed to clear deposit');
+    } finally { setBusy(false); }
+  }
+
+  // Existing manual deposit on file — show summary + clear button.
+  if (existing > 0 && existingMethod) {
+    const takenAt = appointment.deposit_taken_at
+      ? new Date(appointment.deposit_taken_at).toLocaleString('en-GB', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'short' })
+      : '';
+    return (
+      <div style={{
+        background: '#dcfce7',
+        border: '1px solid #86efac',
+        borderRadius: 8,
+        padding: '10px 14px',
+        marginBottom: 14,
+        fontSize: 13,
+      }}>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+          <span style={{ color: '#166534' }}>
+            💵 <strong>£{existing.toFixed(2)} {existingMethod.toUpperCase()} deposit taken</strong>
+            {takenAt && <span style={{ marginLeft: 6, color: '#15803d', fontSize: 11 }}>· {takenAt}</span>}
+          </span>
+          <button onClick={clear} disabled={busy} style={{ fontSize: 11, padding: '4px 10px', background: 'white', color: '#9d174d', border: '1px solid #ec4899', fontWeight: 600 }}>
+            {busy ? '…' : 'Clear'}
+          </button>
+        </div>
+        {error && <div style={{ color: 'var(--danger)', fontSize: 12, marginTop: 6 }}>{error}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      background: '#fdf6ec',
+      border: '1px solid #e0c884',
+      borderRadius: 8,
+      padding: '12px 14px',
+      marginBottom: 14,
+      fontSize: 13,
+    }}>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+        <span style={{ color: '#7a4f1e' }}>
+          💵 <strong>Take deposit at till</strong>
+          <span style={{ fontSize: 11, color: '#92400e', marginLeft: 6 }}>(cash or card terminal — not Stripe)</span>
+        </span>
+        {!open && (
+          <button onClick={() => setOpen(true)} style={{ fontSize: 12, padding: '5px 12px', background: '#1e3a6e', color: 'white', fontWeight: 600 }}>
+            Record deposit
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="col" style={{ marginTop: 10, gap: 8 }}>
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <span style={{ fontSize: 12 }}>£</span>
+            <input
+              type="number" step="0.01" min="0"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              style={{ flex: 1, fontSize: 14 }}
+              autoFocus
+            />
+            <button onClick={() => setAmount(String(suggested.toFixed(2)))} style={{ fontSize: 11, padding: '4px 8px' }}>
+              £{suggested.toFixed(0)}
+            </button>
+            {treatmentPrice > 0 && (
+              <button onClick={() => setAmount(String(treatmentPrice.toFixed(2)))} style={{ fontSize: 11, padding: '4px 8px' }}>
+                Full £{treatmentPrice.toFixed(0)}
+              </button>
+            )}
+          </div>
+          <div className="row" style={{ gap: 6 }}>
+            <button
+              onClick={() => take('cash')}
+              disabled={busy}
+              style={{ flex: 1, padding: '8px 10px', background: '#ffedd5', color: '#9a3412', border: '2px solid #f97316', fontWeight: 700 }}
+            >💵 Cash</button>
+            <button
+              onClick={() => take('card')}
+              disabled={busy}
+              style={{ flex: 1, padding: '8px 10px', background: '#fce7f3', color: '#9d174d', border: '2px solid #ec4899', fontWeight: 700 }}
+            >💳 Card</button>
+            <button onClick={() => setOpen(false)} disabled={busy} style={{ fontSize: 12, padding: '6px 10px' }}>
+              Cancel
+            </button>
+          </div>
+          {error && <div style={{ color: 'var(--danger)', fontSize: 12 }}>{error}</div>}
+          <div className="muted" style={{ fontSize: 11 }}>
+            The deposit is credited at checkout — the operator only collects the balance.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // SPA-PAY-002 — Generates a deposit-payment link for a booking the
 // receptionist created over the phone/in-person. Shown only when no
 // deposit has been paid yet. Once generated, the link can be copied
@@ -555,6 +697,15 @@ export default function NewAppointmentModal({
             via WhatsApp/SMS. */}
         {isEdit && appointment?.id && (!appointment.deposit_amount || appointment.payment_status === 'deposit_pending') && (
           <PaymentLinkBlock appointment={appointment} />
+        )}
+
+        {/* SPA-DEPOSIT-MANUAL — manual deposit (cash / card terminal).
+            Shown when no Stripe deposit exists. Re-opens for amend. */}
+        {isEdit && appointment?.id && appointment.status !== 'completed' && (
+          <ManualDepositBlock
+            appointment={appointment}
+            onUpdated={() => handleSaved(appointment)}
+          />
         )}
 
         {/* SPA-PAYMENT-EDIT — Amend the payment method on a closed bill.

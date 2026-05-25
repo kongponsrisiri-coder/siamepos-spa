@@ -389,6 +389,16 @@ async function initSchema() {
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS deposit_stripe_id TEXT;
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS payment_status    TEXT NOT NULL DEFAULT 'none';
 
+    -- SPA-DEPOSIT-MANUAL — when the receptionist takes a deposit by
+    -- cash or card at the till (e.g. customer phones, pays £25 over
+    -- the phone via card terminal, or pops in to pay a deposit in
+    -- person), we record HOW the deposit was taken and WHEN. Stripe
+    -- deposits leave these NULL; the deposit_stripe_id is the canonical
+    -- signal that the deposit was online.
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS deposit_method   TEXT;
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS deposit_taken_at TIMESTAMPTZ;
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS deposit_taken_by INT REFERENCES therapists(id) ON DELETE SET NULL;
+
     -- SPA-TURN-ORDER — receptionist-set column order on the timeline,
     -- per date. The "who's next in line" rotation common in Thai spas
     -- (whoever arrived first that day gets the first walk-in's turn).

@@ -514,6 +514,11 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   const s      = apptStyle(a);
                   const hasPm  = Boolean(a.payment_method);
                   const isReq  = Boolean(a.therapist_requested);
+                  // SPA-DEPOSIT-BADGE — surface deposit-paid bookings at
+                  // a glance so the receptionist doesn't have to open
+                  // the bill to see what's already collected.
+                  const depAmt = Number(a.deposit_amount || 0);
+                  const hasDep = depAmt > 0 && a.status !== 'completed';
                   // SPA-SWAP — only active (non-final) appointments can
                   // participate in swap. Completed/cancelled/no-show
                   // stay static — they're closed events.
@@ -581,6 +586,27 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                       {!isMobile && height > 68 && a.room_name && (
                         <div style={{ fontSize: 10, color: isSel ? 'rgba(255,255,255,0.65)' : s.text, opacity: 0.7 }}>
                           🚪 {a.room_name}
+                        </div>
+                      )}
+                      {/* SPA-DEPOSIT-BADGE — top-right corner badge.
+                          Shown for any active booking with deposit_amount > 0.
+                          Hidden once status='completed' (payment badge replaces). */}
+                      {hasDep && (
+                        <div
+                          title={`Deposit £${depAmt.toFixed(2)} ${a.deposit_method ? `(${a.deposit_method})` : 'paid'}${a.payment_status === 'deposit_pending' ? ' — pending' : ''}`}
+                          style={{
+                            position: 'absolute', top: 2, right: 2,
+                            fontSize: 9, fontWeight: 700, lineHeight: 1,
+                            background: a.payment_status === 'deposit_pending'
+                              ? 'rgba(245,158,11,0.95)'
+                              : 'rgba(22,163,74,0.95)',
+                            color: 'white', padding: '2px 5px',
+                            borderRadius: 3,
+                            boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
+                            zIndex: 2,
+                          }}
+                        >
+                          💳 £{Math.round(depAmt)}
                         </div>
                       )}
                       {/* Payment badge */}
@@ -658,6 +684,14 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
           <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
           <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ fontSize: 10 }}>⭐</span> Therapist requested
+          </span>
+          {/* SPA-DEPOSIT-BADGE legend */}
+          <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{
+              fontSize: 9, fontWeight: 700, background: 'rgba(22,163,74,0.95)',
+              color: 'white', padding: '1px 4px', borderRadius: 2,
+            }}>💳 £</span>
+            Deposit on file
           </span>
         </div>
       )}
@@ -889,6 +923,64 @@ export default function AppointmentScreen() {
           </div>
         </div>
       )}
+
+      {/* SPA-DEPOSIT-DAILY — at-a-glance deposit stats for THIS DATE.
+          Computed client-side from the appointment list so it auto-
+          refreshes on socket events without extra round-trips. */}
+      {appointments.length > 0 && (() => {
+        const active = appointments.filter(a => !['cancelled','no_show'].includes(a.status));
+        const withDep = active.filter(a => Number(a.deposit_amount || 0) > 0);
+        if (withDep.length === 0) return null;
+        const sum = (rows) => rows.reduce((s, a) => s + Number(a.deposit_amount || 0), 0);
+        const online = withDep.filter(a => a.deposit_stripe_id);
+        const cash   = withDep.filter(a => a.deposit_method === 'cash');
+        const card   = withDep.filter(a => a.deposit_method === 'card');
+        const pending = active.filter(a => a.payment_status === 'deposit_pending');
+        const totalCollected = sum(withDep);
+        return (
+          <div style={{
+            flexShrink: 0,
+            background: 'linear-gradient(135deg, #fdf6ec 0%, #f5e7c8 100%)',
+            border: '1px solid #e0c884',
+            borderRadius: 8,
+            padding: isMobile ? '8px 10px' : '8px 14px',
+            display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: isMobile ? 10 : 16,
+            fontSize: 13,
+          }}>
+            <span style={{ fontWeight: 700, color: '#1e3a6e' }}>💳 Today</span>
+            <span style={{ color: '#7a4f1e' }}>
+              <strong>{withDep.length}</strong>/{active.length} with deposit
+            </span>
+            <span style={{ width: 1, height: 14, background: '#e0c884' }} />
+            <span style={{ color: '#166534', fontWeight: 700 }}>
+              £{totalCollected.toFixed(2)} collected
+            </span>
+            {!isMobile && online.length > 0 && (
+              <span style={{ fontSize: 11, color: '#1e40af' }}>
+                🌐 £{sum(online).toFixed(0)} online
+              </span>
+            )}
+            {!isMobile && cash.length > 0 && (
+              <span style={{ fontSize: 11, color: '#9a3412' }}>
+                💵 £{sum(cash).toFixed(0)} cash
+              </span>
+            )}
+            {!isMobile && card.length > 0 && (
+              <span style={{ fontSize: 11, color: '#9d174d' }}>
+                💳 £{sum(card).toFixed(0)} card
+              </span>
+            )}
+            {pending.length > 0 && (
+              <>
+                <span style={{ width: 1, height: 14, background: '#e0c884' }} />
+                <span style={{ color: '#92400e', fontWeight: 600 }}>
+                  ⏳ {pending.length} pending link{pending.length === 1 ? '' : 's'}
+                </span>
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {loading && <div className="muted" style={{ flexShrink: 0 }}>Loading…</div>}
 
