@@ -70,8 +70,16 @@ app.get('/api/health', (_req, res) => {
 // Public booking widget — served from the backend so any external site can
 // embed <script src="https://spa-api.siamepos.co.uk/widget.js">. The
 // `/booking-widget.js` alias matches the embed code shipped in SPA-002.
+//
+// Cache-Control: no-cache, must-revalidate forces the browser to send
+// a conditional GET each page load. Express+sendFile auto-sets an ETag,
+// so unchanged widgets return 304 (~0 bytes, ~50ms). After a deploy the
+// ETag flips and clients pick up the new widget on the very next load
+// — no more "I redeployed but customers still see old behaviour"
+// because of stale cache.
 function sendWidget(_req, res) {
   res.type('application/javascript');
+  res.set('Cache-Control', 'no-cache, must-revalidate');
   res.sendFile(path.resolve(__dirname, '..', 'client', 'public', 'widget.js'));
 }
 app.get('/widget.js',         sendWidget);
