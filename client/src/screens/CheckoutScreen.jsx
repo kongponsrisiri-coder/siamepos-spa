@@ -324,9 +324,27 @@ export default function CheckoutScreen() {
                   style={{ flex: 1, padding: 14, minWidth: 80, background: showVoucher ? '#16a34a' : '#dcfce7', color: showVoucher ? 'white' : '#14532d', border: '1px solid #16a34a', fontWeight: 600 }}
                 >🎁 Voucher</button>
                 <button
-                  onClick={() => { setShowTreatwell(true); setTreatwellAmount(String(total.toFixed(2))); }}
+                  onClick={() => {
+                    // Smart Treatwell button:
+                    //  - Partial deposit booking → open the amount panel
+                    //    so the receptionist can type how much Treatwell
+                    //    paid and collect the rest at the till.
+                    //  - Anything else (full prepay, no flag) → one tap
+                    //    closes the bill as method='treatwell'. No amount
+                    //    to type. Bill total stays at full price — that's
+                    //    what Treatwell will settle to the spa minus
+                    //    commission. The till collects £0.
+                    if (appt.treatwell_payment_type === 'partial') {
+                      setShowTreatwell(true);
+                      setTreatwellAmount(String(total.toFixed(2)));
+                    } else {
+                      pay('treatwell');
+                    }
+                  }}
                   disabled={busy}
-                  title="Customer paid Treatwell (full or partial). Pick the amount Treatwell covered — if less than total, the rest is collected at the till."
+                  title={appt.treatwell_payment_type === 'partial'
+                    ? 'Customer paid Treatwell a deposit only. Tap to enter what Treatwell paid; the rest is due at the till.'
+                    : 'Customer paid Treatwell in full. Tap once to close — the till takes £0, Treatwell settles to your account minus commission.'}
                   style={{ flex: 1, padding: 14, minWidth: 100, background: showTreatwell ? '#eab308' : '#fef9c3', color: showTreatwell ? 'white' : '#854d0e', border: '1px solid #eab308', fontWeight: 600 }}
                 >🌐 Treatwell</button>
                 <button
