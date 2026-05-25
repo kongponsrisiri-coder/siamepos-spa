@@ -182,16 +182,24 @@ router.post('/book', async (req, res) => {
   // ── Verify deposit payment up-front if policy requires one ────────
   // We do this BEFORE opening the DB transaction so a failed payment
   // can't leave a partial appointment row anywhere.
+  //
+  // Graceful degradation: if the spa hasn't yet configured Stripe
+  // (STRIPE_SECRET_KEY missing on the server) we silently skip the
+  // deposit check — the widget already skips its own payment step in
+  // the same case (client checks /stripe-config configured=false), so
+  // without this guard the two sides disagree and every online booking
+  // bounces with "payment_intent_id required (deposit due)".
+  // The spa loses the no-show safety net for online bookings until
+  // they configure Stripe, but bookings still flow.
   const policy = await loadDepositPolicy();
   let depositAmount = 0;
   let depositStripeId = null;
-  if (policy.deposit_model !== 'none') {
+  const s = stripeClient();
+  if (policy.deposit_model !== 'none' && s) {
     const tr0 = await pool.query('SELECT price FROM treatments WHERE id = $1', [b.treatment_id]);
     depositAmount = computeDeposit(policy, tr0.rows[0]?.price);
     if (depositAmount > 0) {
       if (!b.payment_intent_id) return res.status(400).json({ error: 'payment_intent_id required (deposit due)' });
-      const s = stripeClient();
-      if (!s) return res.status(503).json({ error: 'stripe not configured' });
       let intent;
       try { intent = await s.paymentIntents.retrieve(b.payment_intent_id); }
       catch (err) { return res.status(400).json({ error: 'invalid payment_intent_id' }); }
@@ -202,6 +210,9 @@ router.post('/book', async (req, res) => {
       depositAmount = +(intent.amount_received / 100).toFixed(2);
       depositStripeId = intent.id;
     }
+  }
+  if (policy.deposit_model !== 'none' && !s) {
+    console.warn('[widget] /book: deposit policy set but Stripe not configured — booking through without deposit');
   }
 
   const client = await pool.connect();
