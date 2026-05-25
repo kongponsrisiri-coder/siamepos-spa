@@ -21,6 +21,9 @@ export default function CheckoutScreen() {
   const [showSplit, setShowSplit]         = useState(false);
   const [showDiscount, setShowDiscount]   = useState(false);
   const [discountReason, setDiscountReason] = useState('');
+  // Local draft for the custom discount amount input — committed on blur
+  // so we don't fire a save on every keystroke.
+  const [discountDraft, setDiscountDraft] = useState('');
   const [showLegacy, setShowLegacy]       = useState(false);
   const [legacyAmount, setLegacyAmount]   = useState('');
   const [showTreatwell, setShowTreatwell] = useState(false);
@@ -46,6 +49,10 @@ export default function CheckoutScreen() {
       const r = await api.post('/bills', { appointment_id: Number(appointmentId) });
       setBill(r.bill);
       setTip(Number(r.bill.tip || 0));
+      // Seed local discount state from the persisted bill so editing the
+      // amount or reason never silently wipes what was already saved.
+      setDiscountReason(r.bill.discount_reason || '');
+      setDiscountDraft(r.bill.discount ? String(Number(r.bill.discount).toFixed(2)) : '');
 
       const s = await api.get('/settings');
       if (s.settings.tip_suggestions) {
@@ -71,7 +78,24 @@ export default function CheckoutScreen() {
       const r = await api.put(`/bills/${bill.id}/discount`, { discount: amount, reason });
       setBill(r.bill);
       setDiscountReason(reason || '');
+      setDiscountDraft(amount ? String(Number(amount).toFixed(2)) : '');
     } catch (e) { setError(e.message); }
+  }
+
+  // Guard for % preset buttons — if the existing discount already includes
+  // a partial Treatwell or voucher payment, replacing it would lose that
+  // record. Warn the operator and require confirmation.
+  function applyPercentDiscount(amount, label) {
+    const existingReason = bill.discount_reason || '';
+    const hasPartialPayment = existingReason.includes('Treatwell paid') || existingReason.includes('Voucher ');
+    if (hasPartialPayment && Number(bill.discount || 0) > 0) {
+      if (!window.confirm(
+        `The current discount includes a partial payment (${existingReason}).\n\n` +
+        `Applying ${label} will REPLACE it — the Treatwell/voucher portion will still be recorded ` +
+        `in the bill history but the discount line will change.\n\nContinue?`,
+      )) return;
+    }
+    saveDiscount(amount, label);
   }
 
   async function pay(method, extras = {}) {
@@ -239,7 +263,10 @@ export default function CheckoutScreen() {
             </div>
 
             {/* SPA-DISCOUNT — receptionist-applied whole-bill discount.
-                Quick-percentage buttons + custom £ + reason note. */}
+                Quick-percentage buttons + custom £ + reason note.
+                Amount input commits on blur so we don't hammer the API
+                on every keystroke. % buttons warn if a partial Treatwell
+                or voucher payment is already recorded as a discount. */}
             <div>
               <label>🏷 Discount</label>
               <div className="row" style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
@@ -248,7 +275,7 @@ export default function CheckoutScreen() {
                   return (
                     <button
                       key={p}
-                      onClick={() => saveDiscount(amount, `${p}% off`)}
+                      onClick={() => applyPercentDiscount(amount, `${p}% off`)}
                       style={{ flex: '0 0 auto', padding: '8px 12px' }}
                     >
                       {p}% (−{fmtMoney(amount)})
@@ -258,8 +285,12 @@ export default function CheckoutScreen() {
                 <input
                   type="number" step="0.5" min="0"
                   placeholder="Custom £"
-                  value={discount || ''}
-                  onChange={(e) => saveDiscount(Number(e.target.value) || 0, discountReason)}
+                  value={discountDraft}
+                  onChange={(e) => setDiscountDraft(e.target.value)}
+                  onBlur={(e) => {
+                    const val = Number(e.target.value) || 0;
+                    if (Math.abs(val - discount) > 0.001) saveDiscount(val, discountReason);
+                  }}
                   style={{ width: 90 }}
                 />
                 <input
@@ -303,12 +334,26 @@ export default function CheckoutScreen() {
                   style={{ flex: 1, padding: 14, minWidth: 80, background: '#ede9fe', color: '#4c1d95', border: '1px solid #7c3aed', fontWeight: 600 }}
                 >⇄ Split</button>
               </div>
-              {appt.source === 'treatwell' && !showTreatwell && (
-                <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 6, padding: '8px 12px', color: '#9a3412' }}>
-                  🌐 This appointment came from <strong>Treatwell</strong>{appt.treatwell_payment_type === 'partial' ? ' as a deposit booking' : ''}.
-                  Tap 🌐 Treatwell to record how much Treatwell paid — full closes the bill, partial leaves the balance to collect at the till.
-                </div>
-              )}
+              {appt.source === 'treatwell' && !showTreatwell && (() => {
+                // If Treatwell's portion is already recorded (as a full payment or
+                // as a partial discount), don't prompt the operator to tap again —
+                // the bill is either closed or the balance is already adjusted.
+                const twAlreadyRecorded = bill.payment_method === 'treatwell'
+                  || (bill.discount_reason || '').includes('Treatwell paid');
+                if (twAlreadyRecorded) {
+                  return (
+                    <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, background: '#dcfce7', border: '1px solid #86efac', borderRadius: 6, padding: '8px 12px', color: '#14532d' }}>
+                      ✓ Treatwell payment recorded{bill.discount_reason ? ` (${bill.discount_reason})` : ''} — collect the remaining balance at the till.
+                    </div>
+                  );
+                }
+                return (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 6, padding: '8px 12px', color: '#9a3412' }}>
+                    🌐 This appointment came from <strong>Treatwell</strong>{appt.treatwell_payment_type === 'partial' ? ' as a deposit booking' : ''}.
+                    Tap 🌐 Treatwell to record how much Treatwell paid — full closes the bill, partial leaves the balance to collect at the till.
+                  </div>
+                );
+              })()}
               {/* SPA-TREATWELL-PARTIAL — editable amount panel.
                   Full prepay → close bill as method='treatwell'.
                   Partial deposit → record as discount with reason

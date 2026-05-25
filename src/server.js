@@ -157,15 +157,21 @@ app.set('io', io);
 // ---- Boot -----------------------------------------------------------------
 const PORT = process.env.PORT || 5050;
 
-(async () => {
-  try {
-    await initSchema();
-    await seedDefaultAdmin();
-    server.listen(PORT, () => {
-      console.log(`[server] SiamEPOS Spa listening on :${PORT}`);
-    });
-  } catch (err) {
-    console.error('[server] fatal startup error:', err);
-    process.exit(1);
-  }
-})();
+// Allow the app to be required as a module (e.g. by the test runner) without
+// auto-booting.  Only listen when this file is the entry point.
+if (require.main === module) {
+  (async () => {
+    try {
+      await initSchema();
+      await seedDefaultAdmin();
+      server.listen(PORT, () => {
+        console.log(`[server] SiamEPOS Spa listening on :${PORT}`);
+      });
+    } catch (err) {
+      console.error('[server] fatal startup error:', err);
+      process.exit(1);
+    }
+  })();
+}
+
+module.exports = app;

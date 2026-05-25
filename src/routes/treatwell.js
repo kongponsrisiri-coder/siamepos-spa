@@ -217,16 +217,18 @@ router.post('/webhook', async (req, res) => {
     }
 
     // SPA-TREATWELL-COLOR — Treatwell payload may carry an explicit
-    // prepay flag (b.payment_type or b.prepaid). When missing, fall
-    // back to a heuristic: treatment name starting with "TW prepaid"
-    // / "TW prepay" → 'full'; otherwise 'partial'. The operator can
-    // also flip this on the appointment Edit modal.
+    // prepay flag (b.payment_type or b.prepaid). When missing, default
+    // to 'full' — a standard Treatwell marketplace booking means the
+    // customer already paid Treatwell in full; the spa settles via
+    // commission. Only mark 'partial' when the payload explicitly says
+    // so (deposit booking) or the treatment name heuristic matches.
+    // The operator can also flip this on the appointment Edit modal.
     let twPaymentType = null;
     const pt = String(b.payment_type || (b.prepaid ? 'full' : '')).toLowerCase();
     if (pt === 'full' || pt === 'prepaid' || pt === 'paid')      twPaymentType = 'full';
     else if (pt === 'partial' || pt === 'deposit')               twPaymentType = 'partial';
     else if (/tw\s*pre.?pa(id|y)/i.test(service?.name || ''))    twPaymentType = 'full';
-    else                                                          twPaymentType = 'partial';
+    else                                                          twPaymentType = 'full';   // default: full prepay
 
     const ap = await client.query(
       `INSERT INTO appointments

@@ -95,13 +95,27 @@ router.post('/:id/pay', async (req, res) => {
       if (!isFinite(a) || a <= 0)  return res.status(400).json({ error: `split_payments: amount must be > 0` });
       clean.push({ method: m, amount: +a.toFixed(2) });
     }
-    // Validate sum against the bill total
-    const totalRes = await pool.query('SELECT total FROM bills WHERE id = $1', [id]);
+    // Validate sum against the BALANCE the customer owes at the till —
+    // that is bill total minus any online deposit already pre-paid.
+    // SPA-PAY-001: the frontend's SplitPaymentModal receives `balance`
+    // (total − deposit) so the operator only enters the till portion.
+    const totalRes = await pool.query(
+      `SELECT b.total, COALESCE(a.deposit_amount, 0) AS deposit_amount
+       FROM bills b JOIN appointments a ON a.id = b.appointment_id
+       WHERE b.id = $1`,
+      [id],
+    );
     if (!totalRes.rows[0]) return res.status(404).json({ error: 'not found' });
-    const billTotal = Number(totalRes.rows[0].total);
+    const billTotal     = Number(totalRes.rows[0].total);
+    const depositAmount = Number(totalRes.rows[0].deposit_amount || 0);
+    const expectedSum   = +(billTotal - depositAmount).toFixed(2);
     const sum = +clean.reduce((s, p) => s + p.amount, 0).toFixed(2);
-    if (Math.abs(sum - billTotal) > 0.01) {
-      return res.status(400).json({ error: `split_payments sum £${sum.toFixed(2)} does not match bill total £${billTotal.toFixed(2)}` });
+    if (Math.abs(sum - expectedSum) > 0.01) {
+      return res.status(400).json({
+        error: depositAmount > 0
+          ? `split_payments sum £${sum.toFixed(2)} should equal balance £${expectedSum.toFixed(2)} (deposit £${depositAmount.toFixed(2)} pre-paid online)`
+          : `split_payments sum £${sum.toFixed(2)} does not match bill total £${billTotal.toFixed(2)}`,
+      });
     }
     splitJson = JSON.stringify(clean);
   }
@@ -135,17 +149,9 @@ router.post('/:id/pay', async (req, res) => {
           : [{ method: 'deposit', amount: billTotal }],
       );
     } else if (depositAmount > 0 && method === 'split') {
-      // Customer's split rows should sum to (billTotal - deposit).
-      // The above validation enforced sum == billTotal which assumed no
-      // deposit. Re-do it with the deposit credit subtracted.
+      // Sum was already validated above against billTotal − depositAmount.
+      // Just prepend the deposit row so it appears in the split breakdown.
       const cleanRows = JSON.parse(splitJson || '[]');
-      const customerSum = +cleanRows.reduce((s, p) => s + Number(p.amount), 0).toFixed(2);
-      const expected = +(billTotal - depositAmount).toFixed(2);
-      if (Math.abs(customerSum - expected) > 0.01) {
-        return res.status(400).json({
-          error: `split_payments sum £${customerSum.toFixed(2)} should equal balance £${expected.toFixed(2)} (deposit £${depositAmount.toFixed(2)} auto-credited)`,
-        });
-      }
       splitJson = JSON.stringify([
         { method: 'deposit', amount: depositAmount },
         ...cleanRows,
@@ -158,10 +164,20 @@ router.post('/:id/pay', async (req, res) => {
          split_payments = $3::jsonb,
          payment_status = 'paid',
          closed_at      = now()
-       WHERE id = $1 RETURNING *`,
+       WHERE id = $1
+         AND payment_status != 'paid'
+       RETURNING *`,
       [id, effectiveMethod, splitJson],
     );
-    if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    // rows[0] is null either because the bill was not found OR because it
+    // was already paid. Distinguish with a second read so the error message
+    // is correct rather than always returning 404.
+    if (!rows[0]) {
+      const check = await pool.query('SELECT payment_status FROM bills WHERE id = $1', [id]);
+      if (!check.rows[0]) return res.status(404).json({ error: 'not found' });
+      if (check.rows[0].payment_status === 'paid') return res.status(409).json({ error: 'Bill is already paid' });
+      return res.status(404).json({ error: 'not found' });
+    }
     // Stamp the deposit as fully consumed once the bill closes.
     if (depositAmount > 0) {
       await pool.query(
@@ -318,10 +334,19 @@ router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
     const { rows } = await client.query('SELECT * FROM bills WHERE id = $1', [id]);
     if (!rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Bill not found' }); }
     const bill = rows[0];
-    // Reset the linked appointment back to 'booked' so it can be re-processed
+    // Reset the linked appointment back to 'booked' so it can be re-processed.
+    // Also roll back payment_status: 'fully_paid' → 'deposit_paid' (Stripe
+    // deposit is still real; the bill was just reversed). Any other status
+    // (none / deposit_paid / refunded / forfeit) left untouched.
     if (bill.appointment_id) {
       await client.query(
-        `UPDATE appointments SET status = 'booked' WHERE id = $1`,
+        `UPDATE appointments
+            SET status = 'booked',
+                payment_status = CASE
+                  WHEN payment_status = 'fully_paid' THEN 'deposit_paid'
+                  ELSE payment_status
+                END
+          WHERE id = $1`,
         [bill.appointment_id],
       );
     }
