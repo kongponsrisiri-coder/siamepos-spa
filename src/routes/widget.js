@@ -41,7 +41,10 @@ function computeDeposit(policy, treatmentPrice) {
   return +Math.min(policy.deposit_amount, price).toFixed(2); // fixed_amount (default)
 }
 
-// GET /api/widget/treatments — public list (active only)
+// GET /api/widget/treatments — public list. Only treatments that are
+// BOTH active=TRUE (not hidden) AND online_bookable=TRUE (operator
+// opted to show them online). The admin booking flow keeps the full
+// list — this filter applies to the public widget only.
 router.get('/treatments', async (_req, res) => {
   try {
     const { rows } = await pool.query(`
@@ -49,7 +52,7 @@ router.get('/treatments', async (_req, res) => {
              c.id AS category_id, c.name AS category_name, c.sort_order
       FROM treatments t
       LEFT JOIN treatment_categories c ON c.id = t.category_id
-      WHERE t.active = TRUE
+      WHERE t.active = TRUE AND t.online_bookable = TRUE
       ORDER BY c.sort_order NULLS LAST, c.name NULLS LAST, t.name
     `);
     res.json({ treatments: rows });

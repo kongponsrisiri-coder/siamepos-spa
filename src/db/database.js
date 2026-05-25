@@ -149,6 +149,14 @@ async function initSchema() {
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS therapist_requested BOOLEAN NOT NULL DEFAULT FALSE;
   `);
 
+  // SPA-TREATMENT-VISIBILITY — control which treatments appear on the
+  // public booking widget. Defaults TRUE so existing treatments stay
+  // available; operator unticks "Show on online booking" in the admin
+  // to hide a treatment from customers without hiding it from staff.
+  await pool.query(`
+    ALTER TABLE treatments ADD COLUMN IF NOT EXISTS online_bookable BOOLEAN NOT NULL DEFAULT TRUE;
+  `);
+
   // Indexes for common queries.
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_appointments_starts_at    ON appointments (starts_at);

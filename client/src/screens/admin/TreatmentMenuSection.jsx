@@ -73,7 +73,11 @@ export default function TreatmentMenuSection() {
   }
 
   function openNew(categoryId) {
-    setEditing({ name: '', duration_minutes: 60, price: 0, description: '', category_id: categoryId || categories[0]?.id || null });
+    setEditing({
+      name: '', duration_minutes: 60, price: 0, description: '',
+      category_id: categoryId || categories[0]?.id || null,
+      online_bookable: true,
+    });
   }
   async function saveTreatment() {
     if (!editing.name) return alert('Name required');
@@ -83,6 +87,7 @@ export default function TreatmentMenuSection() {
       price: Number(editing.price),
       description: editing.description || null,
       category_id: editing.category_id || null,
+      online_bookable: editing.online_bookable !== false,
     };
     if (editing.id) await api.put(`/treatments/${editing.id}`, body);
     else            await api.post('/treatments', body);
@@ -246,6 +251,11 @@ export default function TreatmentMenuSection() {
                             <div style={{ fontWeight: 600 }}>
                               {t.name}
                               {!t.active && <span style={{ marginLeft: 8, background: '#f3f4f6', color: 'var(--muted)', fontSize: 11, padding: '1px 8px', borderRadius: 10 }}>hidden</span>}
+                              {t.active && t.online_bookable === false && (
+                                <span title="Not shown on the public booking widget" style={{ marginLeft: 8, background: '#fef3c7', color: '#92400e', fontSize: 11, padding: '1px 8px', borderRadius: 10, fontWeight: 700 }}>
+                                  🚫 in-store only
+                                </span>
+                              )}
                             </div>
                             {t.description && (
                               <div className="muted" style={{ fontSize: 11 }}>{t.description}</div>
@@ -306,6 +316,20 @@ export default function TreatmentMenuSection() {
                 <div style={{ flex: 1 }}><label>Price (£)</label><input type="number" step="0.5" value={editing.price} onChange={(e) => setEditing({ ...editing, price: e.target.value })} /></div>
               </div>
               <div><label>Description</label><textarea rows={2} value={editing.description || ''} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></div>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', padding: '8px 10px', background: editing.online_bookable === false ? '#fef3c7' : '#f0fdf4', border: `1px solid ${editing.online_bookable === false ? '#fcd34d' : '#86efac'}`, borderRadius: 6 }}>
+                <input
+                  type="checkbox"
+                  style={{ width: 'auto', accentColor: '#16a34a' }}
+                  checked={editing.online_bookable !== false}
+                  onChange={(e) => setEditing({ ...editing, online_bookable: e.target.checked })}
+                />
+                <span>
+                  <strong>🌐 Show on online booking widget</strong>
+                  <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                    Untick to keep this treatment for in-store / phone bookings only — customers won't see it on your website.
+                  </div>
+                </span>
+              </label>
               <div className="row" style={{ justifyContent: 'flex-end' }}>
                 <button onClick={() => setEditing(null)}>Cancel</button>
                 <button className="primary" onClick={saveTreatment}>Save</button>

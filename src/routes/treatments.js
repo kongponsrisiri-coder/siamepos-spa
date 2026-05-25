@@ -49,15 +49,15 @@ router.get('/categories', async (_req, res) => {
 
 // POST /api/treatments
 router.post('/', async (req, res) => {
-  const { category_id, name, duration_minutes, price, description } = req.body || {};
+  const { category_id, name, duration_minutes, price, description, online_bookable } = req.body || {};
   if (!name || !duration_minutes || price == null) {
     return res.status(400).json({ error: 'name, duration_minutes, price required' });
   }
   try {
     const { rows } = await pool.query(
-      `INSERT INTO treatments (category_id, name, duration_minutes, price, description)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [category_id || null, name, duration_minutes, price, description || null],
+      `INSERT INTO treatments (category_id, name, duration_minutes, price, description, online_bookable)
+       VALUES ($1, $2, $3, $4, $5, COALESCE($6, TRUE)) RETURNING *`,
+      [category_id || null, name, duration_minutes, price, description || null, online_bookable],
     );
     res.status(201).json({ treatment: rows[0] });
   } catch (err) {
@@ -69,7 +69,7 @@ router.post('/', async (req, res) => {
 // PUT /api/treatments/:id
 router.put('/:id', async (req, res) => {
   const id = Number(req.params.id);
-  const { category_id, name, duration_minutes, price, description, active } = req.body || {};
+  const { category_id, name, duration_minutes, price, description, active, online_bookable } = req.body || {};
   try {
     const { rows } = await pool.query(
       `UPDATE treatments SET
@@ -78,9 +78,10 @@ router.put('/:id', async (req, res) => {
          duration_minutes = COALESCE($4, duration_minutes),
          price            = COALESCE($5, price),
          description      = COALESCE($6, description),
-         active           = COALESCE($7, active)
+         active           = COALESCE($7, active),
+         online_bookable  = COALESCE($8, online_bookable)
        WHERE id = $1 RETURNING *`,
-      [id, category_id, name, duration_minutes, price, description, active],
+      [id, category_id, name, duration_minutes, price, description, active, online_bookable],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     res.json({ treatment: rows[0] });

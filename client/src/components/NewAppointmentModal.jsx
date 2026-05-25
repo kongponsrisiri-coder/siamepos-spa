@@ -325,6 +325,11 @@ export default function NewAppointmentModal({
   const [showNewClient, setShowNewClient] = useState(false);
 
   const [treatmentId, setTreatmentId] = useState(appointment?.treatment_id || null);
+  // SPA-DURATION-FILTER — duration picker above the treatment select.
+  // Default: 'all' (no filter). When the operator picks a duration the
+  // treatment select narrows; picking a treatment auto-sets the filter
+  // to that treatment's duration so the UI stays coherent.
+  const [durationFilter, setDurationFilter] = useState('all');
   const [therapistId, setTherapistId] = useState(
     appointment?.therapist_id || defaultTherapistId || null
   );
@@ -686,15 +691,81 @@ export default function NewAppointmentModal({
             )}
           </div>
 
-          {/* ── Treatment ── */}
+          {/* ── Duration filter ── */}
+          {treatments.length > 0 && (
+            <div>
+              <label>Duration</label>
+              <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                {(() => {
+                  const durations = Array.from(new Set(treatments.map(t => Number(t.duration_minutes)))).sort((a, b) => a - b);
+                  return [
+                    <button
+                      key="all"
+                      type="button"
+                      onClick={() => setDurationFilter('all')}
+                      style={{
+                        padding: '6px 12px',
+                        background: durationFilter === 'all' ? '#1e3a6e' : 'white',
+                        color:      durationFilter === 'all' ? 'white'   : '#1e3a6e',
+                        border: '1px solid #1e3a6e',
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >All</button>,
+                    ...durations.map(d => {
+                      const active = durationFilter === d;
+                      return (
+                        <button
+                          key={d}
+                          type="button"
+                          onClick={() => {
+                            setDurationFilter(d);
+                            // If the currently-selected treatment doesn't match the new filter, clear it.
+                            const cur = treatments.find(t => String(t.id) === String(treatmentId));
+                            if (cur && Number(cur.duration_minutes) !== d) { setTreatmentId(null); setSlots([]); }
+                          }}
+                          style={{
+                            padding: '6px 12px',
+                            background: active ? '#1e3a6e' : 'white',
+                            color:      active ? 'white'   : '#1e3a6e',
+                            border: '1px solid #1e3a6e',
+                            fontSize: 12,
+                            fontWeight: 700,
+                          }}
+                        >{d} min</button>
+                      );
+                    }),
+                  ];
+                })()}
+              </div>
+            </div>
+          )}
+
+          {/* ── Treatment (filtered by duration) ── */}
           <div>
             <label>Treatment</label>
-            <select value={treatmentId || ''} onChange={e => { setTreatmentId(e.target.value || null); setSlots([]); }}>
+            <select
+              value={treatmentId || ''}
+              onChange={e => {
+                setTreatmentId(e.target.value || null);
+                setSlots([]);
+                // Keep durationFilter in sync with the picked treatment's actual duration.
+                const t = treatments.find(x => String(x.id) === String(e.target.value));
+                if (t) setDurationFilter(Number(t.duration_minutes));
+              }}
+            >
               <option value="">— Choose treatment —</option>
-              {treatments.map(t => (
-                <option key={t.id} value={t.id}>{t.name} · {t.duration_minutes}min · £{Number(t.price).toFixed(2)}</option>
-              ))}
+              {treatments
+                .filter(t => durationFilter === 'all' || Number(t.duration_minutes) === Number(durationFilter))
+                .map(t => (
+                  <option key={t.id} value={t.id}>{t.name} · {t.duration_minutes}min · £{Number(t.price).toFixed(2)}</option>
+                ))}
             </select>
+            {durationFilter !== 'all' && treatments.filter(t => Number(t.duration_minutes) === Number(durationFilter)).length === 0 && (
+              <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                No treatments with {durationFilter}-min duration. Tap "All" to see everything.
+              </div>
+            )}
           </div>
 
           {/* ── Therapist + Room ── */}
