@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Our Therapists — Baan Siam Spa</title>
-  <meta name="description" content="Meet the Thai therapists at Baan Siam Spa — pick the practitioner whose specialism fits what you need, and book with them directly." />
+  <meta name="description" content="Meet the Thai therapists at Baan Siam Spa. Every practitioner trained in Thailand — browse their specialisms and book directly with the one who suits you." />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;1,400&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/css/main.css">
   <script src="assets/js/config.js" defer></script>
 </head>
@@ -18,6 +18,7 @@
     <a class="brand" href="index.html">
       <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" aria-label="Baan Siam Spa logo">
         <circle cx="50" cy="50" r="45" fill="none" stroke="#C9A84C" stroke-width="1.8"/>
+        <circle cx="50" cy="50" r="39" fill="none" stroke="#C9A84C" stroke-width="0.6" opacity="0.28"/>
         <g transform="translate(50,50)">
           <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C"/>
           <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.82" transform="rotate(72)"/>
@@ -42,36 +43,46 @@
   </div>
 </header>
 
+<div class="page-hero" style="background-image:url('https://images.unsplash.com/photo-1519823551278-64ac92734fb1?w=1400&q=80');">
+  <span class="eyebrow">The team</span>
+  <h1>Choose your therapist</h1>
+  <p>Every practitioner trained in Thailand for a minimum of eight years. Read their specialisms — then book with them directly.</p>
+</div>
+
 <section class="section">
   <div class="inner">
-    <div class="section-head">
-      <span class="eyebrow">The team</span>
-      <h2>Choose your therapist</h2>
-      <p>Every Baan Siam therapist trained in Thailand and has at least eight years of practice. Pick the one whose specialism fits what you need — and you'll be booked with them directly.</p>
-    </div>
-
     <div id="therapists-root">
       <div class="loading">Loading our team…</div>
     </div>
-
-    <div class="center mt-4">
-      <p class="muted" style="font-size:14px;">Not sure who to choose? <a href="#" onclick="SiamEPOSSpa.open(); return false;" style="border-bottom:1px dotted var(--navy);">Book without a preference</a> and we'll match you with the first available therapist on the day.</p>
+    <div class="center mt-5">
+      <p class="muted" style="font-size:15px;max-width:500px;margin:0 auto 20px;">Not sure who to choose? <strong style="color:var(--navy);">That is completely fine.</strong> Select "Any available therapist" when you book and we will match you with whoever is free on the day.</p>
+      <a href="#" class="btn btn-primary" onclick="SiamEPOSSpa.open(); return false;">Book without a preference →</a>
     </div>
   </div>
 </section>
+
+<div class="cta-banner">
+  <h2>Ready to book?</h2>
+  <p>Pick a therapist above or let us match you. Either way, confirmed in under a minute.</p>
+  <div class="cta-row">
+    <a href="#" class="btn btn-primary" onclick="SiamEPOSSpa.open(); return false;">Book online now →</a>
+    <a href="treatments.html" class="btn btn-ghost">Browse treatments</a>
+  </div>
+</div>
 
 <footer class="site-footer">
   <div class="inner">
     <div>
       <h4>Baan Siam Spa</h4>
-      <p style="color:rgba(255,255,255,0.7);margin:0 0 8px;">Authentic Thai massage and wellness in Fitzrovia, London.</p>
-      <p style="color:rgba(255,255,255,0.55);font-size:13px;margin:0;">47 Charlotte Street, London W1T 4ED</p>
+      <p>Authentic Thai massage and wellness<br>in Fitzrovia, London.</p>
+      <p style="font-size:13px;color:rgba(255,255,255,0.5);margin-top:8px;">47 Charlotte Street, London W1T 4ED</p>
+      <p style="margin-top:10px;"><a href="tel:02079350044" style="display:inline;color:rgba(255,255,255,0.72);">020 7935 0044</a></p>
     </div>
     <div>
       <h4>Visit</h4>
       <a href="treatments.html">Treatments</a>
       <a href="therapists.html">Our therapists</a>
-      <a href="about.html">About</a>
+      <a href="about.html">About us</a>
       <a href="contact.html">Contact &amp; hours</a>
     </div>
     <div>
@@ -82,49 +93,37 @@
     </div>
   </div>
   <div class="bottom">
-    Demo site for <a href="https://siamepos.co.uk">SiamEPOS Spa</a> · Therapist profiles fetched live from the spa backend.
+    Demo site powered by <a href="https://siamepos.co.uk">SiamEPOS Spa</a> — therapist profiles fetched live from the spa backend.
   </div>
 </footer>
 
 <script src="https://spa-api.siamepos.co.uk/booking-widget.js" defer onerror="this.src='http://localhost:5050/booking-widget.js'"></script>
 <script>
-  function esc(s) { return String(s || '').replace(/[&<>"']/g, function(c) { return '&#'+c.charCodeAt(0)+';'; }); }
-  function initialsOf(name) {
-    var p = String(name || '').trim().split(/\s+/);
-    return ((p[0] || '')[0] + (p[1] ? p[1][0] : '')).toUpperCase() || '?';
-  }
-
-  window.spaFetch('/api/widget/therapists').then(function (data) {
-    var list = data.therapists || [];
-    var root = document.getElementById('therapists-root');
-    if (!list.length) {
-      root.innerHTML = '<div class="loading">Our team page is being updated — please call us on 020 7935 0044 to book.</div>';
-      return;
-    }
-    root.innerHTML = '<div class="therapist-grid">' + list.map(function (t) {
-      var avatar = t.photo_url
-        ? '<img class="photo" src="' + esc(t.photo_url) + '" alt="' + esc(t.name) + '" loading="lazy">'
-        : '<div class="initials">' + esc(initialsOf(t.name)) + '</div>';
-      return ''
-        + '<div class="therapist">'
-        +   avatar
-        +   '<h3>' + esc(t.name) + '</h3>'
-        +   '<div class="role">Senior Therapist</div>'
-        +   '<div class="specialisms">' + (t.specialisms ? esc(t.specialisms) : 'Trained across Thai, aromatherapy and deep tissue') + '</div>'
-        +   '<button class="btn btn-primary" data-tid="' + t.id + '">Book with ' + esc((t.name || '').split(' ')[0]) + ' →</button>'
-        + '</div>';
-    }).join('') + '</div>';
-    root.querySelectorAll('button[data-tid]').forEach(function (btn) {
-      btn.addEventListener('click', function () {
-        SiamEPOSSpa.open({ therapistId: Number(btn.dataset.tid) });
-      });
+  function esc(s){return String(s||'').replace(/[&<>"']/g,function(c){return '&#'+c.charCodeAt(0)+';';});}
+  function initialsOf(name){var p=String(name||'').trim().split(/\s+/);return((p[0]||'')[0]+(p[1]?p[1][0]:'')).toUpperCase()||'?';}
+  window.spaFetch('/api/widget/therapists').then(function(data){
+    var list=data.therapists||[];
+    var root=document.getElementById('therapists-root');
+    if(!list.length){root.innerHTML='<div class="loading">Our team page is being updated — please call 020 7935 0044 to book.</div>';return;}
+    root.innerHTML='<div class="therapist-grid">'+list.map(function(t){
+      var avatar=t.photo_url
+        ?'<img class="photo" src="'+esc(t.photo_url)+'" alt="'+esc(t.name)+'" loading="lazy">'
+        :'<div class="initials">'+esc(initialsOf(t.name))+'</div>';
+      var fn=esc((t.name||'').split(' ')[0]);
+      return '<div class="therapist">'+avatar
+        +'<h3>'+esc(t.name)+'</h3>'
+        +'<div class="role">Senior Therapist</div>'
+        +'<div class="specialisms">'+(t.specialisms?esc(t.specialisms):'Thai massage · Aromatherapy · Deep tissue')+'</div>'
+        +'<div class="experience">8+ years · Chiang Mai trained</div>'
+        +'<button class="btn btn-primary" data-tid="'+t.id+'">Book with '+fn+' →</button>'
+        +'</div>';
+    }).join('')+'</div>';
+    root.querySelectorAll('button[data-tid]').forEach(function(btn){
+      btn.addEventListener('click',function(){SiamEPOSSpa.open({therapistId:Number(btn.dataset.tid)});});
     });
-  }).catch(function (err) {
-    document.getElementById('therapists-root').innerHTML =
-      '<div class="error">Sorry — we couldn’t load the team page right now. Please call us on 020 7935 0044 or try again shortly.</div>';
-    console.error(err);
+  }).catch(function(){
+    document.getElementById('therapists-root').innerHTML='<div class="error">Could not load the team page right now. Please call 020 7935 0044 or try again shortly.</div>';
   });
 </script>
-
 </body>
 </html>
