@@ -160,6 +160,14 @@ router.post('/', async (req, res) => {
   if (!treatment_id || !starts_at) {
     return res.status(400).json({ error: 'treatment_id + starts_at required' });
   }
+  // Block past-date bookings unless explicitly allowed (admin "retro"
+  // entries for historical records — gated by ?allow_past=1).
+  const startsTs = new Date(starts_at).getTime();
+  if (!isFinite(startsTs)) return res.status(400).json({ error: 'invalid starts_at' });
+  const allowPast = req.query.allow_past === '1' || req.query.allow_past === 'true';
+  if (startsTs < Date.now() && !allowPast) {
+    return res.status(400).json({ error: 'cannot book in the past — pass ?allow_past=1 to record a historical booking' });
+  }
   try {
     const tr = await pool.query('SELECT duration_minutes FROM treatments WHERE id = $1', [treatment_id]);
     if (!tr.rows[0]) return res.status(400).json({ error: 'treatment not found' });

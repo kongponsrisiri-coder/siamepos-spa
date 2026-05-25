@@ -104,8 +104,13 @@
   }
 
   // -------- widget state ----------------------------------------------------
-  // Step order matches SPA-002 spec:
-  //   1 Treatment  2 Therapist  3 Date+Time  4 Details  5 Confirmation
+  // Step order (SPA-DATE-FIRST — May 2026 rework):
+  //   1 Treatment  2 Date+Therapist  3 Time  4 Details  5 Payment  6 Confirmation
+  // Date is picked BEFORE therapist so the therapist list can be
+  // filtered to who's actually on shift that day (server enforces
+  // the rota — see /api/widget/therapists?date=YYYY-MM-DD). Past
+  // dates are blocked client-side (min=today) and server-side
+  // (POST /book rejects starts_at < now).
   function freshState() {
     return {
       step: 1,
@@ -171,19 +176,31 @@
 
     if (pre.treatmentId) state.treatmentId = Number(pre.treatmentId);
     if (pre.therapistId) state.therapistId = Number(pre.therapistId);
-    if (state.treatmentId && state.therapistId) state.step = 3;
-    else if (state.treatmentId)                  state.step = 2;
+    if (state.treatmentId)                  state.step = 2;
 
     render();
-    if (state.step === 3 && state.treatmentId) loadSlots();
 
     // Kick off the parallel data loads — both are tiny.
     api('/treatments').then(function (r) {
       state.treatments = r.treatments;
       render();
     }).catch(function (err) { state.error = err.message; render(); });
-    api('/therapists').then(function (r) {
+    loadTherapistsForDate(state.date);
+  }
+
+  // SPA-DATE-FIRST — reload the therapist list filtered to on-shift
+  // therapists for the selected date. Called on open + whenever the
+  // customer changes the date in step 2.
+  function loadTherapistsForDate(date) {
+    var qs = date ? ('?date=' + date) : '';
+    api('/therapists' + qs).then(function (r) {
       state.therapists = r.therapists || [];
+      // If the previously-picked therapist isn't on shift on the new
+      // date, drop them back to "Any available" — they'd hit "0 slots"
+      // anyway, this just makes the reason visible.
+      if (state.therapistId && !state.therapists.find(function (t) { return t.id === state.therapistId; })) {
+        state.therapistId = null;
+      }
       render();
     }).catch(function (err) { state.error = err.message; render(); });
   }
@@ -341,7 +358,7 @@
 
   function progress() {
     var bar = h('div', { className: 'ses-steps' }, []);
-    // 6 steps now: treatment → therapist → date/time → details → payment → confirmation
+    // 6 steps: treatment → date+therapist → time → details → payment → confirmation
     for (var i = 1; i <= 6; i++) {
       bar.appendChild(h('div', { className: 'ses-step' + (i <= state.step ? ' active' : '') }, []));
     }
@@ -411,9 +428,39 @@
   }
 
   // STEP 2 — Therapist (the SPA-002 marquee feature)
+  // STEP 2 — Date + Therapist (combined)
+  // Date FIRST so the therapist list can be filtered to who's on
+  // shift. Past dates are blocked client-side via min=today; server
+  // enforces too.
   function renderStep2() {
     var wrap = h('div', {}, []);
-    wrap.appendChild(h('p', { className: 'ses-muted' }, ['Choose your therapist, or let us pick one for you.']));
+
+    // ── Date picker ──
+    wrap.appendChild(h('label', { className: 'ses-label' }, ['Date']));
+    wrap.appendChild(h('input', {
+      className: 'ses-input',
+      type: 'date',
+      value: state.date,
+      min: todayISO(),
+      onChange: function (e) {
+        var v = e.target.value;
+        // Defence-in-depth: ignore past dates if the browser ever
+        // bypasses the min attribute (some mobile pickers allow type-in).
+        if (v && v < todayISO()) {
+          state.error = 'Please pick today or a future date.';
+          render(); return;
+        }
+        state.date = v;
+        state.error = '';
+        loadTherapistsForDate(v);
+      },
+    }, []));
+
+    // ── Therapist list (filtered to on-shift on this date) ──
+    wrap.appendChild(h('label', { className: 'ses-label', style: 'margin-top:14px' }, ['Therapist']));
+    wrap.appendChild(h('p', { className: 'ses-muted', style: 'margin: 0 0 6px' }, [
+      'Choose your therapist, or let us pick one for you.',
+    ]));
 
     // "Any available" — always first.
     var anySelected = state.therapistId === null;
@@ -429,7 +476,9 @@
     ]));
 
     if (!state.therapists.length) {
-      wrap.appendChild(h('div', { className: 'ses-muted', style: 'margin-top:8px' }, ['Loading therapists…']));
+      wrap.appendChild(h('div', { className: 'ses-muted', style: 'margin-top:8px' }, [
+        'No therapists are on shift this date — please pick another day.',
+      ]));
     } else {
       state.therapists.forEach(function (t) {
         var selected = state.therapistId === t.id;
@@ -453,34 +502,42 @@
       h('button', { className: 'ses-btn', onClick: function () { go(1); } }, ['Back']),
       h('button', {
         className: 'ses-btn primary',
+        disabled: !state.date || (state.therapists.length === 0 && state.therapistId === null),
         onClick: function () { go(3); loadSlots(); },
       }, ['Continue']),
     ]));
     return wrap;
   }
 
-  // STEP 3 — Date + Time
+  // STEP 3 — Time
+  // Date and therapist are picked in step 2 so this step just shows
+  // available times for that combination. The header reminds the user
+  // what they picked so changing it means going back.
   function renderStep3() {
     var wrap = h('div', {}, []);
+    var headerBits = [];
+    var dateLabel = (function () {
+      try {
+        var d = new Date(state.date + 'T12:00:00');
+        return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+      } catch (_) { return state.date; }
+    })();
+    headerBits.push(dateLabel);
     if (state.therapistId) {
       var pick = state.therapists.find(function (t) { return t.id === state.therapistId; });
-      if (pick) {
-        wrap.appendChild(h('div', { className: 'ses-muted', style: 'margin-bottom:6px' }, [
-          'Showing times for ' + pick.name + '.',
-        ]));
-      }
+      if (pick) headerBits.push('with ' + pick.name);
+    } else {
+      headerBits.push('with any available therapist');
     }
-    wrap.appendChild(h('label', { className: 'ses-label' }, ['Date']));
-    wrap.appendChild(h('input', {
-      className: 'ses-input',
-      type: 'date',
-      value: state.date,
-      min: todayISO(),
-      onChange: function (e) { state.date = e.target.value; loadSlots(); },
-    }, []));
-    wrap.appendChild(h('label', { className: 'ses-label', style: 'margin-top:14px' }, ['Available times']));
+    wrap.appendChild(h('p', { className: 'ses-muted', style: 'margin: 0 0 10px' }, [
+      headerBits.join(' · '),
+    ]));
+
+    wrap.appendChild(h('label', { className: 'ses-label' }, ['Available times']));
     if (!state.slots.length) {
-      wrap.appendChild(h('div', { className: 'ses-muted' }, ['No availability for this date.']));
+      wrap.appendChild(h('div', { className: 'ses-muted' }, [
+        'No availability for this date. Tap Back to try a different day or therapist.',
+      ]));
     } else {
       var grid = h('div', { className: 'ses-slot-grid' }, []);
       state.slots.forEach(function (s) {

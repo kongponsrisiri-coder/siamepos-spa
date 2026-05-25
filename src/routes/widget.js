@@ -4,7 +4,7 @@
 const express = require('express');
 const Stripe = require('stripe');
 const { pool } = require('../db/database');
-const { computeAvailability } = require('../services/availability');
+const { computeAvailability, getTherapistWorkingWindow, londonDateString } = require('../services/availability');
 const { sendBookingConfirmation, sendVoucherGiftEmail, sendOwnerNewBookingEmail } = require('../services/emailService');
 
 const router = express.Router();
@@ -63,10 +63,14 @@ router.get('/treatments', async (_req, res) => {
 });
 
 // GET /api/widget/therapists — public list (active only).
-// Returns the bare minimum the customer needs to pick a therapist.
+//   ?date=YYYY-MM-DD — restrict to therapists ACTUALLY ON SHIFT that
+//                      date (weekly_rota + per-date overrides). Used by
+//                      the booking widget so the customer can only pick
+//                      from people who are working on their chosen day.
 // Filters to role='therapist' so the public widget never shows admin /
 // manager / reception staff as bookable practitioners.
-router.get('/therapists', async (_req, res) => {
+router.get('/therapists', async (req, res) => {
+  const { date } = req.query;
   try {
     const { rows } = await pool.query(
       `SELECT id, name, specialisms, photo_url
@@ -74,7 +78,19 @@ router.get('/therapists', async (_req, res) => {
        WHERE active = TRUE AND role = 'therapist'
        ORDER BY name`,
     );
-    res.json({ therapists: rows });
+    if (!date) return res.json({ therapists: rows });
+
+    // Filter by working window on the given date.
+    const working = [];
+    for (const t of rows) {
+      const win = await getTherapistWorkingWindow(t.id, date);
+      if (win) {
+        const sh = new Date(win.start).toISOString();
+        const eh = new Date(win.end).toISOString();
+        working.push({ ...t, work_start: sh, work_end: eh });
+      }
+    }
+    res.json({ therapists: working });
   } catch (err) {
     console.error('[widget] therapists', err);
     res.status(500).json({ error: 'server error' });
@@ -178,6 +194,19 @@ router.post('/book', async (req, res) => {
   const required = ['treatment_id', 'starts_at', 'name', 'phone'];
   for (const k of required) if (!b[k]) return res.status(400).json({ error: `${k} required` });
   if (!b.gdpr_consent) return res.status(400).json({ error: 'gdpr_consent required' });
+
+  // ── No past-date bookings ─────────────────────────────────────────
+  // Compare in Europe/London since the spa runs UK hours. We allow
+  // bookings later TODAY (e.g. customer books a same-day slot) but
+  // reject anything before now. Both client (widget min=today) and
+  // server enforce, defence in depth.
+  const startsAt = new Date(b.starts_at);
+  if (isNaN(startsAt.getTime())) {
+    return res.status(400).json({ error: 'invalid starts_at' });
+  }
+  if (startsAt.getTime() < Date.now()) {
+    return res.status(400).json({ error: 'cannot book in the past' });
+  }
 
   // ── Verify deposit payment up-front if policy requires one ────────
   // We do this BEFORE opening the DB transaction so a failed payment

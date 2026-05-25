@@ -974,7 +974,16 @@ export default function NewAppointmentModal({
           <div className="row" style={{ gap: 10, alignItems: 'flex-end' }}>
             <div style={{ flex: 1 }}>
               <label>Date</label>
-              <input type="date" value={date} onChange={e => { setDate(e.target.value); setSlots([]); }} />
+              <input
+                type="date"
+                value={date}
+                onChange={e => { setDate(e.target.value); setSlots([]); }}
+                // min=today blocks past-date selection from the date
+                // picker UI. Server enforces the same on POST — pass
+                // ?allow_past=1 if Korakot ever needs to record a
+                // historical booking from admin.
+                min={isEdit ? undefined : (() => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; })()}
+              />
             </div>
             <div style={{ flex: 1 }}>
               <label>Start time</label>
