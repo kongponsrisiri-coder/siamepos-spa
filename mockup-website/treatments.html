@@ -97,34 +97,125 @@
 <script>
   function gbp(n){return '£'+Number(n||0).toFixed(2).replace(/\.00$/,'');}
   function esc(s){return String(s||'').replace(/[&<>"']/g,function(c){return '&#'+c.charCodeAt(0)+';';});}
+
+  /* Map raw internal names to clean public names */
+  var NAME_MAP = {
+    'thai': 'Thai Massage',
+    'aro': 'Aromatherapy Massage',
+    'aromatherapy': 'Aromatherapy Massage',
+    'foot': 'Foot Massage',
+    'head': 'Head, Neck & Shoulder Massage',
+    'hns': 'Head, Neck & Shoulder Massage',
+    'neck': 'Head, Neck & Shoulder Massage',
+    'pregnancy': 'Pregnancy Massage',
+    'couple': 'Couples Massage',
+    'couples': 'Couples Massage',
+    'hot stone': 'Hot Stone Massage',
+    'deep tissue': 'Deep Tissue Massage',
+    'sports': 'Sports Massage',
+    'reflexology': 'Reflexology',
+  };
+
+  /* Assign a clean category from the treatment name */
+  var CATEGORY_MAP = [
+    { test: /thai|nuad|traditional/i,    cat: 'Thai Massage' },
+    { test: /aro|aromatherapy/i,         cat: 'Aromatherapy' },
+    { test: /foot|feet/i,                cat: 'Foot Massage' },
+    { test: /head|neck|shoulder|hns/i,   cat: 'Head, Neck & Shoulder' },
+    { test: /pregnan/i,                  cat: 'Pregnancy Massage' },
+    { test: /couple|duo/i,               cat: 'Couples' },
+    { test: /hot.?stone/i,               cat: 'Hot Stone' },
+    { test: /deep.?tissue/i,             cat: 'Deep Tissue' },
+    { test: /sport/i,                    cat: 'Sports Massage' },
+    { test: /reflex/i,                   cat: 'Reflexology' },
+  ];
+
+  /* Category display order */
+  var CAT_ORDER = ['Thai Massage','Aromatherapy','Foot Massage','Head, Neck & Shoulder','Pregnancy Massage','Couples','Hot Stone','Deep Tissue','Sports Massage','Reflexology','Other'];
+
+  function resolveCategory(name) {
+    for (var i = 0; i < CATEGORY_MAP.length; i++) {
+      if (CATEGORY_MAP[i].test.test(name)) return CATEGORY_MAP[i].cat;
+    }
+    return 'Other';
+  }
+
+  /* Clean up an internal shorthand name into a public-facing display name */
+  function cleanName(raw, durationMinutes) {
+    var n = String(raw || '').trim();
+    /* Try exact prefix match in NAME_MAP */
+    var lower = n.toLowerCase();
+    for (var key in NAME_MAP) {
+      if (lower.indexOf(key) === 0) {
+        return NAME_MAP[key] + ' — ' + durationMinutes + ' min';
+      }
+    }
+    /* Fallback: strip common internal prefixes, then append duration */
+    n = n.replace(/^pro\s+week\s*day\s*[\/\\]?\s*/i, '')
+         .replace(/\b(mins?|minutes?)\s*$/i, 'min')
+         .replace(/\s{2,}/g, ' ').trim();
+    /* If the name already ends with a number, it probably has duration baked in */
+    if (/\d+\s*min/i.test(n)) return n;
+    return n + ' — ' + durationMinutes + ' min';
+  }
+
   window.spaFetch('/api/widget/treatments').then(function(data){
-    var root=document.getElementById('treatments-root');
-    var groups={};
-    (data.treatments||[]).forEach(function(t){var k=t.category_name||'Treatments';(groups[k]=groups[k]||[]).push(t);});
-    var keys=Object.keys(groups);
-    if(!keys.length){root.innerHTML='<div class="loading">Our treatment menu is being refreshed — please call 020 7935 0044 in the meantime.</div>';return;}
-    var html=keys.map(function(cat){
-      var rows=groups[cat].map(function(t){
+    var root = document.getElementById('treatments-root');
+
+    /* Filter: keep only treatments with a price > 0 */
+    var all = (data.treatments || []).filter(function(t){
+      return Number(t.price) > 0;
+    });
+
+    if (!all.length) {
+      root.innerHTML = '<div class="loading">Our treatment menu is being refreshed — please call 020 7935 0044 in the meantime.</div>';
+      return;
+    }
+
+    /* Group by resolved category */
+    var groups = {};
+    all.forEach(function(t) {
+      var cat = t.category_name || resolveCategory(t.name);
+      (groups[cat] = groups[cat] || []).push(t);
+    });
+
+    /* Sort categories by preferred order */
+    var cats = Object.keys(groups).sort(function(a, b) {
+      var ai = CAT_ORDER.indexOf(a); var bi = CAT_ORDER.indexOf(b);
+      if (ai === -1) ai = 99; if (bi === -1) bi = 99;
+      return ai - bi;
+    });
+
+    var html = cats.map(function(cat) {
+      /* Within each category, sort by duration */
+      var items = groups[cat].slice().sort(function(a, b) {
+        return Number(a.duration_minutes) - Number(b.duration_minutes);
+      });
+      var rows = items.map(function(t) {
+        var displayName = cleanName(t.name, t.duration_minutes);
+        /* If cleanName already appended duration, don't show meta separately */
+        var showMeta = !(/\d+\s*min/i.test(displayName));
         return '<div class="treatment">'
-          +'<div>'
-          +'<div class="name">'+esc(t.name)+'</div>'
-          +'<div class="meta">'+esc(t.duration_minutes)+' min</div>'
-          +(t.description?'<div class="desc">'+esc(t.description)+'</div>':'')
-          +'</div>'
-          +'<div class="price-col">'
-          +'<div class="price">'+gbp(t.price)+'</div>'
-          +'<button class="btn btn-navy book-btn" data-tid="'+t.id+'" style="padding:10px 16px;font-size:13px;min-height:40px;margin-top:10px;">Book this →</button>'
-          +'</div>'
-          +'</div>';
+          + '<div>'
+          + '<div class="name">' + esc(displayName) + '</div>'
+          + (showMeta ? '<div class="meta">' + esc(t.duration_minutes) + ' min</div>' : '')
+          + (t.description ? '<div class="desc">' + esc(t.description) + '</div>' : '')
+          + '</div>'
+          + '<div class="price-col">'
+          + '<div class="price">' + gbp(t.price) + '</div>'
+          + '<button class="btn btn-navy book-btn" data-tid="' + t.id + '" style="padding:10px 16px;font-size:13px;min-height:40px;margin-top:10px;">Book this →</button>'
+          + '</div>'
+          + '</div>';
       }).join('');
-      return '<div class="cat-block"><h2>'+esc(cat)+'</h2><div class="treatment-list">'+rows+'</div></div>';
+      return '<div class="cat-block"><h2>' + esc(cat) + '</h2><div class="treatment-list">' + rows + '</div></div>';
     }).join('');
-    root.innerHTML=html;
+
+    root.innerHTML = html;
     root.querySelectorAll('.book-btn').forEach(function(btn){
-      btn.addEventListener('click',function(){SiamEPOSSpa.open({treatmentId:Number(btn.dataset.tid)});});
+      btn.addEventListener('click', function(){ SiamEPOSSpa.open({ treatmentId: Number(btn.dataset.tid) }); });
     });
   }).catch(function(){
-    document.getElementById('treatments-root').innerHTML='<div class="error">Could not load the menu right now. Please call 020 7935 0044 or try again shortly.</div>';
+    document.getElementById('treatments-root').innerHTML = '<div class="error">Could not load the menu right now. Please call 020 7935 0044 or try again shortly.</div>';
   });
 </script>
 </body>
