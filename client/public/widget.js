@@ -210,6 +210,11 @@
   // Called from step 4 (Details) → decide whether to advance to the
   // deposit step or book straight through (no-deposit policy).
   function submit() {
+    if (!state.name.trim() || !state.phone.trim() || !state.gdpr) {
+      state.error = 'Please fill in your name and phone number, and accept the GDPR consent to continue.';
+      render();
+      return;
+    }
     state.busy = true; state.error = ''; render();
     api('/stripe-config').then(function (cfg) {
       state.stripeConfig = cfg;
@@ -546,7 +551,7 @@
       h('button', { className: 'ses-btn', onClick: function () { go(3); } }, ['Back']),
       h('button', {
         className: 'ses-btn primary',
-        disabled: state.busy || !state.name || !state.phone || !state.gdpr,
+        disabled: state.busy,
         onClick: submit,
       }, [state.busy ? 'Booking…' : 'Confirm booking']),
     ]));
