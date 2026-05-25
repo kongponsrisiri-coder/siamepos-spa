@@ -427,13 +427,16 @@
     return wrap;
   }
 
-  // STEP 2 — Therapist (the SPA-002 marquee feature)
   // STEP 2 — Date + Therapist (combined)
   // Date FIRST so the therapist list can be filtered to who's on
-  // shift. Past dates are blocked client-side via min=today; server
-  // enforces too.
+  // shift. Past dates are blocked client-side via min=today on the
+  // input AND via an explicit guard on the Continue button (Safari
+  // iOS sometimes lets the picker scroll past the min). Server
+  // enforces the same rule on /book as a final safety net.
   function renderStep2() {
     var wrap = h('div', {}, []);
+    var today = todayISO();
+    var datePast = state.date && state.date < today;
 
     // ── Date picker ──
     wrap.appendChild(h('label', { className: 'ses-label' }, ['Date']));
@@ -441,20 +444,28 @@
       className: 'ses-input',
       type: 'date',
       value: state.date,
-      min: todayISO(),
+      min: today,
       onChange: function (e) {
         var v = e.target.value;
-        // Defence-in-depth: ignore past dates if the browser ever
-        // bypasses the min attribute (some mobile pickers allow type-in).
         if (v && v < todayISO()) {
-          state.error = 'Please pick today or a future date.';
-          render(); return;
+          // Some mobile date pickers ignore the min attribute. Snap
+          // the value visibly back to today and tell the user why.
+          state.date = todayISO();
+          state.error = 'Please pick today or a future date — past dates can\'t be booked.';
+          render();
+          loadTherapistsForDate(state.date);
+          return;
         }
         state.date = v;
         state.error = '';
         loadTherapistsForDate(v);
       },
     }, []));
+    if (datePast) {
+      wrap.appendChild(h('div', {
+        style: 'background:#fef3c7;border:1px solid #fcd34d;color:#92400e;padding:8px 10px;border-radius:6px;font-size:13px;margin-top:6px',
+      }, ['⚠ This date is in the past. Pick today or later to continue.']));
+    }
 
     // ── Therapist list (filtered to on-shift on this date) ──
     wrap.appendChild(h('label', { className: 'ses-label', style: 'margin-top:14px' }, ['Therapist']));
@@ -502,8 +513,14 @@
       h('button', { className: 'ses-btn', onClick: function () { go(1); } }, ['Back']),
       h('button', {
         className: 'ses-btn primary',
-        disabled: !state.date || (state.therapists.length === 0 && state.therapistId === null),
-        onClick: function () { go(3); loadSlots(); },
+        disabled: !state.date || datePast || (state.therapists.length === 0 && state.therapistId === null),
+        onClick: function () {
+          if (state.date && state.date < todayISO()) {
+            state.error = 'Please pick today or a future date.';
+            render(); return;
+          }
+          go(3); loadSlots();
+        },
       }, ['Continue']),
     ]));
     return wrap;
