@@ -431,6 +431,11 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_appt_amendments_appointment_id ON appointment_amendments (appointment_id);
 
+    -- Seed default treatment rooms if none exist yet.
+    INSERT INTO rooms (name, active)
+    SELECT name, TRUE FROM (VALUES ('Lotus'),('Jasmine'),('Orchid')) AS r(name)
+    WHERE NOT EXISTS (SELECT 1 FROM rooms LIMIT 1);
+
     -- Default policy settings (no-op if already present).
     INSERT INTO settings (key, value) VALUES
       ('deposit_model',         'fixed_amount'),
