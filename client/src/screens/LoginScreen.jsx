@@ -51,7 +51,7 @@ export default function LoginScreen() {
       style={{
         minHeight: '100vh',
         minHeight: '100dvh',          /* iOS safe area */
-        background: '#0D1B3E',
+        background: '#C9A84C',
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -68,14 +68,14 @@ export default function LoginScreen() {
           style={{ width: 72, height: 72, display: 'block', margin: '0 auto 16px' }}
           aria-label="SiamEPOS Spa logo"
         >
-          <circle cx="50" cy="50" r="45" fill="none" stroke="#C9A84C" strokeWidth="1.8"/>
-          <circle cx="50" cy="50" r="39" fill="none" stroke="#C9A84C" strokeWidth="0.6" opacity="0.28"/>
+          <circle cx="50" cy="50" r="45" fill="none" stroke="#0D1B3E" strokeWidth="1.8"/>
+          <circle cx="50" cy="50" r="39" fill="none" stroke="#0D1B3E" strokeWidth="0.6" opacity="0.28"/>
           <g transform="translate(50,50)">
-            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C"/>
-            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.82" transform="rotate(72)"/>
-            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.62" transform="rotate(144)"/>
-            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.62" transform="rotate(216)"/>
-            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.82" transform="rotate(288)"/>
+            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#0D1B3E"/>
+            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#0D1B3E" opacity="0.82" transform="rotate(72)"/>
+            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#0D1B3E" opacity="0.62" transform="rotate(144)"/>
+            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#0D1B3E" opacity="0.62" transform="rotate(216)"/>
+            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#0D1B3E" opacity="0.82" transform="rotate(288)"/>
             <circle cx="0" cy="0" r="9" fill="#0D1B3E"/>
             <circle cx="0" cy="0" r="5" fill="#C9A84C"/>
           </g>
@@ -86,12 +86,12 @@ export default function LoginScreen() {
           fontFamily: "'Cormorant Garamond', Georgia, serif",
           fontSize: 40, fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1,
         }}>
-          <span style={{ color: 'white' }}>Siam</span>
-          <span style={{ color: '#C9A84C' }}>EPOS</span>
+          <span style={{ color: '#0D1B3E' }}>Siam</span>
+          <span style={{ color: 'white' }}>EPOS</span>
         </div>
 
         <div style={{
-          color: 'rgba(201,168,76,0.75)',
+          color: 'rgba(13,27,62,0.65)',
           fontSize: 12, marginTop: 8,
           letterSpacing: '0.22em',
           textTransform: 'uppercase',
@@ -104,8 +104,8 @@ export default function LoginScreen() {
 
       {/* ── PIN card ────────────────────────────────────────────── */}
       <div style={{
-        background: 'rgba(255,255,255,0.05)',
-        border: '1px solid rgba(201,168,76,0.25)',
+        background: 'rgba(255,255,255,0.22)',
+        border: '1px solid rgba(13,27,62,0.15)',
         borderRadius: 20,
         padding: '28px 24px 24px',
         width: '100%',
@@ -118,14 +118,14 @@ export default function LoginScreen() {
           justifyContent: 'center', gap: 10, marginBottom: 20,
         }}>
           {pin.length === 0 ? (
-            <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14, letterSpacing: '0.05em', fontFamily: 'Inter, sans-serif' }}>
+            <span style={{ color: 'rgba(13,27,62,0.4)', fontSize: 14, letterSpacing: '0.05em', fontFamily: 'Inter, sans-serif' }}>
               Enter your PIN
             </span>
           ) : (
             Array.from({ length: pin.length }).map((_, i) => (
               <div key={i} style={{
-                width: 14, height: 14, borderRadius: '50%', background: '#C9A84C',
-                boxShadow: '0 0 8px rgba(201,168,76,0.55)',
+                width: 14, height: 14, borderRadius: '50%', background: '#0D1B3E',
+                boxShadow: '0 0 8px rgba(13,27,62,0.25)',
               }} />
             ))
           )}
@@ -160,10 +160,10 @@ export default function LoginScreen() {
                 style={{
                   height: 60,
                   borderRadius: 12,
-                  border: isDel ? '1px solid rgba(239,68,68,0.25)' : '1px solid rgba(255,255,255,0.10)',
+                  border: isDel ? '1px solid rgba(239,68,68,0.25)' : '1px solid rgba(13,27,62,0.12)',
                   cursor: busy ? 'not-allowed' : 'pointer',
-                  background: isDel ? 'rgba(239,68,68,0.10)' : 'rgba(255,255,255,0.08)',
-                  color: isDel ? '#fca5a5' : 'white',
+                  background: isDel ? 'rgba(239,68,68,0.10)' : 'rgba(255,255,255,0.3)',
+                  color: isDel ? '#b91c1c' : '#0D1B3E',
                   fontSize: isDel ? 20 : 24,
                   fontWeight: 700,
                   transition: 'background 0.1s, transform 0.07s',
@@ -173,8 +173,8 @@ export default function LoginScreen() {
                 onMouseDown={e => { if (!busy) e.currentTarget.style.transform = 'scale(0.93)'; }}
                 onMouseUp={e => { e.currentTarget.style.transform = 'scale(1)'; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; }}
-                onTouchStart={e => { if (!busy) e.currentTarget.style.background = 'rgba(201,168,76,0.18)'; }}
-                onTouchEnd={e => { e.currentTarget.style.background = isDel ? 'rgba(239,68,68,0.10)' : 'rgba(255,255,255,0.08)'; }}
+                onTouchStart={e => { if (!busy) e.currentTarget.style.background = 'rgba(13,27,62,0.12)'; }}
+                onTouchEnd={e => { e.currentTarget.style.background = isDel ? 'rgba(239,68,68,0.10)' : 'rgba(255,255,255,0.3)'; }}
               >
                 {k}
               </button>
@@ -188,10 +188,10 @@ export default function LoginScreen() {
           disabled={busy || !pin}
           style={{
             width: '100%', height: 56, borderRadius: 12, border: 'none',
-            background: busy        ? 'rgba(255,255,255,0.08)'
-                      : pin.length  ? '#C9A84C'
-                      : 'rgba(255,255,255,0.06)',
-            color: pin.length && !busy ? '#0D1B3E' : 'rgba(255,255,255,0.28)',
+            background: busy        ? 'rgba(13,27,62,0.08)'
+                      : pin.length  ? '#0D1B3E'
+                      : 'rgba(13,27,62,0.08)',
+            color: pin.length && !busy ? 'white' : 'rgba(13,27,62,0.28)',
             fontSize: 16, fontWeight: 800,
             cursor: pin.length && !busy ? 'pointer' : 'default',
             transition: 'background 0.15s',
@@ -206,7 +206,7 @@ export default function LoginScreen() {
 
       {/* Footer */}
       <div style={{
-        marginTop: 32, color: 'rgba(201,168,76,0.35)',
+        marginTop: 32, color: 'rgba(13,27,62,0.4)',
         fontSize: 12, textAlign: 'center', letterSpacing: '0.05em',
         fontFamily: 'Inter, sans-serif',
       }}>

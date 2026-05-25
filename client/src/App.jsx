@@ -16,21 +16,21 @@ const LogoBrand = () => (
   <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
     <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"
       style={{ width: 28, height: 28, flexShrink: 0 }} aria-hidden="true">
-      <circle cx="50" cy="50" r="45" fill="none" stroke="#C9A84C" strokeWidth="1.8"/>
-      <circle cx="50" cy="50" r="39" fill="none" stroke="#C9A84C" strokeWidth="0.6" opacity="0.28"/>
+      <circle cx="50" cy="50" r="45" fill="none" stroke="#fff" strokeWidth="1.8"/>
+      <circle cx="50" cy="50" r="39" fill="none" stroke="#fff" strokeWidth="0.6" opacity="0.28"/>
       <g transform="translate(50,50)">
-        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C"/>
-        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.82" transform="rotate(72)"/>
-        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.62" transform="rotate(144)"/>
-        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.62" transform="rotate(216)"/>
-        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.82" transform="rotate(288)"/>
+        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#fff"/>
+        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#fff" opacity="0.82" transform="rotate(72)"/>
+        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#fff" opacity="0.62" transform="rotate(144)"/>
+        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#fff" opacity="0.62" transform="rotate(216)"/>
+        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#fff" opacity="0.82" transform="rotate(288)"/>
         <circle cx="0" cy="0" r="9" fill="#0D1B3E"/>
         <circle cx="0" cy="0" r="5" fill="#C9A84C"/>
       </g>
     </svg>
     <span style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1 }}>
-      <span style={{ color: 'white' }}>Siam</span><span style={{ color: '#C9A84C' }}>EPOS</span>
-      <span style={{ color: 'rgba(201,168,76,0.65)', fontSize: 11, fontWeight: 600, marginLeft: 5,
+      <span style={{ color: 'white' }}>Siam</span><span style={{ color: '#0D1B3E' }}>EPOS</span>
+      <span style={{ color: 'rgba(13,27,62,0.65)', fontSize: 11, fontWeight: 600, marginLeft: 5,
         letterSpacing: '0.1em', fontFamily: 'Inter, sans-serif', textTransform: 'uppercase',
         verticalAlign: 'middle' }}>Spa</span>
     </span>
@@ -49,14 +49,14 @@ function NavLink({ to, children }) {
   const active = pathname === to || (to !== '/' && pathname.startsWith(to));
   return (
     <Link to={to} style={{
-      color: active ? '#0D1B3E' : 'white',
+      color: active ? '#C9A84C' : 'rgba(13,27,62,0.8)',
       textDecoration: 'none',
       fontWeight: active ? 700 : 500,
       fontSize: 14,
       padding: '6px 14px',
       borderRadius: 6,
-      background: active ? '#C9A84C' : 'transparent',
-      border: active ? 'none' : '1px solid rgba(255,255,255,0.22)',
+      background: active ? '#0D1B3E' : 'transparent',
+      border: active ? 'none' : '1px solid rgba(13,27,62,0.25)',
       transition: 'color 0.15s, background 0.15s',
       letterSpacing: '0.01em',
       whiteSpace: 'nowrap',
@@ -115,22 +115,22 @@ function TopNav() {
 
   return (
     <header style={{
-      background: '#0D1B3E',
-      borderBottom: '1px solid rgba(201,168,76,0.18)',
+      background: '#C9A84C',
+      borderBottom: '1px solid rgba(13,27,62,0.12)',
       padding: '0 16px',
       height: 52,
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
       gap: 12,
-      boxShadow: '0 2px 8px rgba(14,28,55,0.25)',
+      boxShadow: '0 2px 8px rgba(201,168,76,0.35)',
       flexShrink: 0,
     }}>
       {/* Left: logo + nav */}
       <div style={{ display: 'flex', gap: 4, alignItems: 'center', minWidth: 0 }}>
         <LogoBrand />
         {/* Desktop nav links — hidden on mobile via CSS */}
-        <span className="desktop-only" style={{ width: 1, height: 22, background: 'rgba(201,168,76,0.25)', margin: '0 8px', flexShrink: 0 }} />
+        <span className="desktop-only" style={{ width: 1, height: 22, background: 'rgba(13,27,62,0.2)', margin: '0 8px', flexShrink: 0 }} />
         <div className="desktop-only" style={{ display: 'flex', gap: 6 }}>
           <NavLink to="/">Appointments</NavLink>
           <NavLink to="/clients">Clients</NavLink>
@@ -145,9 +145,9 @@ function TopNav() {
           disabled={notifPerm === 'denied'}
           title={bellTitle}
           style={{
-            background: notifPerm === 'granted' ? 'rgba(201,168,76,0.18)' : 'rgba(255,255,255,0.08)',
-            border: `1px solid ${notifPerm === 'granted' ? '#C9A84C' : 'rgba(255,255,255,0.25)'}`,
-            color: notifPerm === 'denied' ? 'rgba(255,255,255,0.5)' : 'white',
+            background: notifPerm === 'granted' ? 'rgba(13,27,62,0.18)' : 'rgba(13,27,62,0.08)',
+            border: `1px solid ${notifPerm === 'granted' ? '#0D1B3E' : 'rgba(13,27,62,0.3)'}`,
+            color: notifPerm === 'denied' ? 'rgba(13,27,62,0.35)' : '#0D1B3E',
             borderRadius: 6,
             padding: '6px 10px',
             fontSize: 13,
@@ -157,18 +157,18 @@ function TopNav() {
             whiteSpace: 'nowrap',
           }}
         >{bellLabel}</button>
-        <span className="desktop-only" style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>
+        <span className="desktop-only" style={{ color: '#0D1B3E', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>
           {staff?.name}
-          <span style={{ color: '#C9A84C', marginLeft: 6, fontSize: 11, textTransform: 'capitalize', fontWeight: 600 }}>
+          <span style={{ color: '#0D1B3E', marginLeft: 6, fontSize: 11, textTransform: 'capitalize', fontWeight: 600 }}>
             {staff?.role}
           </span>
         </span>
         <button
           onClick={() => { clearAuth(); navigate('/login'); }}
           style={{
-            background: 'rgba(255,255,255,0.10)',
-            border: '1px solid rgba(255,255,255,0.30)',
-            color: 'white',
+            background: 'rgba(13,27,62,0.10)',
+            border: '1px solid rgba(13,27,62,0.25)',
+            color: '#0D1B3E',
             borderRadius: 6,
             padding: '6px 12px',
             fontSize: 13,
@@ -212,7 +212,7 @@ function BottomNav() {
 
 // Inline SVG icons for bottom nav
 function CalendarIcon({ active }) {
-  const c = active ? '#C9A84C' : 'rgba(255,255,255,0.55)';
+  const c = active ? '#0D1B3E' : 'rgba(13,27,62,0.45)';
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
@@ -220,7 +220,7 @@ function CalendarIcon({ active }) {
   );
 }
 function PersonIcon({ active }) {
-  const c = active ? '#C9A84C' : 'rgba(255,255,255,0.55)';
+  const c = active ? '#0D1B3E' : 'rgba(13,27,62,0.45)';
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
@@ -228,7 +228,7 @@ function PersonIcon({ active }) {
   );
 }
 function GearIcon({ active }) {
-  const c = active ? '#C9A84C' : 'rgba(255,255,255,0.55)';
+  const c = active ? '#0D1B3E' : 'rgba(13,27,62,0.45)';
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
