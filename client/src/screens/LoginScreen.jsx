@@ -131,19 +131,21 @@ export default function LoginScreen() {
           )}
         </div>
 
-        {/* Error */}
-        {error && (
-          <div style={{
-            background: 'rgba(239,68,68,0.14)',
-            border: '1px solid rgba(239,68,68,0.35)',
-            color: '#fca5a5',
-            borderRadius: 8, padding: '9px 14px',
-            fontSize: 13, textAlign: 'center', marginBottom: 16,
-            fontWeight: 500, fontFamily: 'Inter, sans-serif',
-          }}>
-            {error}
-          </div>
-        )}
+        {/* Error — fixed-height slot so numpad never shifts */}
+        <div style={{ height: 38, marginBottom: 16 }}>
+          {error && (
+            <div style={{
+              background: 'rgba(239,68,68,0.14)',
+              border: '1px solid rgba(239,68,68,0.35)',
+              color: '#fca5a5',
+              borderRadius: 8, padding: '9px 14px',
+              fontSize: 13, textAlign: 'center',
+              fontWeight: 500, fontFamily: 'Inter, sans-serif',
+            }}>
+              {error}
+            </div>
+          )}
+        </div>
 
         {/* Numpad — 56px min-height for touch */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 12 }}>
