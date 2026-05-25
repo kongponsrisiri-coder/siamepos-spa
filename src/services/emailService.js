@@ -2,6 +2,7 @@
 // Uses native fetch (Node 20+) so we don't pull in another SDK.
 
 const crypto = require('crypto');
+const { pool } = require('../db/database');
 
 const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 
@@ -308,11 +309,79 @@ async function sendVoucherGiftEmail({ voucher, treatment_name }) {
   });
 }
 
+// SPA-OWNER-NOTIFY — email the spa owner whenever a new booking
+// arrives, regardless of source (widget / treatwell / admin POST).
+// Reads recipient from settings.spa_email with env-var fallback.
+// Fire-and-forget — wrap in try/catch at the call site so a Brevo
+// hiccup never blocks the booking from being created.
+async function sendOwnerNewBookingEmail({ appointment, client, treatment, therapistName, source }) {
+  let ownerEmail = process.env.SPA_EMAIL || null;
+  try {
+    const r = await pool.query(`SELECT value FROM settings WHERE key = 'spa_email'`);
+    if (r.rows[0]?.value) ownerEmail = r.rows[0].value;
+  } catch (e) { /* fall back to env */ }
+  if (!ownerEmail) return { skipped: true, reason: 'no spa_email configured' };
+
+  const spaName  = process.env.SPA_NAME || 'SiamEPOS Spa';
+  const when     = formatStarts(appointment.starts_at);
+  const sourceLabel = {
+    online:    '🪷 Online (website widget)',
+    treatwell: '🌐 Treatwell',
+    walkin:    '🚶 Walk-in / in-store',
+    phone:     '📞 Phone',
+    staff:     '🧑‍💼 Staff-created',
+  }[source] || source || '—';
+
+  const safe = (s) => String(s || '').replace(/[<>]/g, '');
+  const dep  = Number(appointment.deposit_amount || 0);
+  const tot  = Number(treatment?.price || appointment.price_at_booking || 0);
+  const balance = +(tot - dep).toFixed(2);
+
+  const html = `
+<!doctype html>
+<html><body style="margin:0;padding:0;background:#faf7f2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1c1c1c;">
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#faf7f2;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="560" style="max-width:560px;background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 14px rgba(20,38,74,0.08);">
+        <tr><td style="background:#1e3a6e;padding:18px 24px;color:#C9A84C;font-family:Georgia,serif;font-size:18px;font-weight:700;">
+          🔔 New booking — ${spaName}
+        </td></tr>
+        <tr><td style="padding:22px 24px;line-height:1.6;font-size:14px;">
+          <div style="font-size:18px;font-weight:700;color:#1e3a6e;margin-bottom:14px;">
+            ${safe(client?.name) || 'Walk-in'} · ${safe(treatment?.name) || 'Treatment'}
+          </div>
+          <table cellpadding="0" cellspacing="0" style="border-collapse:collapse;width:100%;font-size:13px;">
+            <tr><td style="padding:4px 0;color:#6b6b6b;width:120px;">When</td><td style="padding:4px 0;font-weight:600;">${when}</td></tr>
+            ${therapistName ? `<tr><td style="padding:4px 0;color:#6b6b6b;">Therapist</td><td style="padding:4px 0;font-weight:600;">${safe(therapistName)}</td></tr>` : ''}
+            <tr><td style="padding:4px 0;color:#6b6b6b;">Treatment</td><td style="padding:4px 0;">${safe(treatment?.name)} · ${treatment?.duration_minutes || ''}min · £${tot.toFixed(2)}</td></tr>
+            <tr><td style="padding:4px 0;color:#6b6b6b;">Source</td><td style="padding:4px 0;">${sourceLabel}</td></tr>
+            ${client?.phone ? `<tr><td style="padding:4px 0;color:#6b6b6b;">Phone</td><td style="padding:4px 0;">${safe(client.phone)}</td></tr>` : ''}
+            ${client?.email ? `<tr><td style="padding:4px 0;color:#6b6b6b;">Email</td><td style="padding:4px 0;">${safe(client.email)}</td></tr>` : ''}
+            ${dep > 0 ? `<tr><td style="padding:4px 0;color:#6b6b6b;">Deposit paid</td><td style="padding:4px 0;color:#16a34a;font-weight:600;">£${dep.toFixed(2)}</td></tr><tr><td style="padding:4px 0;color:#6b6b6b;">Balance due</td><td style="padding:4px 0;">£${balance.toFixed(2)}</td></tr>` : ''}
+            <tr><td style="padding:4px 0;color:#6b6b6b;">Reference</td><td style="padding:4px 0;">#${appointment.id}</td></tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:14px 24px;background:#faf7f2;border-top:1px solid #e8e3d8;font-size:11px;color:#6b6b6b;">
+          This is an automatic owner notification from ${spaName}. To stop these, untick "Notify owner on new bookings" in Admin → Settings.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`.trim();
+
+  return sendBrevoEmail({
+    to: [{ email: ownerEmail }],
+    subject: `🔔 New booking · ${safe(client?.name) || 'Walk-in'} · ${when}`,
+    html,
+  });
+}
+
 module.exports = {
   sendBrevoEmail,
   sendBookingConfirmation,
   sendBookingRescheduled,
   sendBookingCancelled,
+  sendOwnerNewBookingEmail,
   buildCampaignEmail,
   unsubscribeToken,
   parseUnsubscribeToken,

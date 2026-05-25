@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
 import { getStaff, getToken, clearAuth } from './api.js';
+import { socket } from './socket.js';
 
 import LoginScreen         from './screens/LoginScreen.jsx';
 import AppointmentScreen   from './screens/AppointmentScreen.jsx';
@@ -69,6 +70,49 @@ function TopNav() {
   const navigate = useNavigate();
   const isAdmin = staff && ['admin', 'manager'].includes(staff.role);
 
+  // SPA-OWNER-NOTIFY (browser desktop notification)
+  // Once the operator grants permission, every `new_appointment` socket
+  // event fires a system notification (works even when the tab is in
+  // the background). Permission state is reflected on the bell button.
+  const [notifPerm, setNotifPerm] = useState(() =>
+    typeof Notification !== 'undefined' ? Notification.permission : 'default'
+  );
+
+  useEffect(() => {
+    if (typeof Notification === 'undefined') return;
+    function onNewAppointment(a) {
+      if (Notification.permission !== 'granted') return;
+      try {
+        const time = a?.starts_at
+          ? new Date(a.starts_at).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+          : '';
+        const body = `${a?.client_name || 'New booking'} · ${time}`;
+        const n = new Notification('🔔 New booking', { body, tag: `appt-${a?.id}`, icon: '/lotus.svg', renotify: false });
+        n.onclick = () => { window.focus(); n.close(); };
+      } catch {}
+    }
+    socket.on('new_appointment', onNewAppointment);
+    return () => socket.off('new_appointment', onNewAppointment);
+  }, []);
+
+  async function enableNotifications() {
+    if (typeof Notification === 'undefined') return;
+    try {
+      const p = await Notification.requestPermission();
+      setNotifPerm(p);
+      if (p === 'granted') {
+        new Notification('🔔 Notifications enabled', { body: 'You\'ll get a pop-up here for every new booking.', icon: '/lotus.svg' });
+      }
+    } catch {}
+  }
+
+  const bellLabel = notifPerm === 'granted' ? '🔔'
+                  : notifPerm === 'denied'  ? '🔕'
+                  : '🔔 Enable';
+  const bellTitle = notifPerm === 'granted' ? 'Browser notifications ON for new bookings'
+                  : notifPerm === 'denied'  ? 'Notifications blocked — re-enable in your browser settings (lock icon next to the URL)'
+                  : 'Click to enable browser pop-ups for new bookings';
+
   return (
     <header style={{
       background: '#0D1B3E',
@@ -94,8 +138,25 @@ function TopNav() {
         </div>
       </div>
 
-      {/* Right: staff name + logout */}
+      {/* Right: bell + staff name + logout */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+        <button
+          onClick={enableNotifications}
+          disabled={notifPerm === 'denied'}
+          title={bellTitle}
+          style={{
+            background: notifPerm === 'granted' ? 'rgba(201,168,76,0.18)' : 'rgba(255,255,255,0.08)',
+            border: `1px solid ${notifPerm === 'granted' ? '#C9A84C' : 'rgba(255,255,255,0.25)'}`,
+            color: notifPerm === 'denied' ? 'rgba(255,255,255,0.5)' : 'white',
+            borderRadius: 6,
+            padding: '6px 10px',
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: notifPerm === 'denied' ? 'not-allowed' : 'pointer',
+            minHeight: 36,
+            whiteSpace: 'nowrap',
+          }}
+        >{bellLabel}</button>
         <span className="desktop-only" style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>
           {staff?.name}
           <span style={{ color: '#C9A84C', marginLeft: 6, fontSize: 11, textTransform: 'capitalize', fontWeight: 600 }}>

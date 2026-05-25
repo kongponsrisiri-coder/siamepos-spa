@@ -2,7 +2,7 @@ const express = require('express');
 const Stripe = require('stripe');
 const { pool } = require('../db/database');
 const { computeAvailability, isTherapistWorking, buildAt, londonDateString } = require('../services/availability');
-const { bookingToken } = require('../services/emailService');
+const { bookingToken, sendOwnerNewBookingEmail } = require('../services/emailService');
 
 function stripeClient() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -297,6 +297,34 @@ router.post('/', async (req, res) => {
     );
     const appt = rows[0];
     req.app.get('io')?.emit('new_appointment', appt);
+
+    // SPA-OWNER-NOTIFY — alert the spa owner of admin-created bookings
+    // too (phone / walk-in / staff). Fetch the therapist + client
+    // names alongside so the email reads well.
+    (async () => {
+      try {
+        const named = await pool.query(
+          `SELECT th.name AS therapist_name,
+                  c.name  AS client_name, c.email AS client_email, c.phone AS client_phone,
+                  t.name  AS treatment_name, t.duration_minutes, t.price
+           FROM appointments a
+           LEFT JOIN therapists th ON th.id = a.therapist_id
+           LEFT JOIN clients    c  ON c.id  = a.client_id
+           LEFT JOIN treatments t  ON t.id  = a.treatment_id
+           WHERE a.id = $1`,
+          [appt.id],
+        );
+        const n = named.rows[0] || {};
+        await sendOwnerNewBookingEmail({
+          appointment:   appt,
+          client:        { name: n.client_name, email: n.client_email, phone: n.client_phone },
+          treatment:     { name: n.treatment_name, duration_minutes: n.duration_minutes, price: n.price },
+          therapistName: n.therapist_name,
+          source:        validSource,
+        });
+      } catch (e) { console.error('[appointments] owner notify failed', e); }
+    })();
+
     res.status(201).json({ appointment: appt });
   } catch (err) {
     console.error('[appointments] create', err);

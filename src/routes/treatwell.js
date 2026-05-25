@@ -33,6 +33,7 @@
 const express = require('express');
 const { pool } = require('../db/database');
 const { computeAvailability } = require('../services/availability');
+const { sendOwnerNewBookingEmail } = require('../services/emailService');
 
 const router = express.Router();
 
@@ -243,6 +244,28 @@ router.post('/webhook', async (req, res) => {
     await client.query('COMMIT');
 
     req.app.get('io')?.emit('new_appointment', ap.rows[0]);
+
+    // SPA-OWNER-NOTIFY — pull the therapist name + treatment row for
+    // the email, fire-and-forget.
+    (async () => {
+      try {
+        const named = await pool.query(
+          `SELECT th.name AS therapist_name, t.name AS treatment_name, t.duration_minutes, t.price
+           FROM appointments a
+           LEFT JOIN therapists th ON th.id = a.therapist_id
+           LEFT JOIN treatments  t  ON t.id  = a.treatment_id
+           WHERE a.id = $1`,
+          [ap.rows[0].id],
+        );
+        await sendOwnerNewBookingEmail({
+          appointment:   ap.rows[0],
+          client:        cli,
+          treatment:     named.rows[0] && { name: named.rows[0].treatment_name, duration_minutes: named.rows[0].duration_minutes, price: named.rows[0].price },
+          therapistName: named.rows[0]?.therapist_name,
+          source:        'treatwell',
+        });
+      } catch (e) { console.error('[treatwell] owner notify failed', e); }
+    })();
 
     return res.status(201).json({
       ok: true,

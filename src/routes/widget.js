@@ -5,7 +5,7 @@ const express = require('express');
 const Stripe = require('stripe');
 const { pool } = require('../db/database');
 const { computeAvailability } = require('../services/availability');
-const { sendBookingConfirmation, sendVoucherGiftEmail } = require('../services/emailService');
+const { sendBookingConfirmation, sendVoucherGiftEmail, sendOwnerNewBookingEmail } = require('../services/emailService');
 
 const router = express.Router();
 
@@ -305,6 +305,14 @@ router.post('/book', async (req, res) => {
         cancellationPolicy: policy.cancel_policy_text,
       }).catch((e) => console.error('[widget] email send failed', e));
     }
+    // SPA-OWNER-NOTIFY — alert the spa owner of every new booking.
+    sendOwnerNewBookingEmail({
+      appointment:   ap.rows[0],
+      client:        cli,
+      treatment:     tr.rows[0],
+      therapistName: named.rows[0]?.therapist_name,
+      source:        'online',
+    }).catch((e) => console.error('[widget] owner notify failed', e));
 
     res.status(201).json({
       appointment: {
