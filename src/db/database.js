@@ -439,6 +439,36 @@ async function initSchema() {
       ('cancel_window_hours',   '24'),
       ('cancel_policy_text',    'Cancellations within 24 hours of your appointment forfeit the deposit. We''re happy to reschedule any time before then.')
     ON CONFLICT (key) DO NOTHING;
+
+    -- Seed default 7-day rota (10:00–20:00) for any therapist that has
+    -- no rota entries at all. This keeps demos working out-of-the-box and
+    -- is a safe no-op for therapists who already have a rota configured.
+    INSERT INTO therapist_availability (therapist_id, day_of_week, start_time, end_time)
+    SELECT t.id, d.day, '10:00', '20:00'
+    FROM   therapists t
+    CROSS JOIN (VALUES (0),(1),(2),(3),(4),(5),(6)) AS d(day)
+    WHERE  t.active = TRUE
+    AND    NOT EXISTS (
+             SELECT 1 FROM therapist_availability a WHERE a.therapist_id = t.id
+           )
+    ON CONFLICT DO NOTHING;
+
+    -- Fill in any missing days for therapists whose rota is incomplete
+    -- (has some days but not all 7). Only adds missing rows — never
+    -- overwrites days the operator has explicitly configured.
+    INSERT INTO therapist_availability (therapist_id, day_of_week, start_time, end_time)
+    SELECT t.id, d.day, '10:00', '20:00'
+    FROM   therapists t
+    CROSS JOIN (VALUES (0),(1),(2),(3),(4),(5),(6)) AS d(day)
+    WHERE  t.active = TRUE
+    AND    EXISTS (
+             SELECT 1 FROM therapist_availability a WHERE a.therapist_id = t.id
+           )
+    AND    NOT EXISTS (
+             SELECT 1 FROM therapist_availability a
+             WHERE  a.therapist_id = t.id AND a.day_of_week = d.day
+           )
+    ON CONFLICT DO NOTHING;
   `);
 
   console.log('[db] schema ready');
