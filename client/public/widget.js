@@ -29,44 +29,44 @@
     .ses-modal { background:#fff; border-radius:14px; width:100%; max-width:520px; max-height:92vh;
       overflow:auto; padding:20px; box-shadow:0 20px 60px rgba(0,0,0,.25); color:#1f2937; }
     .ses-h { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
-    .ses-h h3 { margin:0; color:#1e3a6e; font-size:18px; }
+    .ses-h h3 { margin:0; color:#7a4f1e; font-size:18px; }
     .ses-x { background:none; border:none; font-size:22px; cursor:pointer; color:#6b7280; }
     .ses-steps { display:flex; gap:6px; margin-bottom:14px; }
     .ses-step { flex:1; height:4px; border-radius:2px; background:#e5e7eb; }
-    .ses-step.active { background:#C9A84C; }
+    .ses-step.active { background:#7a4f1e; }
     .ses-row { display:flex; gap:10px; }
     .ses-row > * { flex:1; }
     .ses-label { display:block; font-size:12px; color:#6b7280; margin:8px 0 4px; }
     .ses-input, .ses-select { width:100%; padding:9px 10px; border:1px solid #e5e7eb;
       border-radius:6px; font:inherit; box-sizing:border-box; background:#fff; }
-    .ses-input:focus, .ses-select:focus { outline:none; border-color:#C9A84C;
-      box-shadow:0 0 0 3px rgba(201,168,76,0.2); }
+    .ses-input:focus, .ses-select:focus { outline:none; border-color:#7a4f1e;
+      box-shadow:0 0 0 3px rgba(122,79,30,.12); }
     .ses-card { border:1px solid #e5e7eb; border-radius:8px; padding:10px; margin-bottom:6px;
       cursor:pointer; transition:border-color .1s; display:flex; gap:10px; align-items:center; }
-    .ses-card:hover { border-color:#C9A84C; }
-    .ses-card.selected { border-color:#C9A84C; background:#fef9ec; }
-    .ses-avatar { width:40px; height:40px; border-radius:50%; background:#fef9ec; color:#1e3a6e;
+    .ses-card:hover { border-color:#7a4f1e; }
+    .ses-card.selected { border-color:#7a4f1e; background:#fdf6ec; }
+    .ses-avatar { width:40px; height:40px; border-radius:50%; background:#fdf6ec; color:#7a4f1e;
       display:flex; align-items:center; justify-content:center; font-weight:600; font-size:14px;
       flex-shrink:0; border:1px solid #f0e0c8; }
-    .ses-avatar.any { background:#C9A84C; color:#1e3a6e; border-color:#C9A84C; }
+    .ses-avatar.any { background:#7a4f1e; color:#fff; border-color:#7a4f1e; }
     .ses-slot-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; max-height:200px; overflow:auto; }
     .ses-slot { padding:8px 0; text-align:center; border:1px solid #e5e7eb; border-radius:6px;
       cursor:pointer; background:#fff; }
-    .ses-slot:hover { border-color:#C9A84C; }
-    .ses-slot.selected { background:#C9A84C; color:#1e3a6e; border-color:#C9A84C; }
+    .ses-slot:hover { border-color:#7a4f1e; }
+    .ses-slot.selected { background:#7a4f1e; color:#fff; border-color:#7a4f1e; }
     .ses-btn { padding:10px 16px; border:1px solid #e5e7eb; background:#fff; border-radius:8px;
       cursor:pointer; font:inherit; }
-    .ses-btn.primary { background:#C9A84C; color:#1e3a6e; border-color:#C9A84C; }
+    .ses-btn.primary { background:#7a4f1e; color:#fff; border-color:#7a4f1e; }
     .ses-btn:disabled { opacity:.5; cursor:not-allowed; }
     .ses-actions { display:flex; justify-content:space-between; margin-top:16px; gap:8px; }
     .ses-error { color:#dc2626; font-size:13px; margin-top:8px; }
     .ses-muted { color:#6b7280; font-size:13px; }
     .ses-consent { display:flex; gap:8px; align-items:flex-start; font-size:13px; margin-top:8px; }
     .ses-consent input { margin-top:3px; }
-    .ses-mount-btn { padding:12px 22px; background:#C9A84C; color:#1e3a6e; border:none;
+    .ses-mount-btn { padding:12px 22px; background:#7a4f1e; color:#fff; border:none;
       border-radius:8px; font-size:15px; font-weight:600; cursor:pointer;
       font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
-    .ses-mount-btn:hover { background:#b8922f; }
+    .ses-mount-btn:hover { background:#a16a2c; }
   `;
 
   function injectStyle() {
@@ -648,7 +648,7 @@
     var tot = Number(state.totalAmount || 0);
     var bal = +(tot - dep).toFixed(2);
     wrap.appendChild(h('div', { className: 'ses-card', style: 'display:block;cursor:default;background:#fdf6ec;border-color:#e0c884' }, [
-      h('div', { style: 'display:flex;justify-content:space-between;font-size:13px;color:#1e3a6e' }, [
+      h('div', { style: 'display:flex;justify-content:space-between;font-size:13px;color:#7a4f1e' }, [
         h('span', {}, ['Treatment']), h('span', {}, ['£' + tot.toFixed(2)]),
       ]),
       h('div', { style: 'display:flex;justify-content:space-between;font-size:14px;font-weight:700;color:#1e3a6e;margin-top:6px' }, [

@@ -46,9 +46,9 @@
   --radius-lg:    14px;
 
   /* Convenience aliases so existing code still works */
-  --primary:      var(--gold);
-  --primary-2:    var(--gold-2);
-  --accent:       var(--navy);
+  --primary:      var(--navy);
+  --primary-2:    var(--navy-2);
+  --accent:       var(--gold);
 }
 
 html, body, #root { height: 100%; margin: 0; }
@@ -99,16 +99,16 @@ button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 button.primary {
-  background: var(--gold);
-  color: var(--navy-dark);
-  border-color: var(--gold);
+  background: var(--navy);
+  color: white;
+  border-color: var(--navy);
   font-weight: 600;
   box-shadow: var(--shadow-sm);
 }
 button.primary:hover:not(:disabled) {
-  background: var(--gold-2);
-  border-color: var(--gold-2);
-  color: var(--navy-dark);
+  background: var(--navy-2);
+  border-color: var(--navy-2);
+  color: white;
   box-shadow: var(--shadow-md);
 }
 
@@ -249,14 +249,14 @@ tbody td {
 }
 
 tbody tr:last-child td { border-bottom: none; }
-tbody tr:hover td { background: var(--gold-light); }
+tbody tr:hover td { background: var(--navy-muted); }
 
 /* ── Stat cards ──────────────────────────────────────────────────── */
 /* Individual card colours controlled inline — see TradingSection.jsx */
 .stat-card {
   background: #ffffff;
   border: 1px solid var(--border);
-  border-top: 3px solid var(--gold);
+  border-top: 3px solid var(--navy);
   border-radius: var(--radius);
   padding: 18px 16px 14px;
   text-align: center;
@@ -428,8 +428,8 @@ tbody tr:hover td { background: var(--gold-light); }
     display: flex;
     position: fixed;
     bottom: 0; left: 0; right: 0;
-    background: #C9A84C;
-    border-top: 1px solid rgba(13,27,62,0.18);
+    background: #0D1B3E;
+    border-top: 1px solid rgba(201,168,76,0.22);
     z-index: 100;
     padding-bottom: env(safe-area-inset-bottom, 0px);
     height: calc(60px + env(safe-area-inset-bottom, 0px));
@@ -443,7 +443,7 @@ tbody tr:hover td { background: var(--gold-light); }
     align-items: center;
     justify-content: center;
     text-decoration: none;
-    color: rgba(13,27,62,0.45);
+    color: rgba(255,255,255,0.55);
     font-size: 11px;
     font-family: Inter, sans-serif;
     font-weight: 500;
@@ -452,7 +452,7 @@ tbody tr:hover td { background: var(--gold-light); }
     transition: color 0.15s;
   }
 
-  .bottom-nav-item.active { color: #0D1B3E; }
+  .bottom-nav-item.active { color: #C9A84C; }
 
   /* Push main content up so bottom nav doesn't overlap it */
   .app-main {
