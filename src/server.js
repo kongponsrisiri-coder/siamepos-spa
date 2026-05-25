@@ -39,6 +39,9 @@ const server = http.createServer(app);
 const ALLOWED_ORIGINS = [
   'https://spa.siamepos.co.uk',
   'https://siamepos-spa.netlify.app',
+  'https://siamspa.netlify.app',
+  'https://siamepos.com',
+  'https://www.siamepos.com',
   'http://localhost:5173',
   'http://localhost:3000',
 ];
