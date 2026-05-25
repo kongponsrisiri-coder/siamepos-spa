@@ -220,9 +220,10 @@
       state.step = 5;          // payment step
       render();
       initPayment();
-    }).catch(function () {
+    }).catch(function (err) {
       // Stripe config endpoint failed — book without deposit so widget
       // still works on spas that haven't configured Stripe yet.
+      console.warn('[SiamEPOS widget] stripe-config failed, booking without deposit:', err && err.message);
       submitBooking(null);
     });
   }
@@ -239,6 +240,7 @@
       marketing_consent: state.marketing,
       payment_intent_id: paymentIntentId || undefined,
     };
+    console.log('[SiamEPOS widget] posting /book:', JSON.stringify(body));
     api('/book', { method: 'POST', body: body })
       .then(function (r) {
         state.confirmation = r;
@@ -247,7 +249,9 @@
         render();
       })
       .catch(function (err) {
-        state.error = err.message; state.busy = false; render();
+        console.error('[SiamEPOS widget] /book error:', err.message, err);
+        state.error = err.message || 'Booking failed — please try again or call us.';
+        state.busy = false; render();
       });
   }
 
@@ -344,8 +348,8 @@
     modal.innerHTML = '';
     modal.appendChild(header('Book your treatment'));
     modal.appendChild(progress());
-    modal.appendChild(renderStep());
     if (state.error) modal.appendChild(h('div', { className: 'ses-error' }, [state.error]));
+    modal.appendChild(renderStep());
   }
 
   function renderStep() {
