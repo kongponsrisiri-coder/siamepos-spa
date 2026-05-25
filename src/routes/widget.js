@@ -98,6 +98,12 @@ router.get('/therapists', async (req, res) => {
 });
 
 // GET /api/widget/availability?treatment_id=&date=YYYY-MM-DD&therapist_id=(optional)
+//
+// Public widget — strips out slots that have already started so the
+// customer can't book a time that's in the past. Admin's equivalent
+// endpoint (/api/appointments/availability) keeps the full list since
+// receptionists sometimes need to record a walk-in whose treatment
+// actually started a few minutes ago.
 router.get('/availability', async (req, res) => {
   const { treatment_id, date, therapist_id } = req.query;
   if (!treatment_id || !date) {
@@ -109,8 +115,14 @@ router.get('/availability', async (req, res) => {
       date,
       therapist_id: therapist_id ? Number(therapist_id) : null,
     });
+    // SPA-NO-PAST — drop slots whose start time is in the past.
+    // A small lead-time buffer prevents "book a slot starting in 2
+    // minutes" — the spa needs time to prepare a room. 30 min default.
+    const leadTimeMinMs = 30 * 60 * 1000;
+    const earliest = Date.now() + leadTimeMinMs;
+    const filtered = slots.filter((s) => new Date(s.starts_at).getTime() >= earliest);
     // Public output is leaner: don't expose internal therapist/room IDs.
-    res.json({ slots: slots.map((s) => ({ starts_at: s.starts_at, ends_at: s.ends_at })) });
+    res.json({ slots: filtered.map((s) => ({ starts_at: s.starts_at, ends_at: s.ends_at })) });
   } catch (err) {
     console.error('[widget] availability', err);
     res.status(400).json({ error: err.message || 'server error' });
