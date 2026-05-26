@@ -590,7 +590,13 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                       )}
                       {/* SPA-DEPOSIT-BADGE — top-right corner badge.
                           Shown for any active booking with deposit_amount > 0.
-                          Hidden once status='completed' (payment badge replaces). */}
+                          Hidden once status='completed' (payment badge replaces).
+                          pointerEvents:'none' so the badge can't intercept
+                          drag-start on the corner of the block (it broke
+                          SPA-SWAP-DND when the user grabbed the badge area).
+                          userSelect:'none' stops the emoji glyph from
+                          initiating a text-drag instead of the HTML5
+                          drag-and-drop. */}
                       {hasDep && (
                         <div
                           title={`Deposit £${depAmt.toFixed(2)} ${a.deposit_method ? `(${a.deposit_method})` : 'paid'}${a.payment_status === 'deposit_pending' ? ' — pending' : ''}`}
@@ -604,6 +610,8 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                             borderRadius: 3,
                             boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
                             zIndex: 2,
+                            pointerEvents: 'none',
+                            userSelect: 'none',
                           }}
                         >
                           💳 £{Math.round(depAmt)}
