@@ -406,6 +406,17 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_bill_items_bill_id ON bill_items (bill_id);
   `);
 
+  // SPA-BILL-ITEMS — at most one 'treatment' line per bill. Dedupe any rows a
+  // concurrent self-heal might already have created (keep the lowest id), then
+  // a partial unique index makes the seed INSERT ... ON CONFLICT race-safe.
+  await pool.query(`
+    DELETE FROM bill_items a USING bill_items b
+     WHERE a.kind = 'treatment' AND b.kind = 'treatment'
+       AND a.bill_id = b.bill_id AND a.id > b.id;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_bill_items_one_treatment
+      ON bill_items (bill_id) WHERE kind = 'treatment';
+  `);
+
   await pool.query(`
     -- (placeholder block kept so the trailing migrations below still run)
     SELECT 1;

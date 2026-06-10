@@ -45,9 +45,12 @@ async function loadBillWithItems(billId) {
     );
     if (ap.rows[0]) {
       const price = Number(ap.rows[0].price || 0);
+      // ON CONFLICT keeps two concurrent self-heals from each inserting a
+      // treatment line — the partial unique index lets the loser no-op.
       await pool.query(
         `INSERT INTO bill_items (bill_id, kind, name, quantity, unit_price, line_total)
-         VALUES ($1, 'treatment', $2, 1, $3, $3)`,
+         VALUES ($1, 'treatment', $2, 1, $3, $3)
+         ON CONFLICT (bill_id) WHERE kind = 'treatment' DO NOTHING`,
         [billId, ap.rows[0].name || 'Treatment', price],
       );
       items = (await pool.query('SELECT * FROM bill_items WHERE bill_id = $1 ORDER BY id', [billId])).rows;
@@ -62,8 +65,14 @@ router.post('/', async (req, res) => {
   const { appointment_id } = req.body || {};
   if (!appointment_id) return res.status(400).json({ error: 'appointment_id required' });
   try {
+    // Reuse the appointment's live bill, but SKIP a refunded one — after a
+    // refund the appointment is reopened, so re-checkout should start a fresh
+    // bill rather than re-surface the drained/refunded one (which would show
+    // payment buttons next to a lingering "Refunded" badge). The refunded bill
+    // stays as an audit record.
     const existing = await pool.query(
-      'SELECT * FROM bills WHERE appointment_id = $1 LIMIT 1',
+      `SELECT * FROM bills WHERE appointment_id = $1 AND payment_status <> 'refunded'
+       ORDER BY id DESC LIMIT 1`,
       [appointment_id],
     );
     if (existing.rows[0]) return res.json({ bill: await loadBillWithItems(existing.rows[0].id) });
@@ -457,7 +466,10 @@ router.get('/:id/items', async (req, res) => {
 router.post('/:id/items', async (req, res) => {
   const id = Number(req.params.id);
   const { kind, name, quantity, unit_price } = req.body || {};
-  const k = ['treatment', 'retail', 'addon'].includes(kind) ? kind : 'retail';
+  // Only products / add-ons can be added manually — the single 'treatment'
+  // line is owned by the booking (seeded on create, synced on treatment swap)
+  // and is guarded by a partial unique index.
+  const k = ['retail', 'addon'].includes(kind) ? kind : 'retail';
   const qty = Math.max(1, parseInt(quantity, 10) || 1);
   const price = Number(unit_price);
   if (!name || !String(name).trim()) return res.status(400).json({ error: 'name required' });
@@ -465,8 +477,8 @@ router.post('/:id/items', async (req, res) => {
   try {
     const cur = await pool.query('SELECT payment_status FROM bills WHERE id = $1', [id]);
     if (!cur.rows[0]) return res.status(404).json({ error: 'not found' });
-    if (cur.rows[0].payment_status === 'paid') {
-      return res.status(409).json({ error: 'Bill is already paid — items cannot be changed' });
+    if (['paid', 'refunded'].includes(cur.rows[0].payment_status)) {
+      return res.status(409).json({ error: `Bill is ${cur.rows[0].payment_status} — items cannot be changed` });
     }
     const lineTotal = +(price * qty).toFixed(2);
     await pool.query(
@@ -489,8 +501,8 @@ router.delete('/:id/items/:itemId', async (req, res) => {
   try {
     const cur = await pool.query('SELECT payment_status FROM bills WHERE id = $1', [id]);
     if (!cur.rows[0]) return res.status(404).json({ error: 'not found' });
-    if (cur.rows[0].payment_status === 'paid') {
-      return res.status(409).json({ error: 'Bill is already paid — items cannot be changed' });
+    if (['paid', 'refunded'].includes(cur.rows[0].payment_status)) {
+      return res.status(409).json({ error: `Bill is ${cur.rows[0].payment_status} — items cannot be changed` });
     }
     const del = await pool.query('DELETE FROM bill_items WHERE id = $1 AND bill_id = $2', [itemId, id]);
     if (!del.rowCount) return res.status(404).json({ error: 'item not found' });

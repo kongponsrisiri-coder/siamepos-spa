@@ -562,7 +562,7 @@ router.put('/:id', async (req, res) => {
       // treatment, then recompute totals from the line items (which now
       // include any retail / add-on lines the operator already added).
       const affected = await pool.query(
-        `SELECT id FROM bills WHERE appointment_id = $1 AND payment_status != 'paid'`,
+        `SELECT id FROM bills WHERE appointment_id = $1 AND payment_status NOT IN ('paid', 'refunded')`,
         [id],
       );
       for (const r of affected.rows) {
