@@ -270,7 +270,11 @@ export default function CheckoutScreen() {
                   min="0"
                   placeholder="Custom"
                   value={tip || ''}
-                  onChange={(e) => saveTip(Number(e.target.value) || 0)}
+                  /* Update the displayed total live, but only persist on blur
+                     — saving on every keystroke fired a PUT per digit and
+                     let an out-of-order response overwrite the final value. */
+                  onChange={(e) => setTip(Number(e.target.value) || 0)}
+                  onBlur={(e) => saveTip(Number(e.target.value) || 0)}
                   style={{ width: 100 }}
                 />
               </div>
