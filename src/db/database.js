@@ -345,6 +345,11 @@ async function initSchema() {
 
     ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS sessions_used INT NOT NULL DEFAULT 0;
 
+    -- SPA-BILL-ITEMS: when a bill is refunded, the gift-voucher redemptions
+    -- taken against it are reversed (balance / sessions restored) and stamped
+    -- here so they're not reversed twice and reports can tell them apart.
+    ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ;
+
     -- SPA-VOUCHER-003: recipient email so the voucher can be delivered
     -- by email at point of sale (also used for a "Resend" later).
     ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS recipient_email TEXT;

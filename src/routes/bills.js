@@ -511,6 +511,10 @@ router.delete('/:id/items/:itemId', async (req, res) => {
 router.post('/:id/refund', requireRole('admin', 'manager'), async (req, res) => {
   const id = Number(req.params.id);
   const { reason } = req.body || {};
+  // Read the bill + deposit info first so the Stripe refund happens BEFORE we
+  // open the DB transaction — a failed Stripe call must not leave a
+  // half-applied refund.
+  let bill;
   try {
     const billRow = await pool.query(
       `SELECT b.*, a.id AS appt_id, a.deposit_stripe_id, COALESCE(a.deposit_amount, 0) AS deposit_amount
@@ -519,42 +523,94 @@ router.post('/:id/refund', requireRole('admin', 'manager'), async (req, res) => 
       [id],
     );
     if (!billRow.rows[0]) return res.status(404).json({ error: 'not found' });
-    const bill = billRow.rows[0];
+    bill = billRow.rows[0];
     if (bill.payment_status !== 'paid') {
       return res.status(409).json({ error: 'only a paid bill can be refunded' });
     }
-    let stripeRefunded = 0;
-    if (bill.deposit_stripe_id) {
-      const s = stripeClient();
-      if (s) {
-        try {
-          await s.refunds.create({ payment_intent: bill.deposit_stripe_id });
-          stripeRefunded = Number(bill.deposit_amount || 0);
-        } catch (e) {
-          console.error('[bills] stripe refund', e);
-          return res.status(502).json({ error: `Stripe refund failed — ${e.message || 'try the Stripe dashboard'}` });
-        }
+  } catch (err) {
+    console.error('[bills] refund read', err);
+    return res.status(500).json({ error: 'server error' });
+  }
+
+  let stripeRefunded = 0;
+  if (bill.deposit_stripe_id) {
+    const s = stripeClient();
+    if (s) {
+      try {
+        await s.refunds.create({ payment_intent: bill.deposit_stripe_id });
+        stripeRefunded = Number(bill.deposit_amount || 0);
+      } catch (e) {
+        console.error('[bills] stripe refund', e);
+        return res.status(502).json({ error: `Stripe refund failed — ${e.message || 'try the Stripe dashboard'}` });
       }
     }
-    const { rows } = await pool.query(
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    // Reverse any gift-voucher redemptions taken against this bill so the
+    // customer's balance (or sessions) is put back. Without this, refunding a
+    // voucher-paid bill silently kept the voucher drained.
+    const reds = await client.query(
+      `SELECT vr.id, vr.voucher_id, vr.amount_used, vr.sessions_used,
+              v.voucher_type, v.total_sessions, v.initial_value
+       FROM voucher_redemptions vr
+       JOIN vouchers v ON v.id = vr.voucher_id
+       WHERE vr.bill_id = $1 AND vr.reversed_at IS NULL`,
+      [id],
+    );
+    const vouchersRestored = [];
+    for (const r of reds.rows) {
+      if (r.voucher_type === 'sessions') {
+        const back = Number(r.sessions_used || 0);
+        await client.query(
+          `UPDATE vouchers
+              SET sessions_remaining = sessions_remaining + $2,
+                  remaining_value = ROUND((initial_value / NULLIF(total_sessions, 0)) * (sessions_remaining + $2), 2),
+                  status = CASE WHEN status IN ('used', 'expired') THEN 'active' ELSE status END
+            WHERE id = $1`,
+          [r.voucher_id, back],
+        );
+      } else {
+        await client.query(
+          `UPDATE vouchers
+              SET remaining_value = remaining_value + $2,
+                  status = CASE WHEN status IN ('used', 'expired') THEN 'active' ELSE status END
+            WHERE id = $1`,
+          [r.voucher_id, Number(r.amount_used || 0)],
+        );
+      }
+      await client.query(`UPDATE voucher_redemptions SET reversed_at = now() WHERE id = $1`, [r.id]);
+      vouchersRestored.push({
+        voucher_id: r.voucher_id,
+        amount: Number(r.amount_used || 0),
+        sessions: Number(r.sessions_used || 0),
+      });
+    }
+    const { rows } = await client.query(
       `UPDATE bills
           SET payment_status = 'refunded', refunded_at = now(),
               refund_amount = $2, refund_reason = $3
         WHERE id = $1 RETURNING *`,
       [id, Number(bill.total), reason || null],
     );
-    await pool.query(
+    await client.query(
       `UPDATE appointments
           SET status = 'booked',
               payment_status = CASE WHEN payment_status = 'fully_paid' THEN 'refunded' ELSE payment_status END
         WHERE id = $1`,
       [bill.appt_id],
     );
+    await client.query('COMMIT');
     req.app.get('io')?.emit('appointment_updated', { id: bill.appt_id });
-    res.json({ bill: rows[0], stripe_refunded: stripeRefunded });
+    res.json({ bill: rows[0], stripe_refunded: stripeRefunded, vouchers_restored: vouchersRestored });
   } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
     console.error('[bills] refund', err);
     res.status(500).json({ error: 'server error' });
+  } finally {
+    client.release();
   }
 });
 
