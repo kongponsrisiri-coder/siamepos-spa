@@ -48,12 +48,19 @@ router.put('/:id/tip', async (req, res) => {
   const tipNum = Number(tip);
   if (Number.isNaN(tipNum) || tipNum < 0) return res.status(400).json({ error: 'invalid tip' });
   try {
+    // A paid bill is a closed transaction — editing tip/discount after the
+    // fact would silently desync the recorded payment from the totals that
+    // feed Reports / Z-report. Lock it.
     const { rows } = await pool.query(
       `UPDATE bills SET tip = $2, total = subtotal - COALESCE(discount, 0) + $2
-       WHERE id = $1 RETURNING *`,
+       WHERE id = $1 AND payment_status != 'paid' RETURNING *`,
       [id, tipNum],
     );
-    if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    if (!rows[0]) {
+      const check = await pool.query('SELECT payment_status FROM bills WHERE id = $1', [id]);
+      if (!check.rows[0]) return res.status(404).json({ error: 'not found' });
+      return res.status(409).json({ error: 'Bill is already paid — tip cannot be changed' });
+    }
     res.json({ bill: rows[0] });
   } catch (err) {
     console.error('[bills] tip', err);
@@ -207,13 +214,24 @@ router.put('/:id/discount', requireRole('admin', 'manager', 'reception'), async 
   const d = Number(discount);
   if (!isFinite(d) || d < 0) return res.status(400).json({ error: 'discount must be a number >= 0' });
   try {
+    // Read the bill first so we can (a) refuse to discount a closed/paid
+    // bill and (b) clamp the discount to the subtotal — a discount larger
+    // than the subtotal would push the bill total negative and corrupt the
+    // day's reported revenue.
+    const cur = await pool.query('SELECT subtotal, payment_status FROM bills WHERE id = $1', [id]);
+    if (!cur.rows[0]) return res.status(404).json({ error: 'not found' });
+    if (cur.rows[0].payment_status === 'paid') {
+      return res.status(409).json({ error: 'Bill is already paid — discount cannot be changed' });
+    }
+    const subtotal = Number(cur.rows[0].subtotal || 0);
+    const clamped = +Math.min(d, subtotal).toFixed(2);
     const { rows } = await pool.query(
       `UPDATE bills
           SET discount = $2,
               discount_reason = $3,
               total = subtotal - $2 + COALESCE(tip, 0)
         WHERE id = $1 RETURNING *`,
-      [id, +d.toFixed(2), reason || null],
+      [id, clamped, reason || null],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     res.json({ bill: rows[0] });

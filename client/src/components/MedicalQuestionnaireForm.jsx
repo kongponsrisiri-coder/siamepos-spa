@@ -65,15 +65,21 @@ const BLANK = {
 };
 
 const row = { display: 'flex', gap: 8, alignItems: 'center' };
-const yesNo = (val, onChange) => (
+// `name` must be stable per question so the Yes/No radios group correctly
+// (native keyboard nav + a11y). A fresh Math.random() each render broke that.
+const yesNo = (val, onChange, name) => (
   <div style={row}>
-    <label style={row}><input type="radio" name={Math.random()} style={{ width: 'auto' }} checked={val === true}  onChange={() => onChange(true)}  /> Yes</label>
-    <label style={row}><input type="radio" name={Math.random()} style={{ width: 'auto' }} checked={val === false} onChange={() => onChange(false)} /> No</label>
+    <label style={row}><input type="radio" name={name} style={{ width: 'auto' }} checked={val === true}  onChange={() => onChange(true)}  /> Yes</label>
+    <label style={row}><input type="radio" name={name} style={{ width: 'auto' }} checked={val === false} onChange={() => onChange(false)} /> No</label>
   </div>
 );
 
 export default function MedicalQuestionnaireForm({ clientId, initial, onSaved }) {
   const [m, setM]     = useState({ ...BLANK, ...(initial || {}) });
+  // Yes/No toggles for the free-text health questions are tracked separately
+  // from the text itself, seeded from whether a value already exists.
+  const [medsYes, setMedsYes] = useState(!!(initial?.medications && initial.medications.trim()));
+  const [allergiesYes, setAllergiesYes] = useState(!!(initial?.allergies && initial.allergies.trim()));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const sigRef = useRef(null);
@@ -107,29 +113,32 @@ export default function MedicalQuestionnaireForm({ clientId, initial, onSaved })
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '6px 12px', alignItems: 'center' }}>
 
-          {/* Medications */}
+          {/* Medications — track Yes/No separately so the "please list" box
+              actually appears when Yes is tapped (a blank list is still Yes). */}
           <span>Are you taking any medications?</span>
-          {yesNo(!!m.medications, (v) => set('medications', v ? m.medications || ' ' : ''))}
-          {m.medications && m.medications.trim() !== '' && (
+          {yesNo(medsYes, (v) => { setMedsYes(v); if (!v) set('medications', ''); }, 'q_medications')}
+          {medsYes && (
             <>
               <span className="muted" style={{ fontSize: 12 }}>If yes, please list:</span>
-              <input value={m.medications} onChange={(e) => set('medications', e.target.value)} />
+              <input value={m.medications} placeholder="e.g. blood-pressure tablets"
+                     onChange={(e) => set('medications', e.target.value)} />
             </>
           )}
 
           {/* Allergies */}
           <span>Any allergies? (oils, lotions, nuts, fruits, skin, etc.)</span>
-          {yesNo(!!m.allergies, (v) => set('allergies', v ? m.allergies || ' ' : ''))}
-          {m.allergies && m.allergies.trim() !== '' && (
+          {yesNo(allergiesYes, (v) => { setAllergiesYes(v); if (!v) set('allergies', ''); }, 'q_allergies')}
+          {allergiesYes && (
             <>
               <span className="muted" style={{ fontSize: 12 }}>If yes, please list:</span>
-              <input value={m.allergies} onChange={(e) => set('allergies', e.target.value)} />
+              <input value={m.allergies} placeholder="e.g. nut oils, lavender"
+                     onChange={(e) => set('allergies', e.target.value)} />
             </>
           )}
 
           {/* Pregnancy */}
           <span>Are you pregnant?</span>
-          {yesNo(m.pregnancy, (v) => set('pregnancy', v))}
+          {yesNo(m.pregnancy, (v) => set('pregnancy', v), 'q_pregnancy')}
           {m.pregnancy && (
             <>
               <span className="muted" style={{ fontSize: 12 }}>How many months?</span>
@@ -141,7 +150,7 @@ export default function MedicalQuestionnaireForm({ clientId, initial, onSaved })
 
           {/* Medical supervision */}
           <span>Are you currently under medical supervision or receiving other medical interventions?</span>
-          {yesNo(m.under_medical_supervision, (v) => set('under_medical_supervision', v))}
+          {yesNo(m.under_medical_supervision, (v) => set('under_medical_supervision', v), 'q_medsup')}
           {m.under_medical_supervision && (
             <>
               <span className="muted" style={{ fontSize: 12 }}>If yes, please describe:</span>
@@ -180,7 +189,7 @@ export default function MedicalQuestionnaireForm({ clientId, initial, onSaved })
 
           {/* Broken skin */}
           <span>Areas of broken skin? (e.g. rash, wounds)</span>
-          {yesNo(m.broken_skin, (v) => set('broken_skin', v))}
+          {yesNo(m.broken_skin, (v) => set('broken_skin', v), 'q_brokenskin')}
           {m.broken_skin && (
             <>
               <span className="muted" style={{ fontSize: 12 }}>If yes, where?</span>
@@ -190,7 +199,7 @@ export default function MedicalQuestionnaireForm({ clientId, initial, onSaved })
 
           {/* Joint replacement */}
           <span>History of joint replacement surgery?</span>
-          {yesNo(m.joint_replacement, (v) => set('joint_replacement', v))}
+          {yesNo(m.joint_replacement, (v) => set('joint_replacement', v), 'q_joint')}
           {m.joint_replacement && (
             <>
               <span className="muted" style={{ fontSize: 12 }}>Which joint(s)?</span>
@@ -200,7 +209,7 @@ export default function MedicalQuestionnaireForm({ clientId, initial, onSaved })
 
           {/* Recent injuries */}
           <span>Recent injuries or medical procedures in the past 2 years?</span>
-          {yesNo(m.recent_injuries_yn, (v) => set('recent_injuries_yn', v))}
+          {yesNo(m.recent_injuries_yn, (v) => set('recent_injuries_yn', v), 'q_injuries')}
           {m.recent_injuries_yn && (
             <>
               <span className="muted" style={{ fontSize: 12 }}>Please describe:</span>
@@ -219,7 +228,7 @@ export default function MedicalQuestionnaireForm({ clientId, initial, onSaved })
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: '6px 12px', alignItems: 'center' }}>
           <span>Have you had professional massage before?</span>
-          {yesNo(m.had_massage_before, (v) => set('had_massage_before', v))}
+          {yesNo(m.had_massage_before, (v) => set('had_massage_before', v), 'q_hadmassage')}
           {m.had_massage_before && (
             <>
               <span className="muted" style={{ fontSize: 12 }}>How recently?</span>

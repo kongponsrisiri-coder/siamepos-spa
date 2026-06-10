@@ -167,17 +167,23 @@ router.put('/categories/:id', async (req, res) => {
 // moves any treatments using it to category_id=NULL (uncategorised).
 router.delete('/categories/:id', async (req, res) => {
   const id = Number(req.params.id);
+  // Single pooled client so this is a real atomic transaction — running
+  // BEGIN/COMMIT through pool.query() spreads the statements across
+  // connections and can leak an open transaction onto the pool.
+  const client = await pool.connect();
   try {
-    await pool.query('BEGIN');
-    await pool.query('UPDATE treatments SET category_id = NULL WHERE category_id = $1', [id]);
-    const { rowCount } = await pool.query('DELETE FROM treatment_categories WHERE id = $1', [id]);
-    await pool.query('COMMIT');
+    await client.query('BEGIN');
+    await client.query('UPDATE treatments SET category_id = NULL WHERE category_id = $1', [id]);
+    const { rowCount } = await client.query('DELETE FROM treatment_categories WHERE id = $1', [id]);
+    await client.query('COMMIT');
     if (!rowCount) return res.status(404).json({ error: 'not found' });
     res.json({ ok: true });
   } catch (err) {
-    await pool.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(() => {});
     console.error('[treatments] delete category', err);
     res.status(500).json({ error: 'server error' });
+  } finally {
+    client.release();
   }
 });
 

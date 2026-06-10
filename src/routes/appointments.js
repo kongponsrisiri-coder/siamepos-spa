@@ -559,7 +559,7 @@ router.put('/:id', async (req, res) => {
     if (newPriceAtBooking !== null) {
       await pool.query(
         `UPDATE bills
-            SET subtotal = $2, total = $2 + COALESCE(tip, 0)
+            SET subtotal = $2, total = $2 - COALESCE(discount, 0) + COALESCE(tip, 0)
           WHERE appointment_id = $1
             AND payment_status != 'paid'`,
         [id, newPriceAtBooking],

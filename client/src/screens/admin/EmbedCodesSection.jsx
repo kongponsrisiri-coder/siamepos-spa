@@ -33,7 +33,7 @@ export default function EmbedCodesSection() {
       <div className="section-header">
         <div>
           <h2>Embed Codes</h2>
-          <div className="sub">Add the booking or takeaway widget to your website</div>
+          <div className="sub">Add the booking or gift-voucher widget to your website</div>
         </div>
       </div>
       <div className="card col">

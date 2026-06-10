@@ -396,9 +396,43 @@ router.post('/book', async (req, res) => {
 // Creates a voucher record for online purchases (payment_method always 'card').
 // body: { value, purchased_by, purchased_for, recipient_email, message?,
 //          treatment_id?, treatment_name? }
+// SPA-SEC-001 — hard ceiling on an online voucher so a tampered request
+// can't mint an absurd balance even on a Stripe-less demo install.
+const MAX_ONLINE_VOUCHER = 1000;
+
 router.post('/vouchers', async (req, res) => {
-  const { value, purchased_by, purchased_for, recipient_email, message, treatment_id } = req.body || {};
+  const { value, purchased_by, purchased_for, recipient_email, message, treatment_id, payment_intent_id } = req.body || {};
   if (!value || Number(value) <= 0) return res.status(400).json({ error: 'value required' });
+  if (Number(value) > MAX_ONLINE_VOUCHER) {
+    return res.status(400).json({ error: `online vouchers are capped at £${MAX_ONLINE_VOUCHER}` });
+  }
+
+  // SPA-SEC-001 — a voucher is 100% pre-paid value redeemable at the till,
+  // so unlike a booking deposit it MUST be backed by a real payment when the
+  // spa has Stripe configured. Mirror /book's deposit verification: require a
+  // succeeded PaymentIntent and take the voucher value from Stripe's
+  // amount_received (never the client-sent value). When Stripe is NOT
+  // configured (demo / pre-go-live) we fall back to the client value so the
+  // mock-pay demo widget still works — exactly the same trade-off as /book.
+  let voucherValue = Number(value);
+  const sv = stripeClient();
+  if (sv) {
+    if (!payment_intent_id) {
+      return res.status(400).json({ error: 'payment_intent_id required — voucher must be paid for' });
+    }
+    let intent;
+    try { intent = await sv.paymentIntents.retrieve(payment_intent_id); }
+    catch (err) { return res.status(400).json({ error: 'invalid payment_intent_id' }); }
+    if (intent.status !== 'succeeded') {
+      return res.status(402).json({ error: 'voucher payment not completed', stripe_status: intent.status });
+    }
+    // Reject a PaymentIntent that's already been used for another voucher.
+    const used = await pool.query('SELECT id FROM vouchers WHERE stripe_payment_intent_id = $1', [intent.id]);
+    if (used.rows[0]) return res.status(409).json({ error: 'this payment has already been used for a voucher' });
+    voucherValue = +(intent.amount_received / 100).toFixed(2);
+    if (voucherValue <= 0) return res.status(402).json({ error: 'voucher payment captured £0' });
+  }
+  const stripeIntentId = sv ? payment_intent_id : null;
 
   // Generate unique code (SPA-XXXXXXXX)
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -420,17 +454,19 @@ router.post('/vouchers', async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO vouchers
          (code, initial_value, remaining_value, purchased_by, purchased_for,
-          recipient_email, payment_method, notes, expires_at, treatment_id)
-       VALUES ($1,$2,$2,$3,$4,$5,'card',$6,$7,$8) RETURNING *`,
+          recipient_email, payment_method, notes, expires_at, treatment_id,
+          stripe_payment_intent_id)
+       VALUES ($1,$2,$2,$3,$4,$5,'card',$6,$7,$8,$9) RETURNING *`,
       [
         code,
-        Number(value),
+        voucherValue,
         purchased_by  || null,
         purchased_for || null,
         recipient_email || null,
         message       || null,
         expiresAt,
         treatment_id  ? Number(treatment_id) : null,
+        stripeIntentId,
       ],
     );
     const voucher = rows[0];

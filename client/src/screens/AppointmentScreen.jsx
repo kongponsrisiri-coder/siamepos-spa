@@ -208,6 +208,11 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout }) {
                 🧾 Pay
               </button>
               <button
+                onClick={() => { onStatus(appt.id, 'no_show'); onClose(); }}
+                style={{ flex: 1, minWidth: 80, minHeight: 52, borderRadius: 12, background: '#f1f5f9', color: '#334155', border: '1px solid #cbd5e1', fontWeight: 600, fontSize: 14 }}>
+                👻 No-show
+              </button>
+              <button
                 onClick={() => { onStatus(appt.id, 'cancelled'); onClose(); }}
                 style={{ flex: 1, minWidth: 80, minHeight: 52, borderRadius: 12, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', fontWeight: 600, fontSize: 14 }}>
                 ✕ Cancel
@@ -834,6 +839,11 @@ export default function AppointmentScreen() {
   }, [load]);
 
   async function setStatus(id, status) {
+    // Cancel / no-show remove the booking from the timeline and can't be
+    // undone from the grid — confirm first so a stray tap on a tablet
+    // doesn't quietly lose a booking.
+    if (status === 'cancelled' && !window.confirm('Cancel this booking? It will be removed from the timeline.')) return;
+    if (status === 'no_show'   && !window.confirm('Mark this booking as a no-show?')) return;
     try { await api.put(`/appointments/${id}/status`, { status }); load(); }
     catch (e) { alert(e.message); }
   }
@@ -1070,6 +1080,8 @@ export default function AppointmentScreen() {
                         onClick={() => setStatus(selected.id, 'in_progress')}>▶ Start</button>
                       <button style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 7, padding: '7px 14px', cursor: 'pointer' }}
                         onClick={() => startCheckout(selected)}>🧾 Checkout</button>
+                      <button style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 7, padding: '7px 14px', cursor: 'pointer' }}
+                        onClick={() => setStatus(selected.id, 'no_show')}>👻 No-show</button>
                       <button style={{ background: '#ef4444', color: 'white', border: 'none', borderRadius: 7, padding: '7px 14px', cursor: 'pointer' }}
                         onClick={() => setStatus(selected.id, 'cancelled')}>✕ Cancel</button>
                     </>
@@ -1125,6 +1137,7 @@ export default function AppointmentScreen() {
                         {a.status === 'booked' && (
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                             <button style={{ minHeight: isMobile ? 44 : 34 }} onClick={() => setStatus(a.id, 'in_progress')}>Start</button>
+                            <button style={{ minHeight: isMobile ? 44 : 34 }} onClick={() => setStatus(a.id, 'no_show')}>No-show</button>
                             <button style={{ minHeight: isMobile ? 44 : 34 }} onClick={() => setStatus(a.id, 'cancelled')}>Cancel</button>
                             <button className="primary" style={{ minHeight: isMobile ? 44 : 34 }} onClick={() => startCheckout(a)}>Checkout</button>
                           </div>

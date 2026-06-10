@@ -356,6 +356,13 @@ async function initSchema() {
     -- required to set this (enforced in the API + admin form).
     ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS payment_method TEXT;
 
+    -- SPA-SEC-001: Stripe PaymentIntent backing an online voucher purchase.
+    -- Lets the public /api/widget/vouchers endpoint verify a real payment
+    -- and reject re-use of the same intent (unique). NULL for till sales.
+    ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS stripe_payment_intent_id TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_vouchers_stripe_pi
+      ON vouchers (stripe_payment_intent_id) WHERE stripe_payment_intent_id IS NOT NULL;
+
     -- SPA-SPLIT-001: per-method breakdown on a split-paid bill so the
     -- daily report can attribute the cash portion to "cash" and the
     -- card portion to "card" instead of dumping the whole thing in a

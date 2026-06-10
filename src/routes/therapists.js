@@ -44,26 +44,33 @@ router.put('/turn-order', requireRole('admin', 'manager', 'reception'), async (r
   const { date, order } = req.body || {};
   if (!date)                  return res.status(400).json({ error: 'date required' });
   if (!Array.isArray(order))  return res.status(400).json({ error: 'order array required' });
+  // Run on a single pooled client so BEGIN/COMMIT/ROLLBACK are a real
+  // transaction. Issuing them via pool.query() lets each statement land on a
+  // different connection (no atomicity) and can release a connection with an
+  // open transaction that poisons unrelated later requests.
+  const client = await pool.connect();
   try {
-    await pool.query('BEGIN');
-    await pool.query('DELETE FROM therapist_turn_order WHERE date = $1', [date]);
+    await client.query('BEGIN');
+    await client.query('DELETE FROM therapist_turn_order WHERE date = $1', [date]);
     for (let i = 0; i < order.length; i++) {
       const tid = Number(order[i]);
       if (!Number.isInteger(tid) || tid <= 0) continue;
-      await pool.query(
+      await client.query(
         `INSERT INTO therapist_turn_order (date, therapist_id, position, set_by)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (date, therapist_id) DO UPDATE SET position = EXCLUDED.position, set_by = EXCLUDED.set_by, set_at = now()`,
         [date, tid, i + 1, req.staff?.id || null],
       );
     }
-    await pool.query('COMMIT');
+    await client.query('COMMIT');
     req.app.get('io')?.emit('turn_order_updated', { date, order });
     res.json({ ok: true, date, order });
   } catch (err) {
-    await pool.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(() => {});
     console.error('[therapists] turn-order PUT', err);
     res.status(500).json({ error: 'server error' });
+  } finally {
+    client.release();
   }
 });
 

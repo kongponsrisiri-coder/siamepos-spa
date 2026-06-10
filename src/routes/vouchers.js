@@ -257,8 +257,11 @@ router.post('/:id/redeem', async (req, res) => {
       return res.status(400).json({ error: `Voucher is ${v.status}` });
     }
     if (isExpired(v.expires_at)) {
-      await client.query("UPDATE vouchers SET status = 'expired' WHERE id = $1", [id]);
+      // Roll back the redemption transaction, THEN persist the expiry flip
+      // on the pool — doing the UPDATE inside the about-to-rollback tx threw
+      // the status change away, so expired vouchers kept showing as active.
       await client.query('ROLLBACK');
+      await pool.query("UPDATE vouchers SET status = 'expired' WHERE id = $1 AND status = 'active'", [id]);
       return res.status(400).json({ error: 'Voucher has expired' });
     }
 

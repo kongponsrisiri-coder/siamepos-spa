@@ -21,7 +21,7 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-const METHOD_LABEL = { cash: '💵 Cash', card: '💳 Card', split: '🔀 Split' };
+const METHOD_LABEL = { cash: '💵 Cash', card: '💳 Card', split: '🔀 Split', voucher: '🎁 Voucher', treatwell: '🌐 Treatwell' };
 const UNLOCK_MS = 5 * 60 * 1000; // 5 minutes
 
 export default function BillsSection() {

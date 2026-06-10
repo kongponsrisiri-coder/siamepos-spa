@@ -158,8 +158,10 @@ export default function CheckoutScreen() {
       }
 
       // Monetary voucher — operator may specify a custom amount.
-      // Default: min(remaining, total). Cap at min(remaining, total).
-      const cap = Math.min(Number(v.remaining_value), total);
+      // Cap at min(remaining, balance) — `balance` already nets off any
+      // online deposit, so a £25-deposit + £60 bill only lets the voucher
+      // cover the £35 still owed (was charging against the full £60).
+      const cap = Math.min(Number(v.remaining_value), balance);
       const amountToUse = customAmount !== undefined
         ? +Math.min(cap, Math.max(0, Number(customAmount))).toFixed(2)
         : cap;
@@ -171,7 +173,7 @@ export default function CheckoutScreen() {
         notes: `Checkout for appointment #${appointmentId}`,
       });
 
-      if (Math.abs(amountToUse - total) < 0.01) {
+      if (Math.abs(amountToUse - balance) < 0.01) {
         // Full coverage — close the bill as voucher.
         await api.post(`/bills/${bill.id}/pay`, { method: 'voucher' });
         navigate('/', { replace: true });

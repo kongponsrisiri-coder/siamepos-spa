@@ -6,7 +6,7 @@ const KEYS = [
   { k: 'closing_time',             t: 'Closing time',                            type: 'time'   },
   { k: 'booking_slot_minutes',     t: 'Slot size (minutes)',                     type: 'number' },
   { k: 'booking_advance_days',     t: 'Advance booking window (days)',           type: 'number' },
-  { k: 'cancellation_policy_text', t: 'Cancellation policy (shown on widget)',   type: 'text'   },
+  { k: 'cancel_policy_text',       t: 'Cancellation policy (shown on widget)',   type: 'text'   },
   { k: 'tip_suggestions',          t: 'Tip suggestions (% — comma separated)',   type: 'text'   },
   { k: 'vat_rate',                 t: 'VAT rate (%)',                            type: 'number' },
 ];
