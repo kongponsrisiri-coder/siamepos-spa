@@ -81,14 +81,12 @@ export default function OnlineBookingSection() {
   async function refundBooking(a) {
     if (!confirm(`Refund the £${Number(a.deposit_amount).toFixed(2)} deposit for #${a.id}? This is irreversible.`)) return;
     try {
-      // Refund happens via the booking by-token DELETE path, but staff
-      // don't have the customer's token. Easiest: hit a staff cancel
-      // endpoint that also refunds. We can use the existing PUT
-      // /api/appointments/:id/status to cancel, and a separate
-      // POST /api/online-booking/:id/refund for the Stripe refund.
-      // Since that endpoint isn't built yet, fall back to message.
-      alert('Use the customer\'s confirmation-email link to cancel + refund. Direct staff-side refund is a follow-up ticket.');
-    } catch (e) { alert(e.message); }
+      const r = await api.post(`/appointments/${a.id}/refund-deposit`, {});
+      alert(`Refunded £${Number(r.refunded || a.deposit_amount).toFixed(2)} to the customer's card via Stripe.`);
+      loadBookings();
+    } catch (e) {
+      alert(e.message || 'Refund failed');
+    }
   }
 
   const filteredBookings = bookings.filter((b) => {

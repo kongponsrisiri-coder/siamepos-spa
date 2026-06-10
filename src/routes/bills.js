@@ -1,8 +1,60 @@
 const express = require('express');
+const Stripe = require('stripe');
 const { pool } = require('../db/database');
 const { requireRole } = require('../middleware/auth');
 
 const router = express.Router();
+
+function stripeClient() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return null;
+  return new Stripe(key, { apiVersion: '2024-06-20' });
+}
+
+// SPA-BILL-ITEMS — recompute the cached aggregates on a bill from its line
+// items: subtotal = SUM(line_total); total = subtotal − discount + tip.
+// Keeping bills.subtotal/total in sync means every existing report that
+// reads those columns keeps working without knowing about line items.
+// `db` may be the pool or a transaction client. Returns the updated row.
+async function recomputeBillTotals(db, billId) {
+  const { rows } = await db.query(
+    `UPDATE bills b SET
+       subtotal = COALESCE((SELECT SUM(line_total) FROM bill_items WHERE bill_id = b.id), 0),
+       total    = COALESCE((SELECT SUM(line_total) FROM bill_items WHERE bill_id = b.id), 0)
+                  - COALESCE(b.discount, 0) + COALESCE(b.tip, 0)
+     WHERE b.id = $1 RETURNING *`,
+    [billId],
+  );
+  return rows[0];
+}
+
+// Load a bill plus its line items. Legacy bills created before SPA-BILL-ITEMS
+// have no rows in bill_items — self-heal by seeding the treatment line from
+// the appointment so the checkout always shows the service line. subtotal is
+// already the treatment price on those bills, so seeding keeps SUM in sync.
+async function loadBillWithItems(billId) {
+  const b = await pool.query('SELECT * FROM bills WHERE id = $1', [billId]);
+  if (!b.rows[0]) return null;
+  let items = (await pool.query('SELECT * FROM bill_items WHERE bill_id = $1 ORDER BY id', [billId])).rows;
+  if (items.length === 0) {
+    const ap = await pool.query(
+      `SELECT COALESCE(a.price_at_booking, t.price, 0) AS price, t.name
+       FROM bills bl JOIN appointments a ON a.id = bl.appointment_id
+       LEFT JOIN treatments t ON t.id = a.treatment_id WHERE bl.id = $1`,
+      [billId],
+    );
+    if (ap.rows[0]) {
+      const price = Number(ap.rows[0].price || 0);
+      await pool.query(
+        `INSERT INTO bill_items (bill_id, kind, name, quantity, unit_price, line_total)
+         VALUES ($1, 'treatment', $2, 1, $3, $3)`,
+        [billId, ap.rows[0].name || 'Treatment', price],
+      );
+      items = (await pool.query('SELECT * FROM bill_items WHERE bill_id = $1 ORDER BY id', [billId])).rows;
+    }
+  }
+  return { ...b.rows[0], items };
+}
 
 // POST /api/bills  body: { appointment_id }
 // Creates a pending bill from the appointment's treatment price.
@@ -14,27 +66,35 @@ router.post('/', async (req, res) => {
       'SELECT * FROM bills WHERE appointment_id = $1 LIMIT 1',
       [appointment_id],
     );
-    if (existing.rows[0]) return res.json({ bill: existing.rows[0] });
+    if (existing.rows[0]) return res.json({ bill: await loadBillWithItems(existing.rows[0].id) });
 
     // SPA-PRICE-SNAPSHOT — prefer the booking-time price. Only fall
     // back to the live treatment price for legacy bookings made before
     // the snapshot column existed (already backfilled by the migration,
     // but the COALESCE is belt-and-braces).
     const ap = await pool.query(
-      `SELECT a.id, COALESCE(a.price_at_booking, t.price) AS price
+      `SELECT a.id, COALESCE(a.price_at_booking, t.price) AS price, t.name AS treatment_name
        FROM appointments a LEFT JOIN treatments t ON t.id = a.treatment_id
        WHERE a.id = $1`,
       [appointment_id],
     );
     if (!ap.rows[0]) return res.status(404).json({ error: 'appointment not found' });
-    const subtotal = ap.rows[0].price || 0;
+    const subtotal = Number(ap.rows[0].price || 0);
 
     const { rows } = await pool.query(
       `INSERT INTO bills (appointment_id, subtotal, tip, total)
        VALUES ($1, $2, 0, $2) RETURNING *`,
       [appointment_id, subtotal],
     );
-    res.status(201).json({ bill: rows[0] });
+    // SPA-BILL-ITEMS — seed the treatment as the first line item so the
+    // checkout starts from the service and the operator can add retail /
+    // add-ons on top.
+    await pool.query(
+      `INSERT INTO bill_items (bill_id, kind, name, quantity, unit_price, line_total)
+       VALUES ($1, 'treatment', $2, 1, $3, $3)`,
+      [rows[0].id, ap.rows[0].treatment_name || 'Treatment', subtotal],
+    );
+    res.status(201).json({ bill: await loadBillWithItems(rows[0].id) });
   } catch (err) {
     console.error('[bills] create', err);
     res.status(500).json({ error: 'server error' });
@@ -61,7 +121,7 @@ router.put('/:id/tip', async (req, res) => {
       if (!check.rows[0]) return res.status(404).json({ error: 'not found' });
       return res.status(409).json({ error: 'Bill is already paid — tip cannot be changed' });
     }
-    res.json({ bill: rows[0] });
+    res.json({ bill: await loadBillWithItems(id) });
   } catch (err) {
     console.error('[bills] tip', err);
     res.status(500).json({ error: 'server error' });
@@ -234,7 +294,7 @@ router.put('/:id/discount', requireRole('admin', 'manager', 'reception'), async 
       [id, clamped, reason || null],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
-    res.json({ bill: rows[0] });
+    res.json({ bill: await loadBillWithItems(id) });
   } catch (err) {
     console.error('[bills] discount', err);
     res.status(500).json({ error: 'server error' });
@@ -378,4 +438,126 @@ router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
   } finally { client.release(); }
 });
 
+// ── SPA-BILL-ITEMS — line items ─────────────────────────────────────────
+
+// GET /api/bills/:id/items — bill + its line items (refresh helper).
+router.get('/:id/items', async (req, res) => {
+  try {
+    const full = await loadBillWithItems(Number(req.params.id));
+    if (!full) return res.status(404).json({ error: 'not found' });
+    res.json({ bill: full });
+  } catch (err) {
+    console.error('[bills] get items', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// POST /api/bills/:id/items  body { kind, name, quantity, unit_price }
+// Add a retail product / add-on / extra service line to an open bill.
+router.post('/:id/items', async (req, res) => {
+  const id = Number(req.params.id);
+  const { kind, name, quantity, unit_price } = req.body || {};
+  const k = ['treatment', 'retail', 'addon'].includes(kind) ? kind : 'retail';
+  const qty = Math.max(1, parseInt(quantity, 10) || 1);
+  const price = Number(unit_price);
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'name required' });
+  if (!isFinite(price) || price < 0) return res.status(400).json({ error: 'unit_price must be a number >= 0' });
+  try {
+    const cur = await pool.query('SELECT payment_status FROM bills WHERE id = $1', [id]);
+    if (!cur.rows[0]) return res.status(404).json({ error: 'not found' });
+    if (cur.rows[0].payment_status === 'paid') {
+      return res.status(409).json({ error: 'Bill is already paid — items cannot be changed' });
+    }
+    const lineTotal = +(price * qty).toFixed(2);
+    await pool.query(
+      `INSERT INTO bill_items (bill_id, kind, name, quantity, unit_price, line_total)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [id, k, String(name).trim().slice(0, 120), qty, +price.toFixed(2), lineTotal],
+    );
+    await recomputeBillTotals(pool, id);
+    res.status(201).json({ bill: await loadBillWithItems(id) });
+  } catch (err) {
+    console.error('[bills] add item', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// DELETE /api/bills/:id/items/:itemId — remove a line from an open bill.
+router.delete('/:id/items/:itemId', async (req, res) => {
+  const id = Number(req.params.id);
+  const itemId = Number(req.params.itemId);
+  try {
+    const cur = await pool.query('SELECT payment_status FROM bills WHERE id = $1', [id]);
+    if (!cur.rows[0]) return res.status(404).json({ error: 'not found' });
+    if (cur.rows[0].payment_status === 'paid') {
+      return res.status(409).json({ error: 'Bill is already paid — items cannot be changed' });
+    }
+    const del = await pool.query('DELETE FROM bill_items WHERE id = $1 AND bill_id = $2', [itemId, id]);
+    if (!del.rowCount) return res.status(404).json({ error: 'item not found' });
+    await recomputeBillTotals(pool, id);
+    res.json({ bill: await loadBillWithItems(id) });
+  } catch (err) {
+    console.error('[bills] delete item', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// POST /api/bills/:id/refund  body { reason? }  — admin/manager only.
+// Reverses a PAID bill. If the appointment carried an online Stripe deposit
+// we refund that via Stripe; cash/card portions are recorded as a manual
+// reversal (there's no card rail at the till). Marks the bill 'refunded',
+// stamps refund_amount/refunded_at, and reopens the appointment to 'booked'
+// so it can be re-rung or cancelled.
+router.post('/:id/refund', requireRole('admin', 'manager'), async (req, res) => {
+  const id = Number(req.params.id);
+  const { reason } = req.body || {};
+  try {
+    const billRow = await pool.query(
+      `SELECT b.*, a.id AS appt_id, a.deposit_stripe_id, COALESCE(a.deposit_amount, 0) AS deposit_amount
+       FROM bills b JOIN appointments a ON a.id = b.appointment_id
+       WHERE b.id = $1`,
+      [id],
+    );
+    if (!billRow.rows[0]) return res.status(404).json({ error: 'not found' });
+    const bill = billRow.rows[0];
+    if (bill.payment_status !== 'paid') {
+      return res.status(409).json({ error: 'only a paid bill can be refunded' });
+    }
+    let stripeRefunded = 0;
+    if (bill.deposit_stripe_id) {
+      const s = stripeClient();
+      if (s) {
+        try {
+          await s.refunds.create({ payment_intent: bill.deposit_stripe_id });
+          stripeRefunded = Number(bill.deposit_amount || 0);
+        } catch (e) {
+          console.error('[bills] stripe refund', e);
+          return res.status(502).json({ error: `Stripe refund failed — ${e.message || 'try the Stripe dashboard'}` });
+        }
+      }
+    }
+    const { rows } = await pool.query(
+      `UPDATE bills
+          SET payment_status = 'refunded', refunded_at = now(),
+              refund_amount = $2, refund_reason = $3
+        WHERE id = $1 RETURNING *`,
+      [id, Number(bill.total), reason || null],
+    );
+    await pool.query(
+      `UPDATE appointments
+          SET status = 'booked',
+              payment_status = CASE WHEN payment_status = 'fully_paid' THEN 'refunded' ELSE payment_status END
+        WHERE id = $1`,
+      [bill.appt_id],
+    );
+    req.app.get('io')?.emit('appointment_updated', { id: bill.appt_id });
+    res.json({ bill: rows[0], stripe_refunded: stripeRefunded });
+  } catch (err) {
+    console.error('[bills] refund', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 module.exports = router;
+module.exports.recomputeBillTotals = recomputeBillTotals;
+module.exports.loadBillWithItems = loadBillWithItems;

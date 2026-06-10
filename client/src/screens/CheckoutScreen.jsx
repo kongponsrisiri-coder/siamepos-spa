@@ -28,6 +28,9 @@ export default function CheckoutScreen() {
   const [legacyAmount, setLegacyAmount]   = useState('');
   const [showTreatwell, setShowTreatwell] = useState(false);
   const [treatwellAmount, setTreatwellAmount] = useState('');
+  // SPA-BILL-ITEMS — add-a-line state (retail product / add-on / extra)
+  const [showAddItem, setShowAddItem] = useState(false);
+  const [newItem, setNewItem] = useState({ kind: 'retail', name: '', price: '', qty: 1 });
 
   const load = useCallback(async () => {
     setError('');
@@ -80,6 +83,40 @@ export default function CheckoutScreen() {
       setDiscountReason(reason || '');
       setDiscountDraft(amount ? String(Number(amount).toFixed(2)) : '');
     } catch (e) { setError(e.message); }
+  }
+
+  // SPA-BILL-ITEMS — add / remove line items (retail products, add-ons).
+  async function addItem() {
+    const price = Number(newItem.price);
+    if (!newItem.name.trim()) { setError('Enter an item name'); return; }
+    if (!isFinite(price) || price < 0) { setError('Enter a valid price'); return; }
+    setBusy(true); setError('');
+    try {
+      const r = await api.post(`/bills/${bill.id}/items`, {
+        kind: newItem.kind, name: newItem.name.trim(),
+        quantity: Number(newItem.qty) || 1, unit_price: price,
+      });
+      setBill(r.bill);
+      setNewItem({ kind: 'retail', name: '', price: '', qty: 1 });
+      setShowAddItem(false);
+    } catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+  async function removeItem(itemId) {
+    setBusy(true); setError('');
+    try { const r = await api.del(`/bills/${bill.id}/items/${itemId}`); setBill(r.bill); }
+    catch (e) { setError(e.message); }
+    finally { setBusy(false); }
+  }
+  // SPA-BILL-ITEMS — reverse a paid bill (admin/manager). Stripe-refunds an
+  // online deposit if there was one; reopens the appointment.
+  async function refundBill() {
+    if (!window.confirm(`Refund this ${fmtMoney(bill.total)} bill? The appointment reopens so it can be re-rung or cancelled.`)) return;
+    setBusy(true); setError('');
+    try {
+      await api.post(`/bills/${bill.id}/refund`, {});
+      navigate('/', { replace: true });
+    } catch (e) { setError(e.message); setBusy(false); }
   }
 
   // Confirm-before-close wrapper for the single-tap payment buttons.
@@ -222,9 +259,39 @@ export default function CheckoutScreen() {
         </div>
 
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-          <div className="row" style={{ justifyContent: 'space-between' }}>
-            <span>Treatment</span><span>{fmtMoney(subtotal)}</span>
-          </div>
+          {/* SPA-BILL-ITEMS — line items: treatment + any retail / add-ons */}
+          {(bill.items && bill.items.length ? bill.items : [{ id: 'tx', kind: 'treatment', name: 'Treatment', quantity: 1, line_total: subtotal }]).map((it) => (
+            <div key={it.id} className="row" style={{ justifyContent: 'space-between', marginTop: 4, alignItems: 'center' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                {it.kind === 'retail' && <span title="Retail product" style={{ fontSize: 12 }}>🛍</span>}
+                {it.kind === 'addon' && <span title="Add-on / upgrade" style={{ fontSize: 12 }}>➕</span>}
+                {it.name}{Number(it.quantity) > 1 ? ` ×${it.quantity}` : ''}
+                {!paid && it.kind !== 'treatment' && (
+                  <button onClick={() => removeItem(it.id)} disabled={busy}
+                    title="Remove"
+                    style={{ fontSize: 12, padding: '0 6px', background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
+                )}
+              </span>
+              <span>{fmtMoney(it.line_total)}</span>
+            </div>
+          ))}
+          {bill.items && bill.items.length > 1 && (
+            <div className="row" style={{ justifyContent: 'space-between', marginTop: 6, paddingTop: 6, borderTop: '1px dashed var(--border)' }}>
+              <span className="muted">Subtotal</span><span>{fmtMoney(subtotal)}</span>
+            </div>
+          )}
+          {!paid && (showAddItem ? (
+            <AddItemForm
+              newItem={newItem} setNewItem={setNewItem} busy={busy}
+              onAdd={addItem}
+              onCancel={() => { setShowAddItem(false); setNewItem({ kind: 'retail', name: '', price: '', qty: 1 }); }}
+            />
+          ) : (
+            <button onClick={() => setShowAddItem(true)}
+              style={{ marginTop: 8, fontSize: 13, padding: '6px 12px', background: '#eef2ff', color: '#3730a3', border: '1px solid #c7d2fe' }}>
+              ＋ Add product / add-on
+            </button>
+          ))}
           {discount > 0 && (
             <div className="row" style={{ justifyContent: 'space-between', marginTop: 6, color: '#ec4899' }}>
               <span>🏷 Discount{bill.discount_reason ? ` (${bill.discount_reason})` : ''}</span>
@@ -546,9 +613,22 @@ export default function CheckoutScreen() {
         )}
 
         {paid && (
-          <div className="card" style={{ background: '#dcfce7', borderColor: '#86efac', textAlign: 'center' }}>
-            <strong style={{ color: 'var(--success)' }}>Paid</strong>
-            <div className="muted">{bill.payment_method} · {new Date(bill.closed_at).toLocaleString('en-GB')}</div>
+          <div className="card col" style={{ background: '#dcfce7', borderColor: '#86efac', textAlign: 'center', gap: 10 }}>
+            <div>
+              <strong style={{ color: 'var(--success)' }}>Paid</strong>
+              <div className="muted">{bill.payment_method} · {new Date(bill.closed_at).toLocaleString('en-GB')}</div>
+            </div>
+            {/* SPA-BILL-ITEMS — staff refund (admin/manager PIN gated server-side) */}
+            <button onClick={refundBill} disabled={busy}
+              style={{ alignSelf: 'center', fontSize: 13, padding: '8px 16px', background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>
+              ↩ Refund &amp; reopen
+            </button>
+          </div>
+        )}
+        {bill.payment_status === 'refunded' && (
+          <div className="card" style={{ background: '#fef2f2', borderColor: '#fca5a5', textAlign: 'center' }}>
+            <strong style={{ color: '#991b1b' }}>Refunded</strong>
+            <div className="muted">{fmtMoney(bill.refund_amount)} returned{bill.refunded_at ? ` · ${new Date(bill.refunded_at).toLocaleString('en-GB')}` : ''}</div>
           </div>
         )}
 
@@ -631,6 +711,47 @@ function TreatwellPaymentPanel({ total, busy, amount, setAmount, defaultsToParti
           style={{ flex: 2, fontSize: 13, padding: '8px 12px' }}
         >
           {busy ? 'Processing…' : willClose ? `Treatwell £${safe.toFixed(2)} & close bill` : `Treatwell paid £${safe.toFixed(2)}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// SPA-BILL-ITEMS — inline "add a line" form for retail products and add-ons.
+function AddItemForm({ newItem, setNewItem, busy, onAdd, onCancel }) {
+  const set = (patch) => setNewItem((s) => ({ ...s, ...patch }));
+  const lineTotal = +(Number(newItem.price || 0) * (Number(newItem.qty) || 1)).toFixed(2);
+  return (
+    <div style={{ background: '#eef2ff', border: '1px solid #c7d2fe', borderRadius: 8, padding: 10, marginTop: 8 }} className="col">
+      <div className="row" style={{ gap: 6 }}>
+        {[{ id: 'retail', label: '🛍 Product' }, { id: 'addon', label: '➕ Add-on' }].map((k) => (
+          <button key={k.id} type="button" onClick={() => set({ kind: k.id })}
+            className={newItem.kind === k.id ? 'primary' : ''}
+            style={{ flex: 1, fontSize: 12, padding: '6px 8px' }}>{k.label}</button>
+        ))}
+      </div>
+      <input
+        placeholder={newItem.kind === 'addon' ? 'e.g. Hot stone upgrade' : 'e.g. Massage oil 100ml'}
+        value={newItem.name}
+        onChange={(e) => set({ name: e.target.value })}
+        autoFocus
+      />
+      <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+        <span style={{ fontWeight: 700 }}>£</span>
+        <input type="number" step="0.01" min="0" placeholder="Price"
+          value={newItem.price} onChange={(e) => set({ price: e.target.value })}
+          onFocus={(e) => e.target.select()}
+          style={{ width: 90, textAlign: 'right' }} />
+        <span className="muted" style={{ fontSize: 12 }}>×</span>
+        <input type="number" step="1" min="1" value={newItem.qty}
+          onChange={(e) => set({ qty: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+          style={{ width: 56, textAlign: 'right' }} />
+        <span className="muted" style={{ fontSize: 13, marginLeft: 'auto' }}>= £{lineTotal.toFixed(2)}</span>
+      </div>
+      <div className="row" style={{ gap: 6 }}>
+        <button onClick={onCancel} disabled={busy} style={{ flex: 1, fontSize: 13 }}>Cancel</button>
+        <button className="primary" onClick={onAdd} disabled={busy || !newItem.name.trim()} style={{ flex: 2, fontSize: 13 }}>
+          {busy ? 'Adding…' : 'Add to bill'}
         </button>
       </div>
     </div>

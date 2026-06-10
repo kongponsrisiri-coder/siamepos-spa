@@ -3,6 +3,7 @@ const Stripe = require('stripe');
 const { pool } = require('../db/database');
 const { computeAvailability, isTherapistWorking, buildAt, londonDateString } = require('../services/availability');
 const { bookingToken, sendOwnerNewBookingEmail } = require('../services/emailService');
+const { recomputeBillTotals, loadBillWithItems } = require('./bills');
 
 function stripeClient() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -557,13 +558,25 @@ router.put('/:id', async (req, res) => {
     // on the booking but the till still charges the old price. Paid
     // bills are locked — they're already a closed transaction.
     if (newPriceAtBooking !== null) {
-      await pool.query(
-        `UPDATE bills
-            SET subtotal = $2, total = $2 - COALESCE(discount, 0) + COALESCE(tip, 0)
-          WHERE appointment_id = $1
-            AND payment_status != 'paid'`,
-        [id, newPriceAtBooking],
+      // Keep the bill's treatment line item in sync with the swapped
+      // treatment, then recompute totals from the line items (which now
+      // include any retail / add-on lines the operator already added).
+      const affected = await pool.query(
+        `SELECT id FROM bills WHERE appointment_id = $1 AND payment_status != 'paid'`,
+        [id],
       );
+      for (const r of affected.rows) {
+        await loadBillWithItems(r.id); // self-heals a missing treatment line
+        await pool.query(
+          `UPDATE bill_items bi
+              SET unit_price = $2::numeric,
+                  line_total = $2::numeric * bi.quantity,
+                  name = COALESCE((SELECT name FROM treatments WHERE id = $3), bi.name)
+            WHERE bi.bill_id = $1 AND bi.kind = 'treatment'`,
+          [r.id, newPriceAtBooking, treatment_id],
+        );
+        await recomputeBillTotals(pool, r.id);
+      }
     }
 
     req.app.get('io')?.emit('appointment_updated', rows[0]);
@@ -884,6 +897,48 @@ router.put('/:id/status', async (req, res) => {
     res.json({ appointment: rows[0] });
   } catch (err) {
     console.error('[appointments] status', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// POST /api/appointments/:id/refund-deposit  body { reason? }
+// SPA-BILL-ITEMS — staff-initiated refund of an online (Stripe) deposit,
+// used by the Online Bookings admin tab's Refund button. Refunds the
+// PaymentIntent via Stripe and marks payment_status='refunded'. The
+// booking itself is left as-is (cancel is a separate action) so the
+// operator can refund a deposit without cancelling, or cancel + refund.
+router.post('/:id/refund-deposit', async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    const cur = await pool.query(
+      `SELECT id, deposit_stripe_id, COALESCE(deposit_amount, 0) AS deposit_amount, payment_status
+       FROM appointments WHERE id = $1`,
+      [id],
+    );
+    if (!cur.rows[0]) return res.status(404).json({ error: 'appointment not found' });
+    const a = cur.rows[0];
+    if (!a.deposit_stripe_id) {
+      return res.status(400).json({ error: 'no online deposit to refund on this booking' });
+    }
+    if (a.payment_status === 'refunded') {
+      return res.status(409).json({ error: 'deposit already refunded' });
+    }
+    const s = stripeClient();
+    if (!s) return res.status(503).json({ error: 'stripe not configured — refund via the Stripe dashboard' });
+    try {
+      await s.refunds.create({ payment_intent: a.deposit_stripe_id });
+    } catch (e) {
+      console.error('[appointments] refund-deposit stripe', e);
+      return res.status(502).json({ error: `Stripe refund failed — ${e.message || 'try the Stripe dashboard'}` });
+    }
+    const { rows } = await pool.query(
+      `UPDATE appointments SET payment_status = 'refunded' WHERE id = $1 RETURNING *`,
+      [id],
+    );
+    req.app.get('io')?.emit('appointment_updated', rows[0]);
+    res.json({ appointment: rows[0], refunded: Number(a.deposit_amount || 0) });
+  } catch (err) {
+    console.error('[appointments] refund-deposit', err);
     res.status(500).json({ error: 'server error' });
   }
 });

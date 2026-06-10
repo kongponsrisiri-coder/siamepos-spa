@@ -375,6 +375,36 @@ async function initSchema() {
     ALTER TABLE bills ADD COLUMN IF NOT EXISTS discount        NUMERIC(10,2) NOT NULL DEFAULT 0;
     ALTER TABLE bills ADD COLUMN IF NOT EXISTS discount_reason TEXT;
 
+    -- SPA-BILL-ITEMS — line items on a bill so a single checkout can carry
+    -- the treatment PLUS retail products (oils, candles), add-ons /
+    -- upgrades (+15 min, hot stone), or extra services. The treatment line
+    -- is seeded automatically when the bill is created; bills.subtotal is
+    -- kept in sync as SUM(line_total) so every existing report that reads
+    -- bills.subtotal / bills.total keeps working unchanged.
+    --   kind: 'treatment' | 'retail' | 'addon'
+    ALTER TABLE bills ADD COLUMN IF NOT EXISTS refunded_at   TIMESTAMPTZ;
+    ALTER TABLE bills ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(10,2);
+    ALTER TABLE bills ADD COLUMN IF NOT EXISTS refund_reason TEXT;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bill_items (
+      id          SERIAL PRIMARY KEY,
+      bill_id     INT NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+      kind        TEXT NOT NULL DEFAULT 'retail',
+      name        TEXT NOT NULL,
+      quantity    INT  NOT NULL DEFAULT 1,
+      unit_price  NUMERIC(10,2) NOT NULL DEFAULT 0,
+      line_total  NUMERIC(10,2) NOT NULL DEFAULT 0,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_bill_items_bill_id ON bill_items (bill_id);
+  `);
+
+  await pool.query(`
+    -- (placeholder block kept so the trailing migrations below still run)
+    SELECT 1;
+
     -- SPA-TREATWELL-COLOR — Treatwell bookings come in two flavours:
     -- 'full'    = customer prepaid the full price to Treatwell
     --              (the spa just closes the bill at £0 — Treatwell

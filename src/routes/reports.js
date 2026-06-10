@@ -41,7 +41,7 @@ router.get('/trading', async (req, res) => {
          COALESCE(SUM(total), 0)::numeric  AS revenue,
          COALESCE(SUM(tip), 0)::numeric    AS tips,
          COUNT(*)::int                     AS bill_count
-       FROM bills WHERE closed_at::date = $1::date`,
+       FROM bills WHERE closed_at::date = $1::date AND payment_status <> 'refunded'`,
       [date],
     );
     const appts = await pool.query(
@@ -57,10 +57,24 @@ router.get('/trading', async (req, res) => {
        FROM bills b
        JOIN appointments a ON a.id = b.appointment_id
        JOIN treatments   t ON t.id = a.treatment_id
-       WHERE b.closed_at::date = $1::date
+       WHERE b.closed_at::date = $1::date AND b.payment_status <> 'refunded'
        GROUP BY t.id, t.name
        ORDER BY revenue DESC
        LIMIT 10`,
+      [date],
+    );
+    // SPA-BILL-ITEMS — revenue split by line-item kind (treatment vs retail
+    // vs add-on) so the owner sees how much of the day's takings came from
+    // products / upgrades rather than treatments.
+    const byKind = await pool.query(
+      `SELECT bi.kind,
+              COUNT(*)::int                          AS lines,
+              COALESCE(SUM(bi.line_total), 0)::numeric AS revenue
+       FROM bill_items bi
+       JOIN bills b ON b.id = bi.bill_id
+       WHERE b.closed_at::date = $1::date AND b.payment_status <> 'refunded'
+       GROUP BY bi.kind
+       ORDER BY revenue DESC`,
       [date],
     );
     // Split-aware payment-method aggregation: a bill paid by 'split'
@@ -72,12 +86,14 @@ router.get('/trading', async (req, res) => {
          SELECT payment_method, total::numeric AS amount
          FROM bills
          WHERE closed_at::date = $1::date AND payment_method != 'split'
+           AND payment_status <> 'refunded'
        ),
        splits AS (
          SELECT (elem->>'method')::text AS payment_method,
                 (elem->>'amount')::numeric AS amount
          FROM bills b, LATERAL jsonb_array_elements(COALESCE(b.split_payments, '[]'::jsonb)) elem
          WHERE b.closed_at::date = $1::date AND b.payment_method = 'split'
+           AND b.payment_status <> 'refunded'
        )
        SELECT payment_method,
               COUNT(*)::int AS n,
@@ -100,7 +116,7 @@ router.get('/trading', async (req, res) => {
          COALESCE(SUM(b.total), 0)::numeric AS revenue
        FROM appointments a
        LEFT JOIN bills b
-         ON b.appointment_id = a.id AND b.closed_at::date = $1::date
+         ON b.appointment_id = a.id AND b.closed_at::date = $1::date AND b.payment_status <> 'refunded'
        WHERE a.starts_at::date = $1::date
          AND a.status NOT IN ('cancelled','no_show')
        GROUP BY COALESCE(a.source, 'unknown')
@@ -152,6 +168,7 @@ router.get('/trading', async (req, res) => {
       totals: totals.rows[0],
       appointments: appts.rows[0],
       top_treatments: top.rows,
+      by_kind: byKind.rows,
       by_payment_method: byMethod.rows,
       by_source: bySource.rows,
       voucher_sales: {
@@ -256,12 +273,14 @@ router.get('/z-report', async (req, res) => {
          SELECT payment_method, total::numeric AS amount
          FROM bills
          WHERE closed_at::date = $1::date AND payment_method != 'split'
+           AND payment_status <> 'refunded'
        ),
        splits AS (
          SELECT (elem->>'method')::text AS payment_method,
                 (elem->>'amount')::numeric AS amount
          FROM bills b, LATERAL jsonb_array_elements(COALESCE(b.split_payments, '[]'::jsonb)) elem
          WHERE b.closed_at::date = $1::date AND b.payment_method = 'split'
+           AND b.payment_status <> 'refunded'
        )
        SELECT payment_method,
               COUNT(*)::int AS n,
