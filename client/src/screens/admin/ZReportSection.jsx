@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../api.js';
 
 function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
+const KIND_LABEL = { treatment: '💆 Treatments', retail: '🛍 Products', addon: '➕ Add-ons' };
 // Local-time YYYY-MM-DD — toISOString returns UTC, which rolls over to
 // "tomorrow" between 23:00 and 00:00 local for any TZ ahead of UTC.
 function todayISO() {
@@ -124,6 +125,22 @@ export default function ZReportSection() {
     for (const m of data.by_payment_method || []) {
       rows.push([m.payment_method, m.n, Number(m.revenue).toFixed(2)]);
     }
+
+    // SPA-BILL-ITEMS — revenue-by-type + VAT split for the accountant.
+    if (Array.isArray(data.by_kind) && data.by_kind.length > 0) {
+      rows.push([]);
+      rows.push(['Revenue by type', 'Lines', 'Gross £', 'Net £', 'VAT £']);
+      for (const k of data.by_kind) {
+        rows.push([KIND_LABEL[k.kind] || k.kind, k.lines, Number(k.gross).toFixed(2), Number(k.net).toFixed(2), Number(k.vat).toFixed(2)]);
+      }
+    }
+    if (data.vat) {
+      rows.push([]);
+      rows.push([`VAT (prices incl. VAT @ ${Number(data.vat.rate)}%)`]);
+      rows.push(['Net sales (ex-VAT, ex-tips)', '', Number(data.vat.net).toFixed(2)]);
+      rows.push([`VAT @ ${Number(data.vat.rate)}%`, '', Number(data.vat.vat).toFixed(2)]);
+      rows.push(['Gross (ex-tips)', '', Number(data.vat.gross).toFixed(2)]);
+    }
     if (data.online_deposits) {
       rows.push([]);
       rows.push(['Online deposits (Stripe)']);
@@ -202,6 +219,51 @@ export default function ZReportSection() {
               </div>
             ))}
         </div>
+
+        {/* SPA-BILL-ITEMS — revenue split by line-item type (treatment vs
+            retail products vs add-ons) so the owner sees how much came from
+            product sales / upgrades rather than treatments. */}
+        {Array.isArray(data.by_kind) && data.by_kind.length > 0 && (
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 4 }}>
+            <strong>Revenue by type</strong>
+            {data.by_kind.map((k) => (
+              <div key={k.kind} className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
+                <span>{KIND_LABEL[k.kind] || k.kind}</span>
+                <span>{k.lines} · {fmtMoney(k.gross)}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* SPA-BILL-ITEMS — VAT breakdown. Prices are VAT-inclusive; VAT is
+            charged on goods/services taken (total minus tips). */}
+        {data.vat && (
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 4 }}>
+            <strong>VAT (incl. in prices · {Number(data.vat.rate)}%)</strong>
+            <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
+              <span>Net sales (ex-VAT, ex-tips)</span><span>{fmtMoney(data.vat.net)}</span>
+            </div>
+            <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
+              <span>VAT @ {Number(data.vat.rate)}%</span><span>{fmtMoney(data.vat.vat)}</span>
+            </div>
+            <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0', fontWeight: 600 }}>
+              <span>Gross (ex-tips)</span><span>{fmtMoney(data.vat.gross)}</span>
+            </div>
+            {Array.isArray(data.by_kind) && data.by_kind.length > 1 && (
+              <div style={{ paddingTop: 6, marginTop: 2, borderTop: '1px solid #f3f4f6' }}>
+                {data.by_kind.map((k) => (
+                  <div key={k.kind} className="row" style={{ justifyContent: 'space-between', padding: '3px 0', fontSize: 12, color: 'var(--muted)' }}>
+                    <span>{KIND_LABEL[k.kind] || k.kind} — net {fmtMoney(k.net)}</span>
+                    <span>VAT {fmtMoney(k.vat)}</span>
+                  </div>
+                ))}
+                <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                  Per-type VAT is on list prices; any whole-bill discount is reflected in the headline VAT above.
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Voucher sales — money received today against vouchers, which
             is deferred revenue (service to come). Tracked separately

@@ -261,9 +261,39 @@ router.get('/z-report', async (req, res) => {
          COALESCE(SUM(tip),0)::numeric      AS tips,
          COALESCE(SUM(total),0)::numeric    AS total,
          COUNT(*)::int                      AS bills
-       FROM bills WHERE closed_at::date = $1::date`,
+       FROM bills WHERE closed_at::date = $1::date AND payment_status <> 'refunded'`,
       [date],
     );
+    // SPA-BILL-ITEMS — revenue split by line-item kind (treatment / retail /
+    // add-on) for the end-of-day Z report, mirroring the trading report.
+    const byKind = await pool.query(
+      `SELECT bi.kind,
+              COUNT(*)::int                           AS lines,
+              COALESCE(SUM(bi.line_total), 0)::numeric AS gross
+       FROM bill_items bi
+       JOIN bills b ON b.id = bi.bill_id
+       WHERE b.closed_at::date = $1::date AND b.payment_status <> 'refunded'
+       GROUP BY bi.kind
+       ORDER BY gross DESC`,
+      [date],
+    );
+    // SPA-BILL-ITEMS — VAT. Spa prices are VAT-inclusive; vat_rate is the
+    // operator-set percentage (default 20). VAT is charged on goods/services
+    // actually taken — i.e. bill total minus tips (tips are outside the scope
+    // of VAT). The per-kind net/VAT below is on list prices, so when a
+    // whole-bill discount is applied the headline VAT (discount-accurate) is
+    // the figure of record; the split is indicative.
+    const vatRow = await pool.query(`SELECT value FROM settings WHERE key = 'vat_rate'`);
+    const vatRate = Number(vatRow.rows[0]?.value || 20);
+    const splitVat = (grossIn) => {
+      const gross = +Number(grossIn || 0).toFixed(2);
+      const net = +(gross / (1 + vatRate / 100)).toFixed(2);
+      return { gross, net, vat: +(gross - net).toFixed(2) };
+    };
+    const byKindVat = byKind.rows.map((r) => ({ kind: r.kind, lines: r.lines, ...splitVat(r.gross) }));
+    // Headline taxable = total − tips (discount already baked into total).
+    const taxableGross = +(Number(totals.rows[0].total || 0) - Number(totals.rows[0].tips || 0)).toFixed(2);
+    const vat = { rate: vatRate, ...splitVat(taxableGross) };
     // Split-aware payment-method aggregation: a bill paid by 'split'
     // contributes its split_payments[] entries to their underlying
     // methods (e.g. £30 cash + £20 card), so the owner sees real
@@ -339,6 +369,8 @@ router.get('/z-report', async (req, res) => {
     res.json({
       date,
       totals: totals.rows[0],
+      by_kind: byKindVat,
+      vat,
       by_payment_method: byMethod.rows,
       online_deposits: onlineDeposits.rows[0],
       voucher_sales: {
