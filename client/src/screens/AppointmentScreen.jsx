@@ -315,9 +315,25 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   const nowMins = now.getHours() * 60 + now.getMinutes();
   const showNow = nowMins >= DAY_START * 60 && nowMins <= DAY_END * 60;
 
+  // Auto-scroll to "now" ONLY on mobile, where the day is taller than the
+  // screen and genuinely scrollable. On desktop the grid is sized (floor
+  // division below) so the WHOLE day 09:00–22:00 fits at once — centring on
+  // "now" there would scroll the morning hours off the top (the early rows +
+  // their bookings get clipped under the header). Keep the desktop grid pinned
+  // to the top so the full table is always visible. Depend on containerH so on
+  // mobile this runs AFTER the grid has been measured/sized, not against the
+  // taller fallback height.
   useEffect(() => {
-    if (nowRef.current) nowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, []);
+    const el = containerRef.current;
+    if (!isMobile) {
+      // Desktop: make sure nothing has left us scrolled into the day.
+      if (el) el.scrollTop = 0;
+      return;
+    }
+    if (showNow && nowRef.current) {
+      nowRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [isMobile, showNow, containerH]);
 
   if (!columns.length) return (
     <div className="card" style={{ textAlign: 'center', padding: 40 }}>
@@ -326,19 +342,25 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   );
 
   return (
+    <div style={{
+      flex: 1, minHeight: 0,
+      border: '1px solid var(--border)', borderRadius: 10,
+      display: 'flex', flexDirection: 'column',
+      // Desktop: clip to a tidy card so only the inner grid scrolls (if at
+      // all). Mobile: let the whole thing flow and scroll naturally.
+      ...(isMobile ? { height: 'auto', maxHeight: 'none' } : { overflow: 'hidden' }),
+    }}>
     <div
       ref={containerRef}
       style={{
         flex: 1, minHeight: 0,
         overflowX: 'auto',
-        // On mobile allow vertical scroll so the owner can scroll through time.
-        // On desktop keep overflow hidden — the whole day is visible at once.
-        // Allow scroll on every device so the full grid (incl. the
-        // bottom 20:00–22:00 area) is reachable even on short screens.
+        // This scroll area holds ONLY the grid — the legend is a fixed sibling
+        // below, so it never steals height from the day or scrolls away. On
+        // desktop the grid is sized (floor division above) so the whole day
+        // 09:00–22:00 fits here at once; mobile scrolls through the hours.
         overflowY: 'auto',
-        border: '1px solid var(--border)', borderRadius: 10,
         display: 'flex', flexDirection: 'column',
-        // Mobile: let height be natural (scrollable). Desktop: fills container.
         ...(isMobile ? { height: 'auto', maxHeight: 'none' } : {}),
         WebkitOverflowScrolling: 'touch',
       }}
@@ -655,10 +677,12 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
           )}
         </div>
       </div>
+    </div>{/* ── end scroll area ── */}
 
-      {/* Legend — desktop only. Two groups: booking source (used while
-          the appointment is still booked / in-progress) and payment
-          method (used once it's completed). */}
+      {/* Legend — desktop only, a FIXED sibling below the scroll area so it
+          never steals height from the grid or scrolls with the day. Two
+          groups: booking source (while booked / in-progress) and payment
+          method (once completed). */}
       {!isMobile && (
         <div style={{ padding: '8px 12px', background: '#fafafa', borderTop: '1px solid var(--border)', display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', flexShrink: 0 }}>
           <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>Source</span>
