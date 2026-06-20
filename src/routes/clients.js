@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('../db/dbAdapter');
 const { requireRole } = require('../middleware/auth');
+const offlineQueue = require('../services/offlineQueue');
 
 const router = express.Router();
 
@@ -111,6 +112,7 @@ router.post('/', async (req, res) => {
         !!b.gdpr_consent, !!b.marketing_consent, b.notes || null,
       ],
     );
+    await offlineQueue.enqueue('create_client', { localId: rows[0].id });
     res.status(201).json({ client: rows[0] });
   } catch (err) {
     console.error('[clients] create', err);
@@ -147,6 +149,7 @@ router.put('/:id', async (req, res) => {
       ],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    await offlineQueue.enqueue('update_client', { localId: id });
     res.json({ client: rows[0] });
   } catch (err) {
     console.error('[clients] update', err);
@@ -200,6 +203,7 @@ router.put('/:id/medical', async (req, res) => {
          WHERE client_id = $1 RETURNING *`,
         [id, ...values],
       );
+      await offlineQueue.enqueue('save_medical', { localId: rows[0].id });
       return res.json({ medical: rows[0] });
     }
     const placeholders = cols.map((c, i) => {
@@ -212,6 +216,7 @@ router.put('/:id/medical', async (req, res) => {
        RETURNING *`,
       [id, ...values, b.digital_signature || null],
     );
+    await offlineQueue.enqueue('save_medical', { localId: rows[0].id });
     res.status(201).json({ medical: rows[0] });
   } catch (err) {
     console.error('[clients] medical put', err);

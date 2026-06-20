@@ -4,6 +4,7 @@ const { pool } = require('../db/dbAdapter');
 const { computeAvailability, isTherapistWorking, buildAt, londonDateString } = require('../services/availability');
 const { bookingToken, sendOwnerNewBookingEmail } = require('../services/emailService');
 const { recomputeBillTotals, loadBillWithItems } = require('./bills');
+const offlineQueue = require('../services/offlineQueue');
 
 function stripeClient() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -305,6 +306,7 @@ router.post('/', async (req, res) => {
       ],
     );
     const appt = rows[0];
+    await offlineQueue.enqueue('create_appointment', { localId: appt.id });
     req.app.get('io')?.emit('new_appointment', appt);
 
     // SPA-OWNER-NOTIFY — alert the spa owner of admin-created bookings
@@ -893,6 +895,7 @@ router.put('/:id/status', async (req, res) => {
       [id, status],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    await offlineQueue.enqueue('update_appointment_status', { localId: id });
     req.app.get('io')?.emit('appointment_status', rows[0]);
     res.json({ appointment: rows[0] });
   } catch (err) {

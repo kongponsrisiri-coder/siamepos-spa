@@ -705,6 +705,17 @@ async function initSchema() {
       value       TEXT,
       updated_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- sync_applied_ops: push idempotency (mirrors the cloud table). Only used
+    -- when this DB acts as the RECEIVER of a push (i.e. a server). On a desktop
+    -- till it stays empty, but the column shape matches the cloud so the same
+    -- /api/sync/push handler works under either backend.
+    CREATE TABLE IF NOT EXISTS sync_applied_ops (
+      op_key      TEXT PRIMARY KEY,
+      action      TEXT NOT NULL,
+      cloud_id    INTEGER,
+      applied_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // ── indexes ───────────────────────────────────────────────────────────────

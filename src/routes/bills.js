@@ -3,6 +3,7 @@ const Stripe = require('stripe');
 const { pool } = require('../db/dbAdapter');
 const { requireRole } = require('../middleware/auth');
 const { isOffline } = require('../services/syncService');
+const offlineQueue = require('../services/offlineQueue');
 
 const router = express.Router();
 
@@ -104,6 +105,7 @@ router.post('/', async (req, res) => {
        VALUES ($1, 'treatment', $2, 1, $3, $3)`,
       [rows[0].id, ap.rows[0].treatment_name || 'Treatment', subtotal],
     );
+    await offlineQueue.enqueue('create_bill', { localId: rows[0].id });
     res.status(201).json({ bill: await loadBillWithItems(rows[0].id) });
   } catch (err) {
     console.error('[bills] create', err);
@@ -285,6 +287,9 @@ router.post('/:id/pay', async (req, res) => {
        WHERE id = $1 AND status NOT IN ('cancelled','no_show')`,
       [rows[0].appointment_id],
     );
+    if (method === 'cash') {
+      await offlineQueue.enqueue('pay_bill_cash', { localId: id });
+    }
     res.json({ bill: rows[0] });
   } catch (err) {
     console.error('[bills] pay', err);
@@ -499,12 +504,13 @@ router.post('/:id/items', async (req, res) => {
       return res.status(409).json({ error: `Bill is ${cur.rows[0].payment_status} — items cannot be changed` });
     }
     const lineTotal = +(price * qty).toFixed(2);
-    await pool.query(
+    const ins = await pool.query(
       `INSERT INTO bill_items (bill_id, kind, name, quantity, unit_price, line_total)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
       [id, k, String(name).trim().slice(0, 120), qty, +price.toFixed(2), lineTotal],
     );
     await recomputeBillTotals(pool, id);
+    await offlineQueue.enqueue('add_bill_item', { localId: ins.rows[0].id });
     res.status(201).json({ bill: await loadBillWithItems(id) });
   } catch (err) {
     console.error('[bills] add item', err);

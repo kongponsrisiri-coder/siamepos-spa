@@ -476,23 +476,92 @@ async function ping() {
 // │   cloud_id column (like the restaurant's setOrderCloudId) so the pull then
 // │   recognises the row by cloud_id instead of re-inserting a duplicate.
 // └──────────────────────────────────────────────────────────────────────────
-async function applyToCloud(actionType, payload) {
-  switch (actionType) {
-    case 'create_appointment':
-    case 'update_appointment_status':
-    case 'create_bill':
-    case 'add_bill_item':
-    case 'pay_bill_cash':
-    case 'create_client':
-    case 'update_client':
-    case 'save_medical':
-      // Known action — push path not yet wired (auth model pending B3).
-      console.warn(`[sync] push not yet wired (B3): ${actionType}`);
-      throw new Error(`push not wired (B3): ${actionType}`);
-    default:
-      // Unknown action — also keep it queued rather than silently dropping it.
-      console.warn(`[sync] push not yet wired (B3): unknown action ${actionType}`);
-      throw new Error(`push not wired (B3): unknown action ${actionType}`);
+// Reverse of findLocalIdByCloudId: the cloud id this local row maps to (null
+// if it hasn't been pushed yet).
+async function findCloudIdByLocalId(table, localId) {
+  if (localId == null) return null;
+  try {
+    const r = await pool.query(`SELECT cloud_id FROM ${table} WHERE id = $1`, [localId]);
+    return r.rows[0]?.cloud_id ?? null;
+  } catch { return null; }
+}
+
+async function postJSON(path, body) {
+  const r = await fetch(CLOUD_API_URL + path, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...syncHeaders() },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(PULL_TIMEOUT_MS),
+  });
+  if (!r.ok) {
+    const e = new Error(`${path} → HTTP ${r.status}`);
+    e.status = r.status;
+    throw e;
+  }
+  return r.json();
+}
+
+// action → { table, insert, fks, medical }. `fks` maps a LOCAL foreign-key
+// column to the parent table whose cloud_id we must substitute before pushing.
+// Config FKs (treatment_id/therapist_id/room_id) are NOT remapped — config
+// tables are keyed by their cloud id locally, so local id === cloud id.
+const PUSH_MAP = {
+  create_client:             { table: 'clients',        insert: true,  fks: {} },
+  update_client:             { table: 'clients',        insert: false, fks: {} },
+  save_medical:              { table: 'client_medical', insert: false, medical: true, fks: { client_id: 'clients' } },
+  create_appointment:        { table: 'appointments',   insert: true,  fks: { client_id: 'clients' } },
+  update_appointment_status: { table: 'appointments',   insert: false, fks: {} },
+  create_bill:               { table: 'bills',          insert: true,  fks: { appointment_id: 'appointments' } },
+  add_bill_item:             { table: 'bill_items',     insert: true,  fks: { bill_id: 'bills' } },
+  pay_bill_cash:             { table: 'bills',          insert: false, fks: {} },
+};
+
+// Push one queued mutation to the cloud. Re-reads the current local row (freshest
+// data + lets us remap FKs now that parents may have cloud ids), POSTs it to
+// /api/sync/push, and writes the returned cloud id back into the local cloud_id
+// column. Throws to keep the row queued on any failure (offline, parent not yet
+// pushed, server error) — syncOnce stops the drain and retries next tick.
+async function applyToCloud(entry) {
+  const action = entry.action_type;
+  const spec = PUSH_MAP[action];
+  if (!spec) throw new Error(`unknown push action: ${action}`);
+
+  const localId = entry.payload && entry.payload.localId;
+  if (localId == null) throw new Error(`${action}: payload.localId missing`);
+
+  const rowRes = await pool.query(`SELECT * FROM ${spec.table} WHERE id = $1`, [localId]);
+  const row = rowRes.rows[0];
+  if (!row) throw new Error(`${action}: local ${spec.table}#${localId} no longer exists`);
+
+  const data = { ...row };
+  delete data.id;
+  delete data.cloud_id;
+
+  // Remap local foreign keys to their cloud ids.
+  for (const [fkCol, parentTable] of Object.entries(spec.fks)) {
+    const localFk = row[fkCol];
+    if (localFk == null) { data[fkCol] = null; continue; }
+    const parentCloud = await findCloudIdByLocalId(parentTable, localFk);
+    if (parentCloud == null) {
+      throw new Error(`${action}: parent ${parentTable}#${localFk} not on cloud yet — retry`);
+    }
+    data[fkCol] = parentCloud;
+  }
+
+  // Updates target the cloud row by id (the create op must have pushed first).
+  if (!spec.insert && !spec.medical) {
+    if (row.cloud_id == null) throw new Error(`${action}: local row has no cloud_id yet — retry`);
+    data.id = row.cloud_id;
+  }
+
+  const opKey = `${process.env.SPA_ID || 'spa'}:q${entry.id}`;
+  const resp = await postJSON('/api/sync/push', { ops: [{ op_key: opKey, action, data }] });
+  const result = resp.results && resp.results[0];
+  if (!result || !result.ok) throw new Error((result && result.error) || 'push rejected');
+
+  // Capture the cloud id so future ops referencing this row remap correctly.
+  if (result.cloud_id != null && (spec.insert || spec.medical)) {
+    await pool.query(`UPDATE ${spec.table} SET cloud_id = $1 WHERE id = $2`, [result.cloud_id, localId]);
   }
 }
 
@@ -506,7 +575,7 @@ async function syncOnce() {
   setStatus('syncing');
   for (const entry of queue) {
     try {
-      await applyToCloud(entry.action_type, entry.payload);
+      await applyToCloud(entry);
       await offlineQueue.markSynced(entry.id);
     } catch (err) {
       // Expected while push is stubbed (B3). Stop draining; retry next tick.

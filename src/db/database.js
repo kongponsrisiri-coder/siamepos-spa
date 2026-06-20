@@ -547,6 +547,20 @@ async function initSchema() {
     ON CONFLICT DO NOTHING;
   `);
 
+  // ── SEPOS-SPA-PRO-001 Phase B — offline push idempotency ────────────────
+  // The cloud records every op_key it has applied from a desktop till's push
+  // queue, so a retried push (after a flaky connection) never double-creates a
+  // booking/bill. On a repeat op_key we return the stored cloud_id instead of
+  // re-applying. Lives on the cloud only; the local till has sync_queue.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sync_applied_ops (
+      op_key      TEXT PRIMARY KEY,
+      action      TEXT NOT NULL,
+      cloud_id    INT,
+      applied_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
   console.log('[db] schema ready');
 }
 

@@ -271,4 +271,158 @@ router.get('/vouchers', async (_req, res) => {
   }
 });
 
+// ===========================================================================
+// PUSH — apply a batch of mutations queued by an offline desktop till.
+// POST /api/sync/push   body: { ops: [ { op_key, action, data } ] }
+//   → { results: [ { op_key, ok, cloud_id?, error? } ] }
+//
+// Each op is idempotent: op_key is recorded in sync_applied_ops, so a retried
+// push (after a dropped connection) returns the original cloud_id instead of
+// creating a duplicate booking/bill. The till sends data with foreign keys
+// already remapped to CLOUD ids (it resolves them from its local cloud_id
+// columns before pushing), so this handler just applies straight to the DB.
+//
+// Column safety: we only ever write columns that actually exist on the target
+// table (read from the live catalog) and always parameterise values — `data`
+// keys that aren't real columns are ignored.
+// ===========================================================================
+
+// Action → { table, kind }. kind: 'insert' (returns new id),
+// 'update' (by data.id), or 'upsert_medical' (by data.client_id).
+const PUSH_ACTIONS = {
+  create_client:             { table: 'clients',         kind: 'insert' },
+  update_client:             { table: 'clients',         kind: 'update' },
+  save_medical:              { table: 'client_medical',  kind: 'upsert_medical' },
+  create_appointment:        { table: 'appointments',    kind: 'insert' },
+  update_appointment_status: { table: 'appointments',    kind: 'update' },
+  create_bill:               { table: 'bills',           kind: 'insert' },
+  add_bill_item:             { table: 'bill_items',      kind: 'insert' },
+  pay_bill_cash:             { table: 'bills',           kind: 'update' },
+};
+
+// Column list for a table, from the live catalog. Works on Postgres (cloud)
+// and SQLite (a desktop install acting as receiver in tests).
+const _pushColCache = {};
+async function tableColumns(table) {
+  if (_pushColCache[table]) return _pushColCache[table];
+  let cols;
+  if ((process.env.DB_MODE || '').toLowerCase() === 'local') {
+    const r = await pool.query(`PRAGMA table_info(${table})`);
+    cols = r.rows.map((c) => c.name);
+  } else {
+    const r = await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+      [table],
+    );
+    cols = r.rows.map((c) => c.column_name);
+  }
+  _pushColCache[table] = cols;
+  return cols;
+}
+
+// Keep only data keys that are real, writable columns of the table.
+async function writableData(table, data, { excludeId = true } = {}) {
+  const cols = await tableColumns(table);
+  const out = {};
+  for (const [k, v] of Object.entries(data || {})) {
+    if (!cols.includes(k)) continue;
+    if (excludeId && (k === 'id' || k === 'cloud_id')) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+async function applyOp(action, data) {
+  const spec = PUSH_ACTIONS[action];
+  if (!spec) throw new Error(`unknown push action: ${action}`);
+  const { table, kind } = spec;
+
+  if (kind === 'insert') {
+    const fields = await writableData(table, data);
+    const keys = Object.keys(fields);
+    if (keys.length === 0) throw new Error(`${action}: no writable columns`);
+    const ph = keys.map((_, i) => `$${i + 1}`).join(',');
+    const r = await pool.query(
+      `INSERT INTO ${table} (${keys.join(',')}) VALUES (${ph}) RETURNING id`,
+      keys.map((k) => fields[k]),
+    );
+    return r.rows[0].id;
+  }
+
+  if (kind === 'update') {
+    const id = Number(data.id);
+    if (!Number.isFinite(id)) throw new Error(`${action}: missing target id`);
+    const fields = await writableData(table, data);
+    const keys = Object.keys(fields);
+    if (keys.length === 0) throw new Error(`${action}: no writable columns`);
+    const sets = keys.map((k, i) => `${k}=$${i + 1}`).join(',');
+    await pool.query(
+      `UPDATE ${table} SET ${sets} WHERE id=$${keys.length + 1}`,
+      [...keys.map((k) => fields[k]), id],
+    );
+    return id;
+  }
+
+  // upsert_medical — client_medical keyed by client_id (1:1 with a client).
+  if (kind === 'upsert_medical') {
+    const clientId = Number(data.client_id);
+    if (!Number.isFinite(clientId)) throw new Error('save_medical: missing client_id');
+    const fields = await writableData(table, data);
+    delete fields.client_id; // set explicitly below
+    const keys = Object.keys(fields);
+    const upd = keys.map((k, i) => `${k}=$${i + 1}`).join(',');
+    let updated = { rowCount: 0 };
+    if (keys.length) {
+      updated = await pool.query(
+        `UPDATE ${table} SET ${upd} WHERE client_id=$${keys.length + 1}`,
+        [...keys.map((k) => fields[k]), clientId],
+      );
+    }
+    if (!updated.rowCount) {
+      const insKeys = ['client_id', ...keys];
+      const ph = insKeys.map((_, i) => `$${i + 1}`).join(',');
+      const r = await pool.query(
+        `INSERT INTO ${table} (${insKeys.join(',')}) VALUES (${ph}) RETURNING id`,
+        [clientId, ...keys.map((k) => fields[k])],
+      );
+      return r.rows[0].id;
+    }
+    return clientId;
+  }
+
+  throw new Error(`unhandled push kind: ${kind}`);
+}
+
+router.post('/push', async (req, res) => {
+  const ops = Array.isArray(req.body?.ops) ? req.body.ops : null;
+  if (!ops) return res.status(400).json({ error: 'ops array required' });
+
+  const results = [];
+  for (const op of ops) {
+    const { op_key, action, data } = op || {};
+    if (!op_key || !action) {
+      results.push({ op_key: op_key || null, ok: false, error: 'op_key and action required' });
+      continue;
+    }
+    try {
+      // Idempotency: already applied? return the stored cloud_id.
+      const seen = await pool.query('SELECT cloud_id FROM sync_applied_ops WHERE op_key=$1', [op_key]);
+      if (seen.rows[0]) {
+        results.push({ op_key, ok: true, cloud_id: seen.rows[0].cloud_id, duplicate: true });
+        continue;
+      }
+      const cloudId = await applyOp(action, data || {});
+      await pool.query(
+        `INSERT INTO sync_applied_ops (op_key, action, cloud_id) VALUES ($1, $2, $3)
+         ON CONFLICT (op_key) DO NOTHING`,
+        [op_key, action, cloudId ?? null],
+      );
+      results.push({ op_key, ok: true, cloud_id: cloudId });
+    } catch (e) {
+      results.push({ op_key, ok: false, error: e.message });
+    }
+  }
+  res.json({ results });
+});
+
 module.exports = router;
