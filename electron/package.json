@@ -27,6 +27,7 @@
       "build/**"
     ],
     "mac": {
+      "icon": "build/icon.png",
       "target": [
         { "target": "dmg", "arch": ["arm64"] }
       ],
@@ -40,6 +41,7 @@
       "title": "SiamEPOS Spa Setup"
     },
     "win": {
+      "icon": "build/icon.png",
       "target": [
         { "target": "nsis", "arch": ["x64"] }
       ]
