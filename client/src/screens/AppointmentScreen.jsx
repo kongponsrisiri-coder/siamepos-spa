@@ -246,7 +246,9 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   const [dragOverColId, setDragOverColId] = useState(null);
   const nowRef       = useRef(null);
   const containerRef = useRef(null);
+  const headerRef    = useRef(null);
   const [containerH, setContainerH] = useState(0);
+  const [headerH,    setHeaderH]    = useState(HEADER_H);
   const [dragSrc,  setDragSrc]  = useState(null);
   const [dragOver, setDragOver] = useState(null);
 
@@ -254,17 +256,26 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   const COL_W_USE = isMobile ? COL_W_MOB : COL_W;
   const LBL_W_USE = isMobile ? LBL_W_MOB : LBL_W;
 
+  // Measure BOTH the scroll area and the therapist header. The header wraps to
+  // 3–4 lines (name + status + hours + "booked"), so its real height (~85px)
+  // is well over the old fixed HEADER_H guess (52) — using the measured value
+  // is what stops the 22:00 row being clipped at the bottom.
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(entries => setContainerH(entries[0].contentRect.height));
-    ro.observe(el);
+    const measure = () => {
+      if (containerRef.current) setContainerH(containerRef.current.getBoundingClientRect().height);
+      if (headerRef.current)    setHeaderH(headerRef.current.getBoundingClientRect().height);
+    };
+    const ro = new ResizeObserver(measure);
+    if (containerRef.current) ro.observe(containerRef.current);
+    if (headerRef.current)    ro.observe(headerRef.current);
+    measure();
     return () => ro.disconnect();
   }, []);
 
   // On mobile use a comfortable fixed height per hour so the day is readable.
-  // On desktop adapt to fill the screen.
-  const gridH   = containerH > 100 ? containerH - HEADER_H - (isMobile ? 0 : 34) : NUM_HOURS * 64;
+  // On desktop fit the whole day below the (measured) header so 09:00–22:00 is
+  // visible at once. Tiny buffer for borders/rounding.
+  const gridH   = containerH > 100 ? containerH - headerH - (isMobile ? 0 : 4) : NUM_HOURS * 64;
   const HOUR_H  = isMobile ? 64 : Math.floor(gridH / NUM_HOURS);
   const totalH  = HOUR_H * NUM_HOURS;
 
@@ -368,7 +379,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
       <div style={{ minWidth: LBL_W_USE + columns.length * COL_W_USE, flex: isMobile ? 'none' : 1, position: 'relative', overflowY: 'hidden' }}>
 
         {/* ── Sticky header ── */}
-        <div style={{
+        <div ref={headerRef} style={{
           display: 'flex', position: 'sticky', top: 0, zIndex: 20,
           background: '#0D1B3E', boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
         }}>
