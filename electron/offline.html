@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SiamEPOS Spa — Offline</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #0D1B3E;
+      color: #fff;
+    }
+    .wrap {
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 32px;
+    }
+    .logo {
+      font-size: 22px;
+      letter-spacing: 1px;
+      font-weight: 700;
+      opacity: 0.9;
+      margin-bottom: 28px;
+    }
+    .icon { font-size: 56px; margin-bottom: 18px; }
+    h1 { font-size: 26px; margin-bottom: 12px; }
+    p { font-size: 16px; line-height: 1.6; max-width: 460px; opacity: 0.85; margin-bottom: 28px; }
+    button {
+      background: #C8A24B;
+      color: #0D1B3E;
+      border: none;
+      border-radius: 10px;
+      padding: 14px 32px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.1s ease, opacity 0.1s ease;
+    }
+    button:hover { opacity: 0.92; }
+    button:active { transform: scale(0.97); }
+    .hint { margin-top: 20px; font-size: 13px; opacity: 0.55; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="logo">SIAMEPOS SPA</div>
+    <div class="icon">📡</div>
+    <h1>Can't reach SiamEPOS Spa</h1>
+    <p>
+      This device can't connect to the internet right now. Check the network
+      connection, then try again. Your appointments and data are safe in the cloud.
+    </p>
+    <button id="retry">Try again</button>
+    <div class="hint">If this keeps happening, check the till's Wi-Fi or network cable.</div>
+  </div>
+  <script>
+    document.getElementById('retry').addEventListener('click', function () {
+      if (window.siamposSpa && window.siamposSpa.retry) {
+        window.siamposSpa.retry();
+      } else {
+        location.reload();
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+{
+  "name": "siamepos-spa-electron",
+  "version": "0.1.0",
+  "description": "SiamEPOS Spa desktop shell — Thai massage & spa management till",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "start:dev": "ELECTRON_DEV=1 electron .",
+    "build:mac": "electron-builder --mac --publish never",
+    "build:win": "electron-builder --win --publish never",
+    "build:all": "electron-builder -mw --publish never"
+  },
+  "build": {
+    "appId": "uk.co.siamepos.spa",
+    "productName": "SiamEPOS Spa",
+    "artifactName": "${productName}-${version}-Setup.${ext}",
+    "asar": true,
+    "directories": {
+      "output": "dist-electron",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "offline.html",
+      "build/**"
+    ],
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["arm64"] }
+      ],
+      "category": "public.app-category.business",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist"
+    },
+    "dmg": {
+      "title": "SiamEPOS Spa Setup"
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "SiamEPOS Spa"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "kongponsrisiri-coder",
+        "repo": "siamepos-spa-releases",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  }
+}
