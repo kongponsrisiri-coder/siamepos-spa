@@ -31,7 +31,7 @@
 // `[unmatched]` flag in `notes` so staff can fix on import.
 
 const express = require('express');
-const { pool } = require('../db/database');
+const { pool } = require('../db/dbAdapter');
 const { computeAvailability } = require('../services/availability');
 const { sendOwnerNewBookingEmail } = require('../services/emailService');
 

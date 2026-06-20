@@ -1,38 +1,153 @@
-// SiamEPOS Spa — Electron desktop shell (Phase A)
+// SiamEPOS Spa — Electron desktop shell (Phase B: offline-capable)
 //
-// This is a THIN desktop wrapper around the live cloud web app.
-//   - It loads https://spa.siamepos.co.uk in a real browser window
-//     (so UI updates ship instantly — no app rebuild needed).
-//   - Cloud (Railway Postgres) stays the single source of truth.
-//   - Offline DATA support (local SQLite + sync) is Phase B; for now
-//     we show a friendly "can't reach the internet" screen and retry.
+// Phase A was a thin wrapper that loaded the live cloud site. Phase B turns
+// this into a real offline-capable till:
+//   - It spawns the spa's OWN Express server as a child process in
+//     DB_MODE=local, backed by an ENCRYPTED SQLite database (SQLCipher).
+//   - The local server serves both the API and the bundled React client, so
+//     everything runs on one localhost origin and keeps working with no
+//     internet. A background sync engine mirrors cloud⇆local when online.
+//   - The DB encryption key is generated once and stored in the OS keychain
+//     via Electron safeStorage (medical questionnaire data is encrypted at
+//     rest — UK GDPR).
 //
-// Native extras the browser can't do, added here:
-//   - Silent receipt printing to a chosen system printer.
-//   - Silent background auto-update via GitHub Releases.
-//   - A proper installed-app window (kiosk-style, no address bar).
+// Escape hatch: set SPA_APP_URL to load a remote URL instead of spawning the
+// local server (the old Phase A thin-wrapper behaviour, handy for staging).
+//
+// Native extras carried over from Phase A: silent receipt printing, silent
+// background auto-update, single installed-app window.
 
-const { app, BrowserWindow, Menu, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, shell, dialog, safeStorage } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const http = require('http');
+const { spawn } = require('child_process');
 
-// ── Config ──────────────────────────────────────────────────────────
-// The live web app. Override with SPA_APP_URL for staging/dev.
-const APP_URL = process.env.SPA_APP_URL || 'https://spa.siamepos.co.uk';
 const IS_DEV = !!process.env.ELECTRON_DEV;
+const REMOTE_OVERRIDE = process.env.SPA_APP_URL || ''; // non-empty → thin mode
+const LOCAL_PORT = parseInt(process.env.SPA_LOCAL_PORT || '5050', 10);
+const LOCAL_URL = `http://localhost:${LOCAL_PORT}`;
 
 let mainWindow = null;
+let serverProc = null;
 
-// ── Single-instance lock ────────────────────────────────────────────
-// A till should only ever run one copy. Second launch focuses the first.
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
-  app.quit();
-} else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
+// ── Paths (differ between dev `npm start` and a packaged install) ────
+function resolvePaths() {
+  if (app.isPackaged) {
+    const res = process.resourcesPath;
+    return {
+      serverEntry: path.join(res, 'src', 'server.js'),
+      clientDist: path.join(res, 'client-dist'),
+    };
+  }
+  const root = path.join(__dirname, '..');
+  return {
+    serverEntry: path.join(root, 'src', 'server.js'),
+    clientDist: path.join(root, 'client', 'dist'),
+  };
+}
+
+// ── Config (userData/config.json) ───────────────────────────────────
+function configPath() {
+  return path.join(app.getPath('userData'), 'config.json');
+}
+function readConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(configPath(), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+function writeConfig(cfg) {
+  fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), 'utf8');
+}
+function configComplete(cfg) {
+  // Enough to run the till + sync. Without cloud_api_url/sync_secret the app
+  // still runs locally, but can't sync — so we require them in the wizard.
+  return !!(cfg && cfg.cloud_api_url && cfg.sync_secret && cfg.spa_id);
+}
+
+// ── DB encryption key (OS keychain via safeStorage) ─────────────────
+// Stored as an encrypted blob on disk; the plaintext key only ever lives in
+// memory + the child server's env. Falls back to a plaintext keyfile (with a
+// loud warning) on platforms where safeStorage isn't available.
+function getOrCreateDbKey() {
+  const userData = app.getPath('userData');
+  const encPath = path.join(userData, 'db-key.enc');
+  const rawPath = path.join(userData, 'db-key.raw');
+
+  if (safeStorage.isEncryptionAvailable()) {
+    if (fs.existsSync(encPath)) {
+      try {
+        return safeStorage.decryptString(fs.readFileSync(encPath));
+      } catch (e) {
+        console.error('[key] failed to decrypt DB key — regenerating:', e.message);
+      }
     }
+    const key = crypto.randomBytes(32).toString('hex');
+    fs.writeFileSync(encPath, safeStorage.encryptString(key));
+    return key;
+  }
+
+  // Fallback: no OS keychain (e.g. some Linux setups). Keep working but warn.
+  console.warn('[key] safeStorage unavailable — DB key stored UNENCRYPTED on disk.');
+  if (fs.existsSync(rawPath)) return fs.readFileSync(rawPath, 'utf8');
+  const key = crypto.randomBytes(32).toString('hex');
+  fs.writeFileSync(rawPath, key, { mode: 0o600 });
+  return key;
+}
+
+// ── Spawn the local server ──────────────────────────────────────────
+function startLocalServer() {
+  const { serverEntry, clientDist } = resolvePaths();
+  const cfg = readConfig();
+
+  // A stable JWT secret so staff tokens survive restarts (offline login).
+  if (!cfg.jwt_secret) {
+    cfg.jwt_secret = crypto.randomBytes(48).toString('hex');
+    writeConfig(cfg);
+  }
+
+  const env = {
+    ...process.env,
+    ELECTRON_RUN_AS_NODE: '1',
+    DB_MODE: 'local',
+    SQLITE_PATH: path.join(app.getPath('userData'), 'siamepos-spa.db'),
+    SQLITE_ENCRYPTION_KEY: getOrCreateDbKey(),
+    CLIENT_DIST_PATH: clientDist,
+    PORT: String(LOCAL_PORT),
+    JWT_SECRET: cfg.jwt_secret,
+    CLOUD_API_URL: cfg.cloud_api_url || '',
+    SYNC_SECRET: cfg.sync_secret || '',
+    SPA_ID: cfg.spa_id || '',
+    SPA_NAME: cfg.spa_name || 'SiamEPOS Spa',
+    SPA_EMAIL: cfg.spa_email || 'info@siamepos.co.uk',
+  };
+  // Never let a leftover DATABASE_URL pull us back onto Postgres.
+  delete env.DATABASE_URL;
+
+  serverProc = spawn(process.execPath, [serverEntry], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+  serverProc.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`));
+  serverProc.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
+  serverProc.on('exit', (code) => console.log(`[server] exited (${code})`));
+}
+
+// Poll /api/health until the local server answers (or we give up).
+function waitForServer(timeoutMs = 25000) {
+  const deadline = Date.now() + timeoutMs;
+  return new Promise((resolve) => {
+    const probe = () => {
+      const req = http.get(`${LOCAL_URL}/api/health`, (res) => {
+        res.resume();
+        if (res.statusCode === 200) return resolve(true);
+        retry();
+      });
+      req.on('error', retry);
+      req.setTimeout(2000, () => req.destroy());
+    };
+    const retry = () => (Date.now() > deadline ? resolve(false) : setTimeout(probe, 400));
+    probe();
   });
 }
 
@@ -43,7 +158,7 @@ function createWindow() {
     height: 800,
     minWidth: 900,
     minHeight: 600,
-    backgroundColor: '#0D1B3E', // spa brand navy — no white flash on load
+    backgroundColor: '#0D1B3E',
     show: false,
     title: 'SiamEPOS Spa',
     webPreferences: {
@@ -53,25 +168,17 @@ function createWindow() {
     },
   });
 
-  // Show only once the page has painted — avoids a blank flash.
   mainWindow.once('ready-to-show', () => mainWindow.show());
 
-  loadApp();
-
-  // If the live site can't be reached, show the bundled offline screen.
-  mainWindow.webContents.on('did-fail-load', (_e, errorCode, errorDesc, validatedURL) => {
-    // -3 (ABORTED) fires on normal in-app navigations; ignore it.
-    if (errorCode === -3) return;
-    // Only swap to the offline page for top-level navigation failures.
-    if (validatedURL && validatedURL.startsWith(APP_URL)) {
+  mainWindow.webContents.on('did-fail-load', (_e, errorCode, _desc, validatedURL) => {
+    if (errorCode === -3) return; // ABORTED on normal navigations
+    if (validatedURL && validatedURL.startsWith(currentTarget())) {
       mainWindow.loadFile(path.join(__dirname, 'offline.html'));
     }
   });
 
-  // External links (e.g. a help page, Stripe) open in the real browser,
-  // not inside the till window.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (!url.startsWith(APP_URL)) {
+    if (!url.startsWith(currentTarget())) {
       shell.openExternal(url);
       return { action: 'deny' };
     }
@@ -79,41 +186,61 @@ function createWindow() {
   });
 }
 
-function loadApp() {
-  mainWindow.loadURL(APP_URL);
+// The URL the window is currently meant to be showing.
+function currentTarget() {
+  return REMOTE_OVERRIDE || LOCAL_URL;
 }
 
-// Called by the offline screen's "Try again" button (via preload).
-ipcMain.handle('retry-load', () => {
-  if (mainWindow) loadApp();
+// ── First-run setup wizard ──────────────────────────────────────────
+function showSetup() {
+  mainWindow.loadFile(path.join(__dirname, 'setup.html'));
+}
+ipcMain.handle('save-setup', async (_e, data) => {
+  const cfg = { ...readConfig(), ...data };
+  writeConfig(cfg);
+  await bootLocal();
+  return { ok: true };
+});
+ipcMain.handle('get-config', () => {
+  const { spa_name, cloud_api_url, spa_id } = readConfig();
+  return { spa_name, cloud_api_url, spa_id }; // never expose secrets to renderer
 });
 
-// ── Printing ────────────────────────────────────────────────────────
-// Phase A: print whatever's on screen (e.g. a receipt view) silently to
-// the default — or a named — printer. Real ESC/POS thermal formatting is
-// a follow-on once we pick the spa's printer hardware (Phase A.2).
+// Boot the local server then point the window at it.
+async function bootLocal() {
+  if (!serverProc) startLocalServer();
+  const ok = await waitForServer();
+  if (ok) mainWindow.loadURL(LOCAL_URL);
+  else mainWindow.loadFile(path.join(__dirname, 'offline.html'));
+}
+
+// Entry decision: remote override → thin mode; missing config → wizard;
+// otherwise → boot the local server.
+async function boot() {
+  if (REMOTE_OVERRIDE) {
+    mainWindow.loadURL(REMOTE_OVERRIDE);
+    return;
+  }
+  if (!configComplete(readConfig())) {
+    showSetup();
+    return;
+  }
+  await bootLocal();
+}
+
+ipcMain.handle('retry-load', () => boot());
+
+// ── Printing (carried over from Phase A) ────────────────────────────
 ipcMain.handle('list-printers', async () => {
   if (!mainWindow) return [];
-  try {
-    return await mainWindow.webContents.getPrintersAsync();
-  } catch {
-    return [];
-  }
+  try { return await mainWindow.webContents.getPrintersAsync(); } catch { return []; }
 });
-
 ipcMain.handle('print-receipt', async (_e, opts = {}) => {
   if (!mainWindow) return { ok: false, error: 'no-window' };
   return new Promise((resolve) => {
     mainWindow.webContents.print(
-      {
-        silent: opts.silent !== false, // default to silent for a till
-        printBackground: true,
-        deviceName: opts.deviceName || undefined,
-        margins: { marginType: 'none' },
-      },
-      (success, failureReason) => {
-        resolve({ ok: success, error: success ? null : failureReason });
-      }
+      { silent: opts.silent !== false, printBackground: true, deviceName: opts.deviceName || undefined, margins: { marginType: 'none' } },
+      (success, failureReason) => resolve({ ok: success, error: success ? null : failureReason })
     );
   });
 });
@@ -126,11 +253,7 @@ function buildMenu() {
     {
       label: 'File',
       submenu: [
-        {
-          label: 'Print Receipt',
-          accelerator: 'CmdOrCtrl+P',
-          click: () => mainWindow && mainWindow.webContents.print({ silent: false, printBackground: true }),
-        },
+        { label: 'Print Receipt', accelerator: 'CmdOrCtrl+P', click: () => mainWindow && mainWindow.webContents.print({ silent: false, printBackground: true }) },
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' },
       ],
@@ -138,16 +261,16 @@ function buildMenu() {
     {
       label: 'View',
       submenu: [
-        {
-          label: 'Reload',
-          accelerator: 'CmdOrCtrl+R',
-          click: () => mainWindow && mainWindow.loadURL(APP_URL),
-        },
+        { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => mainWindow && mainWindow.loadURL(currentTarget()) },
         { role: 'togglefullscreen' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
+        { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
         ...(IS_DEV ? [{ type: 'separator' }, { role: 'toggleDevTools' }] : []),
+      ],
+    },
+    {
+      label: 'Settings',
+      submenu: [
+        { label: 'Re-run Setup…', click: () => mainWindow && showSetup() },
       ],
     },
     {
@@ -155,56 +278,49 @@ function buildMenu() {
       submenu: [
         {
           label: 'About SiamEPOS Spa',
-          click: () => {
-            dialog.showMessageBox(mainWindow, {
-              type: 'info',
-              title: 'SiamEPOS Spa',
-              message: 'SiamEPOS Spa',
-              detail: `Version ${app.getVersion()}\nThai massage & spa management.\ninfo@siamepos.co.uk`,
-            });
-          },
+          click: () => dialog.showMessageBox(mainWindow, {
+            type: 'info', title: 'SiamEPOS Spa', message: 'SiamEPOS Spa',
+            detail: `Version ${app.getVersion()}\nThai massage & spa management.\ninfo@siamepos.co.uk`,
+          }),
         },
-        {
-          label: 'Visit SiamEPOS',
-          click: () => shell.openExternal('https://siamepos.co.uk'),
-        },
+        { label: 'Visit SiamEPOS', click: () => shell.openExternal('https://siamepos.co.uk') },
       ],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-// ── Auto-update ─────────────────────────────────────────────────────
-// Silent background download from GitHub Releases; applies on next quit.
-// Only runs in a packaged build (no-op under `npm start`).
+// ── Auto-update (packaged builds only) ──────────────────────────────
 function initAutoUpdate() {
   if (IS_DEV || !app.isPackaged) return;
   let autoUpdater;
-  try {
-    ({ autoUpdater } = require('electron-updater'));
-  } catch {
-    return; // dependency not present — skip silently
-  }
+  try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
   autoUpdater.autoDownload = true;
-  autoUpdater.on('update-downloaded', () => {
-    if (mainWindow) {
-      mainWindow.webContents.send('siamepos-spa:update-ready');
-    }
-  });
-  autoUpdater.checkForUpdatesAndNotify().catch(() => {/* offline — ignore */});
+  autoUpdater.on('update-downloaded', () => mainWindow && mainWindow.webContents.send('siamepos-spa:update-ready'));
+  autoUpdater.checkForUpdatesAndNotify().catch(() => {});
 }
 
-// ── Lifecycle ───────────────────────────────────────────────────────
-app.whenReady().then(() => {
-  buildMenu();
-  createWindow();
-  initAutoUpdate();
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+// ── Single-instance lock ────────────────────────────────────────────
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.focus(); }
   });
-});
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+  app.whenReady().then(() => {
+    buildMenu();
+    createWindow();
+    boot();
+    initAutoUpdate();
+    app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  });
+}
+
+// Make sure the spawned server dies with the app.
+function killServer() {
+  if (serverProc && !serverProc.killed) { try { serverProc.kill(); } catch {} }
+}
+app.on('before-quit', killServer);
+app.on('window-all-closed', () => { killServer(); if (process.platform !== 'darwin') app.quit(); });

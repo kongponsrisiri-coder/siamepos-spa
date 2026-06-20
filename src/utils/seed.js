@@ -1,7 +1,7 @@
 // First-run seed helpers. Safe to call on every boot — checks before inserting.
 
 const bcrypt = require('bcryptjs');
-const { pool } = require('../db/database');
+const { pool } = require('../db/dbAdapter');
 
 async function seedDefaultAdmin() {
   const { rows } = await pool.query('SELECT COUNT(*)::int AS n FROM therapists');

@@ -10,7 +10,7 @@ const path = require('path');
 const cors = require('cors');
 const { Server: SocketIOServer } = require('socket.io');
 
-const { initSchema } = require('./db/database');
+const { initSchema } = require('./db/dbAdapter');
 const { seedDefaultAdmin } = require('./utils/seed');
 const { requireAuth } = require('./middleware/auth');
 
@@ -28,8 +28,9 @@ const widgetRoutes      = require('./routes/widget');
 const treatwellRoutes   = require('./routes/treatwell');
 const campaignRoutes    = require('./routes/campaigns');
 const bookingRoutes     = require('./routes/booking');
+const syncRoutes        = require('./routes/sync');     // SEPOS-SPA-PRO-001 Phase B — offline pull feed
 const { parseUnsubscribeToken } = require('./services/emailService');
-const { pool: dbPool }  = require('./db/database');
+const { pool: dbPool }  = require('./db/dbAdapter');
 const { router: stripeRouter, webhookHandler: stripeWebhookHandler } = require('./routes/stripe');
 
 const app = express();
@@ -98,6 +99,11 @@ app.use('/api/treatwell', treatwellRoutes);
 app.use('/api/booking',   bookingRoutes);     // public self-service via HMAC token
 app.use('/api/auth',      authRoutes);
 
+// Offline sync pull feed (SEPOS-SPA-PRO-001 Phase B). Self-gates on the
+// x-sync-secret header (not a staff JWT), so it sits outside requireAuth.
+// Desktop installs poll this to mirror cloud data into local SQLite.
+app.use('/api/sync',      syncRoutes);
+
 // SPA-CAMPAIGNS-001 — public one-click unsubscribe. The token is a
 // stateless HMAC of the email; no auth required because anyone with a
 // valid token already knows the email it stands for (it was emailed to
@@ -152,6 +158,24 @@ app.use('/api/campaigns',    requireAuth, campaignRoutes);
 // 404 for any unmatched /api/* request.
 app.use('/api', (_req, res) => res.status(404).json({ error: 'not found' }));
 
+// ---- Local desktop mode: serve the built client ---------------------------
+// In cloud mode the React client is hosted on Netlify and this server is
+// API-only. In the Electron desktop till (DB_MODE=local) there is no Netlify —
+// the local server must also serve the bundled client so everything runs on
+// one localhost origin (which also makes the client's `/api` calls same-origin,
+// so no VITE_API_BASE is needed in the desktop build). CLIENT_DIST_PATH is set
+// by electron/main.js to the bundled client/dist folder.
+if (process.env.CLIENT_DIST_PATH) {
+  const clientDist = process.env.CLIENT_DIST_PATH;
+  app.use(express.static(clientDist));
+  // SPA fallback — any non-/api GET serves index.html so react-router can
+  // resolve the route client-side.
+  app.get(/^\/(?!api\/).*/, (_req, res) => {
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+  console.log(`[server] serving desktop client from ${clientDist}`);
+}
+
 // ---- Socket.io ------------------------------------------------------------
 const io = new SocketIOServer(server, {
   cors: { origin: true, credentials: true },
@@ -178,6 +202,16 @@ if (require.main === module) {
       server.listen(PORT, () => {
         console.log(`[server] SiamEPOS Spa listening on :${PORT}`);
       });
+
+      // Desktop offline mode: start the cloud⇆local sync engine. No-op in
+      // cloud mode (the service guards on DB_MODE internally).
+      if ((process.env.DB_MODE || '').toLowerCase() === 'local') {
+        try {
+          require('./services/syncService').start();
+        } catch (e) {
+          console.error('[server] sync engine failed to start:', e.message);
+        }
+      }
     } catch (err) {
       console.error('[server] fatal startup error:', err);
       process.exit(1);

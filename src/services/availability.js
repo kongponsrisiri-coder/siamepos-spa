@@ -3,7 +3,7 @@
 // SPA-ROTA-001: now checks therapist_availability (weekly rota) AND
 // therapist_rota_overrides (date-specific) before returning slots.
 
-const { pool } = require('../db/database');
+const { pool } = require('../db/dbAdapter');
 
 function parseHM(s) {
   const [h, m] = String(s).split(':').map(Number);

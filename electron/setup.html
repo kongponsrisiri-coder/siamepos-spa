@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SiamEPOS Spa — Setup</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0D1B3E; color: #fff; }
+    .wrap { min-height: 100%; display: flex; align-items: center; justify-content: center; padding: 32px; }
+    .card { width: 100%; max-width: 460px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 36px 32px; }
+    .logo { font-size: 18px; letter-spacing: 1px; font-weight: 700; opacity: 0.9; margin-bottom: 6px; }
+    h1 { font-size: 22px; margin-bottom: 6px; }
+    p.sub { font-size: 14px; opacity: 0.7; margin-bottom: 24px; line-height: 1.5; }
+    label { display: block; font-size: 13px; font-weight: 600; margin: 16px 0 6px; opacity: 0.9; }
+    input { width: 100%; padding: 12px 14px; border-radius: 9px; border: 1px solid rgba(255,255,255,0.15); background: rgba(0,0,0,0.25); color: #fff; font-size: 15px; }
+    input:focus { outline: none; border-color: #C8A24B; }
+    .hint { font-size: 12px; opacity: 0.5; margin-top: 4px; }
+    button { width: 100%; margin-top: 28px; background: #C8A24B; color: #0D1B3E; border: none; border-radius: 10px; padding: 14px; font-size: 16px; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    .err { color: #ff9a9a; font-size: 13px; margin-top: 12px; min-height: 16px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="logo">SIAMEPOS SPA</div>
+      <h1>Set up this till</h1>
+      <p class="sub">Connect this device to your spa's cloud account. You only need to do this once. Ask your SiamEPOS contact for these details.</p>
+
+      <label for="spa_name">Spa name</label>
+      <input id="spa_name" type="text" placeholder="Baan Thai Spa" autocomplete="off" />
+
+      <label for="cloud_api_url">Cloud address</label>
+      <input id="cloud_api_url" type="text" placeholder="https://spa-api.siamepos.co.uk" autocomplete="off" />
+      <div class="hint">The web address of your spa's cloud server.</div>
+
+      <label for="spa_id">Spa ID</label>
+      <input id="spa_id" type="text" placeholder="baan-thai" autocomplete="off" />
+
+      <label for="sync_secret">Sync key</label>
+      <input id="sync_secret" type="password" placeholder="••••••••••••" autocomplete="off" />
+      <div class="hint">The secret that lets this till sync securely. Keep it private.</div>
+
+      <button id="save">Save &amp; start</button>
+      <div class="err" id="err"></div>
+    </div>
+  </div>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    // Pre-fill non-secret fields if re-running setup.
+    (async () => {
+      try {
+        const c = (window.siamposSpa && await window.siamposSpa.getConfig()) || {};
+        if (c.spa_name) $('spa_name').value = c.spa_name;
+        if (c.cloud_api_url) $('cloud_api_url').value = c.cloud_api_url;
+        if (c.spa_id) $('spa_id').value = c.spa_id;
+      } catch {}
+    })();
+
+    $('save').addEventListener('click', async () => {
+      const data = {
+        spa_name: $('spa_name').value.trim(),
+        cloud_api_url: $('cloud_api_url').value.trim().replace(/\/+$/, ''),
+        spa_id: $('spa_id').value.trim(),
+        sync_secret: $('sync_secret').value,
+      };
+      if (!data.cloud_api_url || !data.spa_id || !data.sync_secret) {
+        $('err').textContent = 'Please fill in the cloud address, spa ID and sync key.';
+        return;
+      }
+      $('save').disabled = true;
+      $('err').textContent = '';
+      try {
+        await window.siamposSpa.saveSetup(data);
+        // main.js takes over: boots the local server and loads the app.
+      } catch (e) {
+        $('save').disabled = false;
+        $('err').textContent = 'Could not save settings. Please try again.';
+      }
+    });
+  </script>
+</body>
+</html>

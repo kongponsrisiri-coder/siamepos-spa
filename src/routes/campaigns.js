@@ -18,7 +18,7 @@
 // this so the count = "Send to N opted-in customers in <segment>".
 
 const express = require('express');
-const { pool } = require('../db/database');
+const { pool } = require('../db/dbAdapter');
 const { sendBrevoEmail, buildCampaignEmail } = require('../services/emailService');
 
 const router = express.Router();

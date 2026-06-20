@@ -1,6 +1,6 @@
 const express = require('express');
 const Stripe = require('stripe');
-const { pool } = require('../db/database');
+const { pool } = require('../db/dbAdapter');
 const { requireRole } = require('../middleware/auth');
 
 const router = express.Router();

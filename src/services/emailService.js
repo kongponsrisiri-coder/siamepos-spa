@@ -2,7 +2,7 @@
 // Uses native fetch (Node 20+) so we don't pull in another SDK.
 
 const crypto = require('crypto');
-const { pool } = require('../db/database');
+const { pool } = require('../db/dbAdapter');
 
 const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 

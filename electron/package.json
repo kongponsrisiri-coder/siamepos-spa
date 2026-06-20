@@ -7,9 +7,11 @@
   "scripts": {
     "start": "electron .",
     "start:dev": "ELECTRON_DEV=1 electron .",
-    "build:mac": "electron-builder --mac --publish never",
-    "build:win": "electron-builder --win --publish never",
-    "build:all": "electron-builder -mw --publish never"
+    "rebuild:native": "node scripts/rebuild-native.js",
+    "build:client": "cd ../client && VITE_API_BASE= npm run build",
+    "build:mac": "npm run build:client && npm run rebuild:native && electron-builder --mac --publish never",
+    "build:win": "npm run build:client && npm run rebuild:native && electron-builder --win --publish never",
+    "build:all": "npm run build:client && npm run rebuild:native && electron-builder -mw --publish never"
   },
   "build": {
     "appId": "uk.co.siamepos.spa",
@@ -24,7 +26,25 @@
       "main.js",
       "preload.js",
       "offline.html",
+      "setup.html",
       "build/**"
+    ],
+    "extraResources": [
+      { "from": "../client/dist", "to": "client-dist" },
+      { "from": "../src", "to": "src" },
+      { "from": "../package.json", "to": "package.json" },
+      {
+        "from": "../node_modules",
+        "to": "node_modules",
+        "filter": [
+          "**/*",
+          "!**/.DS_Store",
+          "!**/{test,tests,docs,doc,example,examples}/**",
+          "!**/*.md",
+          "!**/*.markdown",
+          "!**/{.bin,.cache,.github,.vscode}/**"
+        ]
+      }
     ],
     "mac": {
       "icon": "build/icon.png",
@@ -63,6 +83,7 @@
     ]
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8"
   },

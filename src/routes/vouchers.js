@@ -1,6 +1,6 @@
 // Voucher routes — sell, look up, redeem, track spending
 const express = require('express');
-const { pool } = require('../db/database');
+const { pool } = require('../db/dbAdapter');
 const { requireRole } = require('../middleware/auth');
 const { sendVoucherGiftEmail } = require('../services/emailService');
 const { buildAt } = require('../services/availability');

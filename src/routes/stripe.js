@@ -3,7 +3,7 @@
 // server.js mounts BEFORE express.json() with raw body parsing.
 
 const express = require('express');
-const { pool } = require('../db/database');
+const { pool } = require('../db/dbAdapter');
 
 const router = express.Router();
 const Stripe = require('stripe');

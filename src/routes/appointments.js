@@ -1,6 +1,6 @@
 const express = require('express');
 const Stripe = require('stripe');
-const { pool } = require('../db/database');
+const { pool } = require('../db/dbAdapter');
 const { computeAvailability, isTherapistWorking, buildAt, londonDateString } = require('../services/availability');
 const { bookingToken, sendOwnerNewBookingEmail } = require('../services/emailService');
 const { recomputeBillTotals, loadBillWithItems } = require('./bills');

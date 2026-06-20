@@ -3,7 +3,7 @@
 
 const express = require('express');
 const Stripe = require('stripe');
-const { pool } = require('../db/database');
+const { pool } = require('../db/dbAdapter');
 const { computeAvailability, getTherapistWorkingWindow, londonDateString } = require('../services/availability');
 const { sendBookingConfirmation, sendVoucherGiftEmail, sendOwnerNewBookingEmail } = require('../services/emailService');
 
