@@ -4,6 +4,7 @@ const { pool } = require('../db/dbAdapter');
 const { requireRole } = require('../middleware/auth');
 const { sendVoucherGiftEmail } = require('../services/emailService');
 const { buildAt } = require('../services/availability');
+const { isOffline } = require('../services/syncService');
 
 // Voucher is valid through the END of expires_at in London time. Without
 // this, `new Date('2026-05-21') < new Date()` flips the voucher to expired
@@ -241,6 +242,17 @@ router.put('/:id', async (req, res) => {
 router.post('/:id/redeem', async (req, res) => {
   const id = Number(req.params.id);
   const { amount, bill_id, notes, treatment_id } = req.body || {};
+
+  // Phase B Option A — gift-voucher balances live in the cloud and could be
+  // redeemed on another device, so redeeming offline risks double-spend.
+  // Block it on an offline desktop till; no-op in cloud mode.
+  if (isOffline()) {
+    return res.status(503).json({
+      error: 'offline',
+      offline: true,
+      message: 'Gift vouchers can only be redeemed with an internet connection. Please take cash for now, or redeem the voucher once you’re back online.',
+    });
+  }
 
   const client = await pool.connect();
   try {

@@ -618,12 +618,22 @@ function getStatus() {
   };
 }
 
+// True only on a desktop till (DB_MODE=local) that is CURRENTLY offline.
+// Always false in cloud mode — the cloud server is, by definition, online.
+// Used to gate payment methods that require the internet (card via Stripe,
+// gift-voucher redemption against a shared cloud balance). See SEPOS-SPA-PRO-001
+// Phase B "Option A": cash works offline, card + voucher wait for reconnect.
+function isOffline() {
+  return offlineQueue.isLocal && status === 'local';
+}
+
 module.exports = {
   start,
   stop,
   syncOnce,
   pullFromCloud,
   getStatus,
+  isOffline,
   // exported for targeted refreshes / tests
   ping,
   tick,

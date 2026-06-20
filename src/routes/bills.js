@@ -2,6 +2,7 @@ const express = require('express');
 const Stripe = require('stripe');
 const { pool } = require('../db/dbAdapter');
 const { requireRole } = require('../middleware/auth');
+const { isOffline } = require('../services/syncService');
 
 const router = express.Router();
 
@@ -156,6 +157,23 @@ router.post('/:id/pay', async (req, res) => {
   const { method, split_payments } = req.body || {};
   if (!['cash', 'card', 'split', 'voucher', 'treatwell'].includes(method)) {
     return res.status(400).json({ error: 'invalid method' });
+  }
+
+  // Phase B Option A — offline payment gating. Card (Stripe) and voucher
+  // (shared cloud balance) both need the internet; cash does not. On a desktop
+  // till that's currently offline, block the online-only methods with a clear,
+  // OS-neutral message so the operator takes cash instead of hitting a cryptic
+  // Stripe error. No-op in cloud mode (isOffline() is always false there).
+  if (isOffline()) {
+    const splitNeedsNet = method === 'split' && Array.isArray(split_payments)
+      && split_payments.some((p) => ['card', 'voucher'].includes(String(p.method || '').toLowerCase()));
+    if (method === 'card' || method === 'voucher' || method === 'treatwell' || splitNeedsNet) {
+      return res.status(503).json({
+        error: 'offline',
+        offline: true,
+        message: 'Card and voucher payments need an internet connection. Please take cash for now, or complete this payment once you’re back online.',
+      });
+    }
   }
   let splitJson = null;
   if (method === 'split') {
