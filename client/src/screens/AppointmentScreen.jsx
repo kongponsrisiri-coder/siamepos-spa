@@ -376,7 +376,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
         WebkitOverflowScrolling: 'touch',
       }}
     >
-      <div style={{ minWidth: LBL_W_USE + columns.length * COL_W_USE, flex: isMobile ? 'none' : 1, position: 'relative', overflowY: 'hidden' }}>
+      <div style={{ minWidth: LBL_W_USE + columns.length * COL_W_USE, flex: 'none', position: 'relative', overflowY: 'visible' }}>
 
         {/* ── Sticky header ── */}
         <div ref={headerRef} style={{
