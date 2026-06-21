@@ -104,6 +104,17 @@ app.use('/api/auth',      authRoutes);
 // Desktop installs poll this to mirror cloud data into local SQLite.
 app.use('/api/sync',      syncRoutes);
 
+// Sync status for the desktop app's online/offline indicator (B4). Cheap +
+// unauthenticated — it only reports connection state, no data. In cloud mode
+// it always reads as online.
+app.get('/api/sync-status', (_req, res) => {
+  try {
+    res.json(require('./services/syncService').getStatus());
+  } catch {
+    res.json({ mode: 'cloud', status: 'cloud', queueSize: 0 });
+  }
+});
+
 // SPA-CAMPAIGNS-001 — public one-click unsubscribe. The token is a
 // stateless HMAC of the email; no auth required because anyone with a
 // valid token already knows the email it stands for (it was emailed to

@@ -65,6 +65,54 @@ function NavLink({ to, children }) {
 }
 
 // ── Top navigation bar (desktop) ─────────────────────────────────
+// ── Online/offline indicator (desktop app only) ──────────────────
+// Shows the till operator whether they're connected to the cloud — important
+// because card + voucher payments are blocked while offline (Phase B Option A).
+// Only renders inside the Electron desktop app (the browser PWA is always
+// online by definition); polls the local server's /api/sync-status.
+function SyncStatusPill() {
+  const isElectron = typeof window !== 'undefined' && window.siamposSpa && window.siamposSpa.isElectron;
+  const [st, setSt] = useState(null);
+
+  useEffect(() => {
+    if (!isElectron) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const r = await fetch('/api/sync-status');
+        const j = await r.json();
+        if (alive) setSt(j);
+      } catch { if (alive) setSt({ mode: 'local', status: 'local', queueSize: 0 }); }
+    };
+    tick();
+    const iv = setInterval(tick, 5000);
+    return () => { alive = false; clearInterval(iv); };
+  }, [isElectron]);
+
+  if (!isElectron || !st) return null;
+
+  const MAP = {
+    cloud:          { dot: '#22c55e', label: 'Online',     title: 'Connected — all features available' },
+    syncing:        { dot: '#3b82f6', label: st.queueSize ? `Syncing ${st.queueSize}` : 'Syncing', title: 'Syncing changes to the cloud' },
+    local:          { dot: '#f59e0b', label: 'Offline',    title: 'No internet — bookings + cash work; card & vouchers resume when back online' },
+    'initial-sync': { dot: '#3b82f6', label: 'Setting up…', title: 'First-time sync from the cloud' },
+  };
+  const s = MAP[st.status] || MAP.cloud;
+
+  return (
+    <span className="desktop-only" title={s.title} style={{
+      display: 'flex', alignItems: 'center', gap: 6,
+      background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.18)',
+      borderRadius: 6, padding: '5px 10px', fontSize: 12, fontWeight: 600,
+      color: 'rgba(255,255,255,0.9)', whiteSpace: 'nowrap', minHeight: 36,
+    }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.dot, flexShrink: 0,
+        boxShadow: st.status === 'local' ? 'none' : `0 0 6px ${s.dot}` }} />
+      {s.label}
+    </span>
+  );
+}
+
 function TopNav() {
   const staff = getStaff();
   const navigate = useNavigate();
@@ -138,8 +186,9 @@ function TopNav() {
         </div>
       </div>
 
-      {/* Right: bell + staff name + logout */}
+      {/* Right: status + bell + staff name + logout */}
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+        <SyncStatusPill />
         <button
           onClick={enableNotifications}
           disabled={notifPerm === 'denied'}
