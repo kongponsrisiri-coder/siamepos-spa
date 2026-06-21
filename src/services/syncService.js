@@ -415,6 +415,31 @@ async function pullFromCloud() {
   await pullAppointments(pending);
   await pullVouchers(pending);
   await pullBills(pending);
+
+  // GDPR erasure: wipe local copies of anything erased on the cloud / another
+  // till. Done AFTER the upserts so a tombstone always wins over a stale pull.
+  await pullDeletions();
+}
+
+// Apply cloud erasure tombstones to the local DB. Deleting a client cascades
+// to client_medical locally (FK ON DELETE CASCADE + PRAGMA foreign_keys=ON),
+// so the sensitive medical record is wiped too.
+async function pullDeletions() {
+  try {
+    const since = (await readSyncState('deletions_since')) || '1970-01-01';
+    const data = await getJSON('/api/sync/deletions?since=' + encodeURIComponent(since), { headers: syncHeaders() });
+    let n = 0;
+    for (const d of (data.deletions || [])) {
+      if (d.entity === 'client') {
+        const r = await pool.query('DELETE FROM clients WHERE cloud_id = $1', [d.cloud_id]);
+        n += r.rowCount || 0;
+      }
+    }
+    if (data.max_cursor) await writeSyncState('deletions_since', data.max_cursor);
+    if (n) console.log(`[sync] GDPR: erased ${n} locally-held record(s) per cloud tombstones`);
+  } catch (err) {
+    console.warn('[sync] pull deletions failed:', err.message);
+  }
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -523,6 +548,20 @@ const PUSH_MAP = {
 // pushed, server error) — syncOnce stops the drain and retries next tick.
 async function applyToCloud(entry) {
   const action = entry.action_type;
+
+  // delete_client (GDPR erasure): the local row is already gone, so we can't
+  // re-read it — send the captured cloud id straight to the cloud, which
+  // deletes its copy and writes a tombstone for the other tills.
+  if (action === 'delete_client') {
+    const cloudId = entry.payload && entry.payload.cloud_id;
+    if (cloudId == null) return; // never had a cloud copy — nothing to propagate
+    const opKey = `${process.env.SPA_ID || 'spa'}:q${entry.id}`;
+    const resp = await postJSON('/api/sync/push', { ops: [{ op_key: opKey, action, data: { id: cloudId } }] });
+    const result = resp.results && resp.results[0];
+    if (!result || !result.ok) throw new Error((result && result.error) || 'push rejected');
+    return;
+  }
+
   const spec = PUSH_MAP[action];
   if (!spec) throw new Error(`unknown push action: ${action}`);
 

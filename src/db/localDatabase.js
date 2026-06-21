@@ -737,6 +737,15 @@ async function initSchema() {
       cloud_id    INTEGER,
       applied_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- GDPR erasure tombstones (mirrors the cloud table). Used when this DB acts
+    -- as the receiver/cloud; on a till it's unused but kept for shape parity.
+    CREATE TABLE IF NOT EXISTS deleted_records (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity      TEXT NOT NULL,
+      cloud_id    INTEGER NOT NULL,
+      deleted_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // ── indexes ───────────────────────────────────────────────────────────────

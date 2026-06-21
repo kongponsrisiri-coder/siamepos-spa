@@ -561,6 +561,19 @@ async function initSchema() {
     );
   `);
 
+  // GDPR erasure propagation (B4). Every permanent client deletion is recorded
+  // here so each offline desktop till can pull the tombstone and wipe its local
+  // (encrypted) copy too — erasure must reach every device, not just the cloud.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS deleted_records (
+      id          SERIAL PRIMARY KEY,
+      entity      TEXT NOT NULL,
+      cloud_id    INT  NOT NULL,
+      deleted_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_deleted_records_deleted_at ON deleted_records (deleted_at);
+  `);
+
   console.log('[db] schema ready');
 }
 

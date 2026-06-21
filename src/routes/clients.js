@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../db/dbAdapter');
 const { requireRole } = require('../middleware/auth');
 const offlineQueue = require('../services/offlineQueue');
+const { isOffline } = require('../services/syncService');
 
 const router = express.Router();
 
@@ -228,9 +229,30 @@ router.put('/:id/medical', async (req, res) => {
 router.delete('/:id', requireRole('admin'), async (req, res) => {
   const id = Number(req.params.id);
   try {
-    const c = await pool.query('SELECT id, name, email FROM clients WHERE id = $1', [id]);
+    const c = await pool.query('SELECT id, name, email, cloud_id FROM clients WHERE id = $1', [id]);
     if (!c.rows[0]) return res.status(404).json({ error: 'not found' });
-    await pool.query('DELETE FROM clients WHERE id = $1', [id]);
+
+    if (offlineQueue.isLocal) {
+      // On a desktop till, erasure must reach the cloud (and thence every other
+      // till) to be a true GDPR deletion. Block it offline so we never leave a
+      // copy elsewhere that we can't confirm was wiped.
+      if (isOffline()) {
+        return res.status(503).json({
+          error: 'offline', offline: true,
+          message: 'Erasing a client needs an internet connection so the deletion reaches the cloud and all devices. Please try again when back online.',
+        });
+      }
+      const cloudId = c.rows[0].cloud_id;
+      await pool.query('DELETE FROM clients WHERE id = $1', [id]); // cascades to client_medical
+      // Push the erasure up; the cloud deletes its copy + writes a tombstone so
+      // other tills wipe their local copy on their next pull.
+      if (cloudId != null) await offlineQueue.enqueue('delete_client', { cloud_id: cloudId });
+    } else {
+      // Cloud: delete + record a tombstone so every offline till erases too.
+      await pool.query('DELETE FROM clients WHERE id = $1', [id]); // cascades to client_medical
+      await pool.query('INSERT INTO deleted_records (entity, cloud_id) VALUES ($1, $2)', ['client', id]);
+    }
+
     console.warn(
       `[gdpr-erase] client id=${id} name="${c.rows[0].name}" email="${c.rows[0].email || ''}" deleted by staff id=${req.staff.id} (${req.staff.name}) at ${new Date().toISOString()}`,
     );

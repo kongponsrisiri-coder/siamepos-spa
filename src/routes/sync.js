@@ -271,6 +271,24 @@ router.get('/vouchers', async (_req, res) => {
   }
 });
 
+// GET /deletions?since=<ISO> — GDPR erasure tombstones since the cursor, so a
+// desktop till can wipe locally-held copies of records erased on the cloud (or
+// on another till). Returns { deletions:[{entity,cloud_id,deleted_at}], max_cursor }.
+router.get('/deletions', async (req, res) => {
+  try {
+    const since = req.query.since || '1970-01-01';
+    const r = await pool.query(
+      `SELECT entity, cloud_id, deleted_at FROM deleted_records
+       WHERE deleted_at > $1 ORDER BY deleted_at ASC LIMIT 1000`,
+      [since],
+    );
+    const max = r.rows.length ? r.rows[r.rows.length - 1].deleted_at : since;
+    res.json({ deletions: r.rows, max_cursor: max });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ===========================================================================
 // PUSH — apply a batch of mutations queued by an offline desktop till.
 // POST /api/sync/push   body: { ops: [ { op_key, action, data } ] }
@@ -298,6 +316,7 @@ const PUSH_ACTIONS = {
   create_bill:               { table: 'bills',           kind: 'insert' },
   add_bill_item:             { table: 'bill_items',      kind: 'insert' },
   pay_bill_cash:             { table: 'bills',           kind: 'update' },
+  delete_client:             { table: 'clients',         kind: 'delete', entity: 'client' },
 };
 
 // Column list for a table, from the live catalog. Works on Postgres (cloud)
@@ -360,6 +379,16 @@ async function applyOp(action, data) {
       `UPDATE ${table} SET ${sets} WHERE id=$${keys.length + 1}`,
       [...keys.map((k) => fields[k]), id],
     );
+    return id;
+  }
+
+  // delete — erase the row (FK-cascades to children) and tombstone it so other
+  // tills wipe their local copy too (GDPR erasure propagation).
+  if (kind === 'delete') {
+    const id = Number(data.id);
+    if (!Number.isFinite(id)) throw new Error(`${action}: missing target id`);
+    await pool.query(`DELETE FROM ${table} WHERE id=$1`, [id]);
+    await pool.query(`INSERT INTO deleted_records (entity, cloud_id) VALUES ($1, $2)`, [spec.entity || table, id]);
     return id;
   }
 
