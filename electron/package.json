@@ -1,6 +1,6 @@
 {
   "name": "siamepos-spa-electron",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "SiamEPOS Spa desktop shell — Thai massage & spa management till",
   "main": "main.js",
   "private": true,
@@ -77,8 +77,8 @@
       {
         "provider": "github",
         "owner": "kongponsrisiri-coder",
-        "repo": "siamepos-spa-releases",
-        "releaseType": "release"
+        "repo": "restaurant-epos",
+        "releaseType": "prerelease"
       }
     ]
   },

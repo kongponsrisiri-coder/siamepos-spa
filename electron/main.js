@@ -323,6 +323,10 @@ function initAutoUpdate() {
   let autoUpdater;
   try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
   autoUpdater.autoDownload = true;
+  // Spa builds publish as PRERELEASES into the shared restaurant-epos repo, so
+  // the updater must look at prereleases — this is ALSO what keeps it from ever
+  // picking up the restaurant's stable `v*` releases (those aren't prereleases).
+  autoUpdater.allowPrerelease = true;
   autoUpdater.on('update-downloaded', () => mainWindow && mainWindow.webContents.send('siamepos-spa:update-ready'));
   autoUpdater.checkForUpdatesAndNotify().catch(() => {});
 }
