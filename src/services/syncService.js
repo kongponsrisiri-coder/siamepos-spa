@@ -541,6 +541,29 @@ const PUSH_MAP = {
   pay_bill_cash:             { table: 'bills',          insert: false, fks: {} },
 };
 
+// A stable per-DEVICE id, generated once and persisted in sync_state. It's
+// folded into every push op_key so two tills that share the same SPA_ID can
+// never collide (e.g. both would otherwise emit "baan-siam:q1" for their first
+// push and the cloud's idempotency would drop one). The operator types a plain
+// SPA_ID; uniqueness is handled here under the hood.
+let _deviceId = null;
+async function getDeviceId() {
+  if (_deviceId) return _deviceId;
+  let id = await readSyncState('device_id');
+  if (!id) {
+    id = require('crypto').randomBytes(4).toString('hex');
+    await writeSyncState('device_id', id);
+  }
+  _deviceId = id;
+  return id;
+}
+
+// Globally-unique idempotency key for a queue entry: <spa>-<device>:q<rowId>.
+async function makeOpKey(entry) {
+  const spa = process.env.SPA_ID || 'spa';
+  return `${spa}-${await getDeviceId()}:q${entry.id}`;
+}
+
 // Push one queued mutation to the cloud. Re-reads the current local row (freshest
 // data + lets us remap FKs now that parents may have cloud ids), POSTs it to
 // /api/sync/push, and writes the returned cloud id back into the local cloud_id
@@ -555,7 +578,7 @@ async function applyToCloud(entry) {
   if (action === 'delete_client') {
     const cloudId = entry.payload && entry.payload.cloud_id;
     if (cloudId == null) return; // never had a cloud copy — nothing to propagate
-    const opKey = `${process.env.SPA_ID || 'spa'}:q${entry.id}`;
+    const opKey = await makeOpKey(entry);
     const resp = await postJSON('/api/sync/push', { ops: [{ op_key: opKey, action, data: { id: cloudId } }] });
     const result = resp.results && resp.results[0];
     if (!result || !result.ok) throw new Error((result && result.error) || 'push rejected');
@@ -593,7 +616,7 @@ async function applyToCloud(entry) {
     data.id = row.cloud_id;
   }
 
-  const opKey = `${process.env.SPA_ID || 'spa'}:q${entry.id}`;
+  const opKey = await makeOpKey(entry);
   const resp = await postJSON('/api/sync/push', { ops: [{ op_key: opKey, action, data }] });
   const result = resp.results && resp.results[0];
   if (!result || !result.ok) throw new Error((result && result.error) || 'push rejected');
