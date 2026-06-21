@@ -11,13 +11,13 @@ router.get('/', async (req, res) => {
   const includeInactive   = req.query.include_inactive === '1' || req.query.include_inactive === 'true';
   const withBookingCount  = req.query.with_booking_count === '1' || req.query.with_booking_count === 'true';
   const activeClause = includeInactive ? '' : 'WHERE t.active = TRUE';
-  const bookingJoin = withBookingCount
-    ? `LEFT JOIN LATERAL (
-         SELECT COUNT(*)::int AS booking_count, MAX(a.starts_at) AS last_booked_at
-         FROM appointments a WHERE a.treatment_id = t.id
-       ) bk ON TRUE`
+  // Correlated scalar subqueries instead of LEFT JOIN LATERAL so this runs on
+  // both Postgres (cloud) and SQLite (offline till).
+  const bookingJoin = '';
+  const bookingCols = withBookingCount
+    ? `, (SELECT COUNT(*) FROM appointments a WHERE a.treatment_id = t.id) AS booking_count,
+         (SELECT MAX(a.starts_at) FROM appointments a WHERE a.treatment_id = t.id) AS last_booked_at`
     : '';
-  const bookingCols = withBookingCount ? ', bk.booking_count, bk.last_booked_at' : '';
   try {
     const treatments = await pool.query(`
       SELECT t.*, c.name AS category_name, c.sort_order AS category_sort${bookingCols}

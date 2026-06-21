@@ -170,7 +170,28 @@ function preTranslate(sql) {
   // TRUE / FALSE literals → 1 / 0 (only standalone keywords)
   out = out.replace(/\bTRUE\b/g, '1').replace(/\bFALSE\b/g, '0');
 
-  // Strip the casts last (after the keyword swaps above).
+  // DATE / TIMESTAMP casts carry MEANING — they must become a function call,
+  // not be stripped. Postgres `starts_at::date = $1::date` compares calendar
+  // days; if we just dropped `::date` it would compare a full timestamp string
+  // to a date string and never match. Convert BEFORE the generic strip below.
+  //   expr::date        → date(expr)
+  //   expr::timestamp[tz]→ datetime(expr)
+  // Operand = a string literal, a $n param, or an identifier (a.b.c).
+  const OPERAND = "('(?:[^']|'')*'|\\$\\d+|[A-Za-z_][\\w.]*)";
+  out = out.replace(new RegExp(OPERAND + "\\s*::\\s*timestamptz?\\b", 'gi'), 'datetime($1)');
+  out = out.replace(new RegExp(OPERAND + "\\s*::\\s*date\\b", 'gi'), 'date($1)');
+
+  // JSON access:  x ->> 'key'  →  json_extract(x, '$.key')
+  // (operand: identifier or a single-level parenthesised expression)
+  out = out.replace(/([A-Za-z_][\w.]*|\([^()]*\))\s*->>\s*'([^']+)'/g, "json_extract($1, '$.$2')");
+
+  // date_trunc('day'|'month'|'year', x) → strftime(...) (used by reports)
+  out = out.replace(/\bdate_trunc\s*\(\s*'day'\s*,\s*([^()]+?)\s*\)/gi, "date($1)");
+  out = out.replace(/\bdate_trunc\s*\(\s*'month'\s*,\s*([^()]+?)\s*\)/gi, "strftime('%Y-%m-01', $1)");
+  out = out.replace(/\bdate_trunc\s*\(\s*'year'\s*,\s*([^()]+?)\s*\)/gi, "strftime('%Y-01-01', $1)");
+
+  // Strip the REMAINING casts (::int, ::numeric, ::text, ::jsonb, ::int[]…),
+  // which are type-only and safe to drop in dynamically-typed SQLite.
   out = stripCasts(out);
 
   return out;

@@ -121,10 +121,9 @@ router.get('/', async (req, res) => {
        LEFT JOIN clients    c  ON c.id  = a.client_id
        LEFT JOIN therapists th ON th.id = a.therapist_id
        LEFT JOIN rooms      r  ON r.id  = a.room_id
-       LEFT JOIN LATERAL (
-         SELECT payment_method, payment_status, total FROM bills
-         WHERE appointment_id = a.id ORDER BY id DESC LIMIT 1
-       ) b ON TRUE
+       LEFT JOIN bills b ON b.id = (
+         SELECT id FROM bills WHERE appointment_id = a.id ORDER BY id DESC LIMIT 1
+       )
        ${where}
        ORDER BY a.starts_at ASC`,
       params,
