@@ -8,7 +8,7 @@
     "start": "electron .",
     "start:dev": "ELECTRON_DEV=1 electron .",
     "rebuild:native": "node scripts/rebuild-native.js",
-    "build:client": "cd ../client && VITE_API_BASE= npm run build",
+    "build:client": "cd ../client && npm run build",
     "build:mac": "npm run build:client && npm run rebuild:native && electron-builder --mac --publish never",
     "build:win": "npm run build:client && npm run rebuild:native && electron-builder --win --publish never",
     "build:all": "npm run build:client && npm run rebuild:native && electron-builder -mw --publish never"
