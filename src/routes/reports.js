@@ -33,6 +33,41 @@ async function loadIdentity() {
 }
 
 // GET /api/reports/trading?date=YYYY-MM-DD  (default: today)
+// Payment-method breakdown that splits each 'split' bill into its component
+// methods (e.g. £30 cash + £20 card → cash & card lines, not a "split" line).
+// Portable: split bills are expanded in JS rather than with Postgres-only
+// `LATERAL jsonb_array_elements`, so it runs on both PG (cloud) and SQLite
+// (offline till). `baseWhere` filters the bill set (date/range + refunded) and
+// must NOT mention payment_method — this helper adds it. Returns { rows }.
+async function billsByMethod(baseWhere, params) {
+  const nonSplit = await pool.query(
+    `SELECT payment_method, total AS amount FROM bills
+     WHERE ${baseWhere} AND payment_method <> 'split'`,
+    params,
+  );
+  const splitBills = await pool.query(
+    `SELECT split_payments FROM bills
+     WHERE ${baseWhere} AND payment_method = 'split'`,
+    params,
+  );
+  const agg = {};
+  const add = (method, amount) => {
+    const m = method == null ? '' : String(method);
+    if (!m) return;
+    if (!agg[m]) agg[m] = { payment_method: m, n: 0, revenue: 0 };
+    agg[m].n += 1;
+    agg[m].revenue += Number(amount) || 0;
+  };
+  for (const r of nonSplit.rows) add(r.payment_method, r.amount);
+  for (const r of splitBills.rows) {
+    let arr = r.split_payments; // JSONB→object on PG, TEXT→string on SQLite
+    if (typeof arr === 'string') { try { arr = JSON.parse(arr); } catch { arr = []; } }
+    if (Array.isArray(arr)) for (const p of arr) add(p && p.method, p && p.amount);
+  }
+  const rows = Object.values(agg).sort((a, b) => b.revenue - a.revenue);
+  return { rows };
+}
+
 router.get('/trading', async (req, res) => {
   const date = req.query.date || today();
   try {
@@ -81,26 +116,8 @@ router.get('/trading', async (req, res) => {
     // contributes its split_payments[] entries to their underlying
     // methods (e.g. £30 cash + £20 card), so the owner sees real
     // cash/card totals instead of a generic "split" line.
-    const byMethod = await pool.query(
-      `WITH non_split AS (
-         SELECT payment_method, total::numeric AS amount
-         FROM bills
-         WHERE closed_at::date = $1::date AND payment_method != 'split'
-           AND payment_status <> 'refunded'
-       ),
-       splits AS (
-         SELECT (elem->>'method')::text AS payment_method,
-                (elem->>'amount')::numeric AS amount
-         FROM bills b, LATERAL jsonb_array_elements(COALESCE(b.split_payments, '[]'::jsonb)) elem
-         WHERE b.closed_at::date = $1::date AND b.payment_method = 'split'
-           AND b.payment_status <> 'refunded'
-       )
-       SELECT payment_method,
-              COUNT(*)::int AS n,
-              COALESCE(SUM(amount), 0)::numeric AS revenue
-       FROM (SELECT * FROM non_split UNION ALL SELECT * FROM splits) all_payments
-       GROUP BY payment_method
-       ORDER BY revenue DESC`,
+    const byMethod = await billsByMethod(
+      "closed_at::date = $1::date AND payment_status <> 'refunded'",
       [date],
     );
     // SPA-003 — source split: how many of today's appointments came from
@@ -217,30 +234,10 @@ router.get('/therapist', async (req, res) => {
 
     // Payment-method breakdown for the same range — split-aware (one
     // 'split' bill contributes to multiple methods via split_payments).
-    const { rows: byMethod } = await pool.query(
-      `WITH non_split AS (
-         SELECT payment_method, total::numeric AS amount
-         FROM bills
-         WHERE closed_at IS NOT NULL
-           AND ($1::date IS NULL OR closed_at::date >= $1::date)
-           AND ($2::date IS NULL OR closed_at::date <= $2::date)
-           AND payment_method != 'split'
-       ),
-       splits AS (
-         SELECT (elem->>'method')::text  AS payment_method,
-                (elem->>'amount')::numeric AS amount
-         FROM bills b, LATERAL jsonb_array_elements(COALESCE(b.split_payments, '[]'::jsonb)) elem
-         WHERE b.closed_at IS NOT NULL
-           AND ($1::date IS NULL OR b.closed_at::date >= $1::date)
-           AND ($2::date IS NULL OR b.closed_at::date <= $2::date)
-           AND b.payment_method = 'split'
-       )
-       SELECT payment_method,
-              COUNT(*)::int                       AS n,
-              COALESCE(SUM(amount), 0)::numeric   AS revenue
-       FROM (SELECT * FROM non_split UNION ALL SELECT * FROM splits) all_payments
-       GROUP BY payment_method
-       ORDER BY revenue DESC`,
+    const { rows: byMethod } = await billsByMethod(
+      `closed_at IS NOT NULL
+         AND ($1::date IS NULL OR closed_at::date >= $1::date)
+         AND ($2::date IS NULL OR closed_at::date <= $2::date)`,
       [from || null, to || null],
     );
 
@@ -298,26 +295,8 @@ router.get('/z-report', async (req, res) => {
     // contributes its split_payments[] entries to their underlying
     // methods (e.g. £30 cash + £20 card), so the owner sees real
     // cash/card totals instead of a generic "split" line.
-    const byMethod = await pool.query(
-      `WITH non_split AS (
-         SELECT payment_method, total::numeric AS amount
-         FROM bills
-         WHERE closed_at::date = $1::date AND payment_method != 'split'
-           AND payment_status <> 'refunded'
-       ),
-       splits AS (
-         SELECT (elem->>'method')::text AS payment_method,
-                (elem->>'amount')::numeric AS amount
-         FROM bills b, LATERAL jsonb_array_elements(COALESCE(b.split_payments, '[]'::jsonb)) elem
-         WHERE b.closed_at::date = $1::date AND b.payment_method = 'split'
-           AND b.payment_status <> 'refunded'
-       )
-       SELECT payment_method,
-              COUNT(*)::int AS n,
-              COALESCE(SUM(amount), 0)::numeric AS revenue
-       FROM (SELECT * FROM non_split UNION ALL SELECT * FROM splits) all_payments
-       GROUP BY payment_method
-       ORDER BY revenue DESC`,
+    const byMethod = await billsByMethod(
+      "closed_at::date = $1::date AND payment_status <> 'refunded'",
       [date],
     );
     const closed = await pool.query(
