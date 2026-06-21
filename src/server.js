@@ -218,9 +218,14 @@ if (require.main === module) {
       // cloud mode (the service guards on DB_MODE internally).
       if ((process.env.DB_MODE || '').toLowerCase() === 'local') {
         try {
-          require('./services/syncService').start();
+          const syncService = require('./services/syncService');
+          syncService.start();
+          // Realtime relay (B4): forward cloud events to this till's local
+          // socket.io for sub-second updates. Falls back to the 5s pull if it
+          // can't connect.
+          require('./services/cloudRelay').start(io, syncService);
         } catch (e) {
-          console.error('[server] sync engine failed to start:', e.message);
+          console.error('[server] sync engine / relay failed to start:', e.message);
         }
       }
     } catch (err) {
