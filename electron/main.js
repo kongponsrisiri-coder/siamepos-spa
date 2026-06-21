@@ -259,6 +259,18 @@ function buildMenu() {
       ],
     },
     {
+      // Without this Edit menu, Cmd/Ctrl+C/V/X don't work in text fields on
+      // macOS — Electron wires the clipboard shortcuts through these roles.
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' }, { role: 'redo' }, { type: 'separator' },
+        { role: 'cut' }, { role: 'copy' }, { role: 'paste' },
+        ...(isMac
+          ? [{ role: 'pasteAndMatchStyle' }, { role: 'delete' }, { role: 'selectAll' }]
+          : [{ role: 'delete' }, { type: 'separator' }, { role: 'selectAll' }]),
+      ],
+    },
+    {
       label: 'View',
       submenu: [
         { label: 'Reload', accelerator: 'CmdOrCtrl+R', click: () => mainWindow && mainWindow.loadURL(currentTarget()) },
