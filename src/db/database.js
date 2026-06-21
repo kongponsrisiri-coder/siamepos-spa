@@ -390,6 +390,12 @@ async function initSchema() {
     ALTER TABLE bills ADD COLUMN IF NOT EXISTS refunded_at   TIMESTAMPTZ;
     ALTER TABLE bills ADD COLUMN IF NOT EXISTS refund_amount NUMERIC(10,2);
     ALTER TABLE bills ADD COLUMN IF NOT EXISTS refund_reason TEXT;
+
+    -- SPA-EXT-VOUCHER — a voucher the customer holds from BEFORE they moved to
+    -- SiamEPOS (no record in our vouchers table). Staff record the code here
+    -- when taking a voucher payment so there's an audit trail, without a
+    -- SiamEPOS voucher redemption.
+    ALTER TABLE bills ADD COLUMN IF NOT EXISTS external_voucher_code TEXT;
   `);
 
   await pool.query(`

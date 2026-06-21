@@ -157,6 +157,11 @@ router.put('/:id/tip', async (req, res) => {
 router.post('/:id/pay', async (req, res) => {
   const id = Number(req.params.id);
   const { method, split_payments } = req.body || {};
+  // SPA-EXT-VOUCHER — an external (pre-SiamEPOS) voucher code recorded against
+  // this payment. Stored for audit; no SiamEPOS voucher is redeemed.
+  const externalVoucherCode = (req.body && req.body.external_voucher_code)
+    ? String(req.body.external_voucher_code).trim().slice(0, 64) || null
+    : null;
   if (!['cash', 'card', 'split', 'voucher', 'treatwell'].includes(method)) {
     return res.status(400).json({ error: 'invalid method' });
   }
@@ -258,12 +263,13 @@ router.post('/:id/pay', async (req, res) => {
       `UPDATE bills SET
          payment_method = $2,
          split_payments = $3::jsonb,
+         external_voucher_code = COALESCE($4, external_voucher_code),
          payment_status = 'paid',
          closed_at      = now()
        WHERE id = $1
          AND payment_status != 'paid'
        RETURNING *`,
-      [id, effectiveMethod, splitJson],
+      [id, effectiveMethod, splitJson, externalVoucherCode],
     );
     // rows[0] is null either because the bill was not found OR because it
     // was already paid. Distinguish with a second read so the error message

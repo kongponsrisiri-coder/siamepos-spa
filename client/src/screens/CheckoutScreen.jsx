@@ -18,6 +18,7 @@ export default function CheckoutScreen() {
   const [voucherLookup, setVoucherLookup] = useState(null);   // { voucher } or null
   const [voucherError, setVoucherError]   = useState('');
   const [showVoucher, setShowVoucher]     = useState(false);
+  const [extVoucherAmt, setExtVoucherAmt] = useState('');  // external (pre-SiamEPOS) voucher amount
   const [showSplit, setShowSplit]         = useState(false);
   const [showDiscount, setShowDiscount]   = useState(false);
   const [discountReason, setDiscountReason] = useState('');
@@ -230,6 +231,35 @@ export default function CheckoutScreen() {
       }
     } catch (e) {
       setError(e.message || 'Voucher redemption failed');
+      setBusy(false);
+    }
+  }
+
+  // SPA-EXT-VOUCHER — record a voucher the customer holds from BEFORE they
+  // moved to SiamEPOS (no record in our system). The typed code is just stored
+  // for the audit trail; no SiamEPOS voucher is decremented. Full coverage
+  // closes the bill as 'voucher'; a partial amount is applied as a discount so
+  // the operator collects the rest by cash/card.
+  async function payExternalVoucher(customAmount) {
+    const code = voucherCode.trim().toUpperCase();
+    if (!code) return;
+    setBusy(true); setError('');
+    try {
+      const amt = customAmount !== undefined
+        ? +Math.min(balance, Math.max(0, Number(customAmount))).toFixed(2)
+        : balance;
+      if (amt <= 0) { setError('Enter a positive amount'); setBusy(false); return; }
+      if (Math.abs(amt - balance) < 0.01) {
+        await api.post(`/bills/${bill.id}/pay`, { method: 'voucher', external_voucher_code: code });
+        navigate('/', { replace: true });
+      } else {
+        const newDiscount = +(Number(bill.discount || 0) + amt).toFixed(2);
+        const newReason = [bill.discount_reason, `External voucher ${code} −£${amt.toFixed(2)}`].filter(Boolean).join(' + ');
+        const r = await api.put(`/bills/${bill.id}/discount`, { discount: newDiscount, reason: newReason });
+        setBill(r.bill); setShowVoucher(false); setVoucherCode(''); setVoucherLookup(null); setVoucherError(''); setBusy(false);
+      }
+    } catch (e) {
+      setError(e.message || 'External voucher payment failed');
       setBusy(false);
     }
   }
@@ -539,6 +569,35 @@ export default function CheckoutScreen() {
                   <button onClick={lookupVoucher} disabled={!voucherCode.trim()}>Check</button>
                 </div>
                 {voucherError && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 6 }}>{voucherError}</div>}
+                {/* SPA-EXT-VOUCHER — record a voucher the customer already had
+                    before moving to SiamEPOS (not in our system). */}
+                {voucherError && voucherCode.trim() && (
+                  <div style={{ marginTop: 10, background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, padding: '12px 14px' }}>
+                    <div style={{ fontSize: 13, color: '#92400e', marginBottom: 8 }}>
+                      Not a SiamEPOS voucher — but if the customer brought an <strong>existing voucher</strong> from before, record it here:
+                    </div>
+                    <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                      <span style={{ fontSize: 13, color: '#92400e' }}>£</span>
+                      <input
+                        type="number" step="0.01" min="0"
+                        value={extVoucherAmt}
+                        onChange={e => setExtVoucherAmt(e.target.value)}
+                        placeholder={balance.toFixed(2)}
+                        style={{ width: 90 }}
+                      />
+                      <button
+                        className="gold"
+                        disabled={busy}
+                        onClick={() => payExternalVoucher(extVoucherAmt === '' ? undefined : Number(extVoucherAmt))}
+                      >
+                        Record external voucher
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#92400e', marginTop: 6 }}>
+                      Blank = covers the full £{balance.toFixed(2)}. A smaller amount is applied as a discount; collect the rest by cash/card.
+                    </div>
+                  </div>
+                )}
                 {voucherLookup && (() => {
                   const v = voucherLookup.voucher;
                   const isSessions = v.voucher_type === 'sessions';

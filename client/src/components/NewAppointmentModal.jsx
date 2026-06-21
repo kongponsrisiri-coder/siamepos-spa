@@ -620,7 +620,9 @@ export default function NewAppointmentModal({
           treatwell_payment_type: source === 'treatwell' ? twType : null,
           therapist_requested: therapistId ? therapistRequested : false,
         };
-        const r = await api.post('/appointments', body);
+        // allow_past=1 — staff bookings may be recorded after the fact
+        // (customer already seated). Server gates past times behind this flag.
+        const r = await api.post('/appointments?allow_past=1', body);
         handleSaved(r.appointment);
       }
     } catch (e) {
@@ -978,11 +980,10 @@ export default function NewAppointmentModal({
                 type="date"
                 value={date}
                 onChange={e => { setDate(e.target.value); setSlots([]); }}
-                // min=today blocks past-date selection from the date
-                // picker UI. Server enforces the same on POST — pass
-                // ?allow_past=1 if Korakot ever needs to record a
-                // historical booking from admin.
-                min={isEdit ? undefined : (() => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; })()}
+                // No min: staff often seat a walk-in first and record the
+                // booking afterwards, so past date/time must be allowed. The
+                // create call passes ?allow_past=1 to match. (The public online
+                // widget still blocks past times — it never reaches here.)
               />
             </div>
             <div style={{ flex: 1 }}>

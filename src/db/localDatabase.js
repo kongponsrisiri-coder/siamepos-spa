@@ -207,6 +207,10 @@ function coerceParam(v) {
   if (v === true) return 1;
   if (v === false) return 0;
   if (v === undefined) return null;
+  // node-postgres accepts Date objects (e.g. a computed ends_at); better-sqlite3
+  // only binds numbers/strings/bigints/buffers/null, so serialise to ISO. Stored
+  // as ISO-8601 UTC, which the query() timestamp normaliser already understands.
+  if (v instanceof Date) return v.toISOString();
   return v;
 }
 
@@ -594,6 +598,7 @@ async function initSchema() {
       refunded_at               TEXT,
       refund_amount             REAL,
       refund_reason             TEXT,
+      external_voucher_code     TEXT,
       closed_at                 TEXT,
       cloud_id                  INTEGER
     );
@@ -894,6 +899,7 @@ function runMigrations() {
   addColumnIfMissing('bills', 'refunded_at',     'TEXT');
   addColumnIfMissing('bills', 'refund_amount',   'REAL');
   addColumnIfMissing('bills', 'refund_reason',   'TEXT');
+  addColumnIfMissing('bills', 'external_voucher_code', 'TEXT');
   addColumnIfMissing('bills', 'cloud_id',        'INTEGER');
 
   // bill_items
