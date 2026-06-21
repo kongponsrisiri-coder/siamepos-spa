@@ -177,6 +177,21 @@ function createWindow() {
     }
   });
 
+  // Belt-and-braces for the startup race: if the window ever beats the local
+  // server and lands on Express's "Cannot GET /" 404, reload once so it
+  // recovers on its own instead of showing a dead page.
+  let _recovered = false;
+  mainWindow.webContents.on('did-finish-load', async () => {
+    if (_recovered || !mainWindow) return;
+    try {
+      const body = await mainWindow.webContents.executeJavaScript('document.body ? document.body.innerText : ""');
+      if (/Cannot GET/i.test(body)) {
+        _recovered = true;
+        setTimeout(() => mainWindow && mainWindow.reload(), 900);
+      }
+    } catch {}
+  });
+
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (!url.startsWith(currentTarget())) {
       shell.openExternal(url);
