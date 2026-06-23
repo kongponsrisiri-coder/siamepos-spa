@@ -1,7 +1,7 @@
 {
   "name": "siamepos-spa-electron",
-  "version": "0.2.11",
-  "description": "SiamEPOS Spa desktop shell — Thai massage & spa management till",
+  "version": "0.2.12",
+  "description": "SiamEPOS Spa desktop shell \u2014 Thai massage & spa management till",
   "main": "main.js",
   "private": true,
   "scripts": {
@@ -30,9 +30,18 @@
       "build/**"
     ],
     "extraResources": [
-      { "from": "../client/dist", "to": "client-dist" },
-      { "from": "../src", "to": "src" },
-      { "from": "../package.json", "to": "package.json" },
+      {
+        "from": "../client/dist",
+        "to": "client-dist"
+      },
+      {
+        "from": "../src",
+        "to": "src"
+      },
+      {
+        "from": "../package.json",
+        "to": "package.json"
+      },
       {
         "from": "../node_modules",
         "to": "node_modules",
@@ -49,8 +58,18 @@
     "mac": {
       "icon": "build/icon.png",
       "target": [
-        { "target": "dmg", "arch": ["arm64"] },
-        { "target": "zip", "arch": ["arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "category": "public.app-category.business",
       "hardenedRuntime": true,
@@ -64,7 +83,12 @@
     "win": {
       "icon": "build/icon.png",
       "target": [
-        { "target": "nsis", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ]
     },
     "nsis": {
