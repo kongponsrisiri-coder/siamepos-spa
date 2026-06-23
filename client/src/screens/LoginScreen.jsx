@@ -204,9 +204,17 @@ export default function LoginScreen() {
         </button>
       </div>
 
+      {/* SEPOS-SPA-OWNER-001 — owners sign in remotely via emailed link */}
+      <a href="/owner-login" style={{
+        marginTop: 22, color: 'rgba(201,168,76,0.8)', fontSize: 13,
+        textDecoration: 'none', fontFamily: 'system-ui, -apple-system, sans-serif', fontWeight: 600,
+      }}>
+        Owner login →
+      </a>
+
       {/* Footer */}
       <div style={{
-        marginTop: 32, color: 'rgba(201,168,76,0.35)',
+        marginTop: 20, color: 'rgba(201,168,76,0.35)',
         fontSize: 12, textAlign: 'center', letterSpacing: '0.05em',
         fontFamily: 'system-ui, -apple-system, sans-serif',
       }}>

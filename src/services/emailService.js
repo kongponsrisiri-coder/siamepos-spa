@@ -376,8 +376,28 @@ async function sendOwnerNewBookingEmail({ appointment, client, treatment, therap
   });
 }
 
+// SEPOS-SPA-OWNER-001 — owner mobile sign-in link (magic link).
+async function sendOwnerLoginLink({ to, url, spaName }) {
+  const safe = String(spaName || 'your spa').replace(/[<>]/g, '');
+  const html = `
+    <div style="font-family:Georgia,serif;max-width:480px;margin:0 auto;padding:24px;color:#0D1B3E;">
+      <h2 style="color:#0D1B3E;">Sign in to ${safe}</h2>
+      <p style="font-family:system-ui,sans-serif;font-size:15px;line-height:1.5;color:#334155;">
+        Tap the button below to sign in to your SiamEPOS Spa dashboard. This link works once and expires in 15 minutes.
+      </p>
+      <p style="text-align:center;margin:28px 0;">
+        <a href="${url}" style="background:#C9A84C;color:#0D1B3E;font-family:system-ui,sans-serif;font-weight:700;text-decoration:none;padding:14px 28px;border-radius:10px;display:inline-block;">Sign in</a>
+      </p>
+      <p style="font-family:system-ui,sans-serif;font-size:12px;color:#94a3b8;">
+        If you didn't request this, you can safely ignore this email — no one can sign in without the link.
+      </p>
+    </div>`;
+  return sendBrevoEmail({ to, subject: `Your ${safe} sign-in link`, html });
+}
+
 module.exports = {
   sendBrevoEmail,
+  sendOwnerLoginLink,
   sendBookingConfirmation,
   sendBookingRescheduled,
   sendBookingCancelled,

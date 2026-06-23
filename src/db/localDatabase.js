@@ -780,6 +780,18 @@ async function initSchema() {
       platform    TEXT,
       last_seen   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- SEPOS-SPA-OWNER-001 — owner magic-link tokens (parity with PG; owner login is
+    -- a cloud feature, but kept here so the shared code never hits a missing table).
+    CREATE TABLE IF NOT EXISTS owner_login_tokens (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      token_hash  TEXT NOT NULL,
+      email       TEXT NOT NULL,
+      expires_at  TEXT NOT NULL,
+      used_at     TEXT,
+      created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_owner_login_token_hash ON owner_login_tokens (token_hash);
   `);
 
   // ── indexes ───────────────────────────────────────────────────────────────

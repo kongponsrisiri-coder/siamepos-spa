@@ -182,9 +182,24 @@ async function initSchema() {
       ('closing_time',             '20:00'),
       ('cancellation_policy_text', 'Please give 24 hours notice for cancellations.'),
       ('tip_suggestions',          '10,12.5,15'),
-      ('vat_rate',                 '0')
+      ('vat_rate',                 '0'),
+      ('owner_email',              $2)
     ON CONFLICT (key) DO NOTHING;
   `, [process.env.SPA_NAME || 'SiamEPOS Spa', process.env.SPA_EMAIL || 'info@siamepos.co.uk']);
+
+  // SEPOS-SPA-OWNER-001 — single-use magic-link tokens for owner mobile login.
+  // Only the hash is stored; the raw token lives only in the emailed link.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS owner_login_tokens (
+      id          SERIAL PRIMARY KEY,
+      token_hash  TEXT NOT NULL,
+      email       TEXT NOT NULL,
+      expires_at  TIMESTAMPTZ NOT NULL,
+      used_at     TIMESTAMPTZ,
+      created_at  TIMESTAMPTZ DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_owner_login_token_hash ON owner_login_tokens (token_hash);
+  `);
 
   // ── client_medical new columns (intake form expansion) ──────────────────
   const medicalCols = [

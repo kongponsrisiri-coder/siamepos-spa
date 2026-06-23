@@ -2,8 +2,9 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../api.js';
 
 const KEYS = [
-  { k: 'spa_name',  t: 'Spa name'   },
-  { k: 'spa_email', t: 'Spa email'  },
+  { k: 'spa_name',     t: 'Spa name'   },
+  { k: 'spa_email',    t: 'Spa email'  },
+  { k: 'owner_email',  t: 'Owner login email (for the Owner login magic link)' },
 ];
 
 export default function SettingsSection() {

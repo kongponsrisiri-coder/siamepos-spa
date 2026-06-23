@@ -4,6 +4,7 @@ import { getStaff, getToken, clearAuth, getLicenseState } from './api.js';
 import { socket } from './socket.js';
 
 import LoginScreen         from './screens/LoginScreen.jsx';
+import OwnerLoginScreen    from './screens/OwnerLoginScreen.jsx';
 import LockScreen          from './screens/LockScreen.jsx';
 import AppointmentScreen   from './screens/AppointmentScreen.jsx';
 import CheckoutScreen      from './screens/CheckoutScreen.jsx';
@@ -335,6 +336,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginScreen />} />
+      <Route path="/owner-login" element={<OwnerLoginScreen />} />
       <Route path="/"                        element={<Protected><AppShell><AppointmentScreen   /></AppShell></Protected>} />
       <Route path="/checkout/:appointmentId" element={<Protected><AppShell><CheckoutScreen      /></AppShell></Protected>} />
       <Route path="/clients"                 element={<Protected><AppShell><ClientSearchScreen  /></AppShell></Protected>} />
