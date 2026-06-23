@@ -763,6 +763,7 @@ async function initSchema() {
       stripe_session_id TEXT UNIQUE,
       url               TEXT,
       customer_email    TEXT,
+      appointment_id    INTEGER REFERENCES appointments(id) ON DELETE SET NULL,
       created_by        INTEGER REFERENCES therapists(id) ON DELETE SET NULL,
       created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       expires_at        TEXT,
@@ -942,6 +943,9 @@ function runMigrations() {
 
   // appointment_amendments
   addColumnIfMissing('appointment_amendments', 'cloud_id', 'INTEGER');
+
+  // payment_links
+  addColumnIfMissing('payment_links', 'appointment_id', 'INTEGER');
 }
 
 module.exports = { pool, query, initSchema };

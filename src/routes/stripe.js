@@ -69,11 +69,22 @@ async function webhookHandler(req, res) {
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
       if (session.id) {
-        await pool.query(
+        const { rows } = await pool.query(
           `UPDATE payment_links SET status = 'paid', paid_at = now()
-           WHERE stripe_session_id = $1 AND status <> 'paid'`,
+           WHERE stripe_session_id = $1 AND status <> 'paid'
+           RETURNING appointment_id, amount`,
           [session.id],
         );
+        // A booking deposit link → mark the held appointment paid too.
+        const link = rows[0];
+        if (link && link.appointment_id) {
+          await pool.query(
+            `UPDATE appointments
+               SET payment_status = 'deposit_paid', deposit_amount = $2, deposit_stripe_id = $3
+             WHERE id = $1 AND status NOT IN ('cancelled','no_show')`,
+            [link.appointment_id, link.amount, session.payment_intent || null],
+          );
+        }
       }
     }
     if (event.type === 'payment_intent.succeeded') {
