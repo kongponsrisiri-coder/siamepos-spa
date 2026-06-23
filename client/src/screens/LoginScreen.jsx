@@ -83,7 +83,7 @@ export default function LoginScreen() {
 
         {/* Cormorant Garamond wordmark — brand CI heading font */}
         <div style={{
-          fontFamily: "'Cormorant Garamond', Georgia, serif",
+          fontFamily: "Georgia, 'Times New Roman', serif",
           fontSize: 40, fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1,
         }}>
           <span style={{ color: 'white' }}>Siam</span>
@@ -95,7 +95,7 @@ export default function LoginScreen() {
           fontSize: 12, marginTop: 8,
           letterSpacing: '0.22em',
           textTransform: 'uppercase',
-          fontFamily: 'Inter, sans-serif',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
           fontWeight: 600,
         }}>
           Spa · Staff Login
@@ -118,7 +118,7 @@ export default function LoginScreen() {
           justifyContent: 'center', gap: 10, marginBottom: 20,
         }}>
           {pin.length === 0 ? (
-            <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14, letterSpacing: '0.05em', fontFamily: 'Inter, sans-serif' }}>
+            <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14, letterSpacing: '0.05em', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
               Enter your PIN
             </span>
           ) : (
@@ -140,7 +140,7 @@ export default function LoginScreen() {
               color: '#fca5a5',
               borderRadius: 8, padding: '9px 14px',
               fontSize: 13, textAlign: 'center',
-              fontWeight: 500, fontFamily: 'Inter, sans-serif',
+              fontWeight: 500, fontFamily: 'system-ui, -apple-system, sans-serif',
             }}>
               {error}
             </div>
@@ -167,7 +167,7 @@ export default function LoginScreen() {
                   fontSize: isDel ? 20 : 24,
                   fontWeight: 700,
                   transition: 'background 0.1s, transform 0.07s',
-                  fontFamily: 'Inter, system-ui, sans-serif',
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
                   WebkitTapHighlightColor: 'transparent',
                 }}
                 onMouseDown={e => { if (!busy) e.currentTarget.style.transform = 'scale(0.93)'; }}
@@ -196,7 +196,7 @@ export default function LoginScreen() {
             cursor: pin.length && !busy ? 'pointer' : 'default',
             transition: 'background 0.15s',
             letterSpacing: '0.04em',
-            fontFamily: 'Inter, sans-serif',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
             WebkitTapHighlightColor: 'transparent',
           }}
         >
@@ -208,7 +208,7 @@ export default function LoginScreen() {
       <div style={{
         marginTop: 32, color: 'rgba(201,168,76,0.35)',
         fontSize: 12, textAlign: 'center', letterSpacing: '0.05em',
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
       }}>
         siamepos.co.uk
       </div>
