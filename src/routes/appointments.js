@@ -293,11 +293,25 @@ router.post('/', async (req, res) => {
     const validTwType = validSource === 'treatwell' && ['full', 'partial'].includes(treatwell_payment_type)
       ? treatwell_payment_type : null;
 
+    // SEPOS-SPA-BUGHUNT #1 — race-safe insert. The check above and the insert
+    // used to be two separate statements, so two near-simultaneous bookings for
+    // the same therapist/room+slot could both pass the check and both insert
+    // (double-book). This makes the overlap re-check atomic with the insert in a
+    // single statement (works on PG and SQLite) — if the slot got taken in the
+    // gap, 0 rows insert and we report the conflict. Does NOT affect move/swap.
     const { rows } = await pool.query(
       `INSERT INTO appointments
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
           status, source, notes, therapist_requested, price_at_booking, treatwell_payment_type)
-       VALUES ($1,$2,$3,$4,$5,$6,'booked',$7,$8,$9,$10,$11) RETURNING *`,
+       SELECT $1,$2,$3,$4,$5,$6,'booked',$7,$8,$9,$10,$11
+       WHERE NOT EXISTS (
+         SELECT 1 FROM appointments a
+         WHERE a.status NOT IN ('cancelled','no_show')
+           AND ( ($3::int IS NOT NULL AND a.therapist_id = $3)
+              OR ($4::int IS NOT NULL AND a.room_id      = $4) )
+           AND NOT (a.ends_at <= $5 OR a.starts_at >= $6)
+       )
+       RETURNING *`,
       [
         client_id || null, treatment_id, therapist_id || null, room_id || null,
         starts_at, ends_at, validSource, notes || null, !!therapist_requested,
@@ -305,6 +319,12 @@ router.post('/', async (req, res) => {
       ],
     );
     const appt = rows[0];
+    if (!appt) {
+      return res.status(409).json({
+        error: 'conflict',
+        message: 'That slot was just booked by someone else — please pick another time or therapist.',
+      });
+    }
     await offlineQueue.enqueue('create_appointment', { localId: appt.id });
     req.app.get('io')?.emit('new_appointment', appt);
 
@@ -377,6 +397,9 @@ router.put('/:id', async (req, res) => {
       therapist_id !== undefined || room_id !== undefined ||
       starts_at    !== undefined || treatment_id !== undefined;
 
+    // SEPOS-SPA-BUGHUNT #1 — hoisted so the final UPDATE can re-use them for a
+    // race-safe move guard (see below), not just the friendly upfront check.
+    let checkTherapist = null, checkRoom = null, checkStart = null, checkEnd = null;
     if (needsConflictCheck) {
       // Fall back to the current row's values for fields not changed.
       const cur = await pool.query(
@@ -384,10 +407,10 @@ router.put('/:id', async (req, res) => {
          FROM appointments a LEFT JOIN treatments t ON t.id = a.treatment_id
          WHERE a.id = $1`, [id]);
       if (!cur.rows[0]) return res.status(404).json({ error: 'not found' });
-      const checkTherapist = therapist_id !== undefined ? therapist_id : cur.rows[0].therapist_id;
-      const checkRoom      = room_id      !== undefined ? room_id      : cur.rows[0].room_id;
-      const checkStart     = effectiveStart || cur.rows[0].starts_at;
-      const checkEnd       = newEnds || cur.rows[0].ends_at;
+      checkTherapist = therapist_id !== undefined ? therapist_id : cur.rows[0].therapist_id;
+      checkRoom      = room_id      !== undefined ? room_id      : cur.rows[0].room_id;
+      checkStart     = effectiveStart || cur.rows[0].starts_at;
+      checkEnd       = newEnds || cur.rows[0].ends_at;
 
       // Rota check on edit too. Skip if no therapist is assigned (Treatwell
       // imports that haven't been allocated yet, or "Any available" edits).
@@ -534,6 +557,21 @@ router.put('/:id', async (req, res) => {
       newTwType = curr.treatwell_payment_type;
     }
 
+    // SEPOS-SPA-BUGHUNT #1 — race-safe move. When this edit actually moves the
+    // booking (therapist/room/time changed), guard the UPDATE with an atomic
+    // overlap re-check EXCLUDING this appointment, so two concurrent moves can't
+    // both land on the same empty slot. Excluding self means moving within/around
+    // its own slot is fine; landing on an OCCUPIED slot is blocked (use swap).
+    // Pure status/notes edits skip the guard entirely.
+    const moveGuard = needsConflictCheck ? `
+       AND NOT EXISTS (
+         SELECT 1 FROM appointments a
+         WHERE a.id != $1 AND a.status NOT IN ('cancelled','no_show')
+           AND ( ($14::int IS NOT NULL AND a.therapist_id = $14)
+              OR ($15::int IS NOT NULL AND a.room_id      = $15) )
+           AND NOT (a.ends_at <= $16 OR a.starts_at >= $17)
+       )` : '';
+    const moveParams = needsConflictCheck ? [checkTherapist ?? null, checkRoom ?? null, checkStart, checkEnd] : [];
     const { rows } = await pool.query(
       `UPDATE appointments SET
          therapist_id         = COALESCE($2, therapist_id),
@@ -548,10 +586,17 @@ router.put('/:id', async (req, res) => {
          price_at_booking     = COALESCE($11, price_at_booking),
          source               = $12,
          treatwell_payment_type = $13
-       WHERE id = $1 RETURNING *`,
-      [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null, newPriceAtBooking, newSource, newTwType],
+       WHERE id = $1${moveGuard} RETURNING *`,
+      [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null, newPriceAtBooking, newSource, newTwType, ...moveParams],
     );
-    if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    if (!rows[0]) {
+      // The row exists (validated above) — so 0 rows on a move means the slot was
+      // just taken in the race; otherwise it's genuinely gone.
+      if (needsConflictCheck) {
+        return res.status(409).json({ error: 'conflict', message: 'That slot was just taken — please pick another time or therapist.' });
+      }
+      return res.status(404).json({ error: 'not found' });
+    }
 
     // SPA-BILL-SYNC — if the treatment was swapped AND there's already
     // an open (unpaid) bill for this appointment, update the bill's
