@@ -16,7 +16,10 @@ const SQLITE_PATH = process.env.SQLITE_PATH; // present only on a desktop till
 const SPA_ID = process.env.SPA_ID || null;
 const APP_VERSION = process.env.APP_VERSION || null;
 
-const INTERVAL_MS = 6 * 60 * 60 * 1000;
+// 5-minute cadence matches the restaurant-epos heartbeat + the ops health poll,
+// so last_seen stays fresh (the original ticket said reuse the 6h license timer,
+// but Krit's canonical reference posts every 5 min — match that).
+const INTERVAL_MS = 5 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 10000;
 
 async function send() {
