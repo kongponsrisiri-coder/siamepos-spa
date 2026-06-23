@@ -6,6 +6,7 @@ import ReportsSection         from './admin/ReportsSection.jsx';
 import ZReportSection         from './admin/ZReportSection.jsx';
 import TreatmentMenuSection   from './admin/TreatmentMenuSection.jsx';
 import TherapistSection       from './admin/TherapistSection.jsx';
+import StaffSection           from './admin/StaffSection.jsx';
 import RoomSection            from './admin/RoomSection.jsx';
 import BookingSettingsSection from './admin/BookingSettingsSection.jsx';
 import EmbedCodesSection      from './admin/EmbedCodesSection.jsx';
@@ -36,6 +37,7 @@ const NAV = [
   { divider: 'Spa' },
   { k: 'menu',       label: '💆 Treatments' },
   { k: 'therapists', label: '👥 Therapists' },
+  { k: 'staff',      label: '🔑 Staff' },
   { k: 'rota',       label: '📅 Rota' },
   { k: 'rooms',      label: '🛁 Rooms' },
   // Configuration
@@ -56,6 +58,7 @@ const SECTIONS = {
   vouchers:   VouchersSection,
   menu:       TreatmentMenuSection,
   therapists: TherapistSection,
+  staff:      StaffSection,
   rota:       RotaSection,
   rooms:      RoomSection,
   booking:    BookingSettingsSection,

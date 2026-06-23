@@ -36,7 +36,7 @@ export default function TherapistSection() {
     if (!editing.id && !editing.pin) return alert('PIN required for new staff');
     const body = {
       name: editing.name,
-      role: editing.role || 'therapist',
+      role: 'therapist', // therapists are always bookable; reception/managers live in the Staff tab
       specialisms: editing.specialisms ?? null,
       photo_url: editing.photo_url ?? null,
       active: editing.active !== false,
@@ -96,14 +96,6 @@ export default function TherapistSection() {
               <div><label>Name</label><input value={editing.name} onChange={(e) => setEdit({ ...editing, name: e.target.value })} /></div>
               <div><label>PIN {editing.id && '(leave blank to keep current)'}</label>
                 <input type="password" value={editing.pin || ''} onChange={(e) => setEdit({ ...editing, pin: e.target.value })} placeholder="4–6 digits" />
-              </div>
-              <div><label>Role</label>
-                <select value={editing.role || 'therapist'} onChange={(e) => setEdit({ ...editing, role: e.target.value })}>
-                  <option value="therapist">Therapist</option>
-                  <option value="reception">Reception</option>
-                  <option value="manager">Manager</option>
-                  <option value="admin">Admin</option>
-                </select>
               </div>
               <div>
                 <label>Specialisms <span className="muted" style={{ fontSize: 12 }}>(shown on the public booking widget)</span></label>

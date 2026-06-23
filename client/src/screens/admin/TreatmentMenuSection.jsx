@@ -9,6 +9,13 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { api } from '../../api.js';
 
+// online_bookable comes back as a real boolean from the cloud (Postgres) but as
+// an integer 0/1 from the till's local SQLite. `x !== false` wrongly treats 0 as
+// ON — which made an in-store-only treatment redraw as ticked after save/reopen.
+// Coerce properly: OFF only for an explicit falsey flag (false / 0 / '0');
+// default ON when the value is unset (new treatment).
+const isOnlineBookable = (v) => !(v === false || v === 0 || v === '0');
+
 function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
 function fmtDate(iso) {
   if (!iso) return '';
@@ -87,7 +94,7 @@ export default function TreatmentMenuSection() {
       price: Number(editing.price),
       description: editing.description || null,
       category_id: editing.category_id || null,
-      online_bookable: editing.online_bookable !== false,
+      online_bookable: isOnlineBookable(editing.online_bookable),
     };
     if (editing.id) await api.put(`/treatments/${editing.id}`, body);
     else            await api.post('/treatments', body);
@@ -251,7 +258,7 @@ export default function TreatmentMenuSection() {
                             <div style={{ fontWeight: 600 }}>
                               {t.name}
                               {!t.active && <span style={{ marginLeft: 8, background: '#f3f4f6', color: 'var(--muted)', fontSize: 11, padding: '1px 8px', borderRadius: 10 }}>hidden</span>}
-                              {t.active && t.online_bookable === false && (
+                              {t.active && !isOnlineBookable(t.online_bookable) && (
                                 <span title="Not shown on the public booking widget" style={{ marginLeft: 8, background: '#fef3c7', color: '#92400e', fontSize: 11, padding: '1px 8px', borderRadius: 10, fontWeight: 700 }}>
                                   🚫 in-store only
                                 </span>
@@ -316,11 +323,11 @@ export default function TreatmentMenuSection() {
                 <div style={{ flex: 1 }}><label>Price (£)</label><input type="number" step="0.5" value={editing.price} onChange={(e) => setEditing({ ...editing, price: e.target.value })} /></div>
               </div>
               <div><label>Description</label><textarea rows={2} value={editing.description || ''} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></div>
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', padding: '8px 10px', background: editing.online_bookable === false ? '#fef3c7' : '#f0fdf4', border: `1px solid ${editing.online_bookable === false ? '#fcd34d' : '#86efac'}`, borderRadius: 6 }}>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', padding: '8px 10px', background: !isOnlineBookable(editing.online_bookable) ? '#fef3c7' : '#f0fdf4', border: `1px solid ${!isOnlineBookable(editing.online_bookable) ? '#fcd34d' : '#86efac'}`, borderRadius: 6 }}>
                 <input
                   type="checkbox"
                   style={{ width: 'auto', accentColor: '#16a34a' }}
-                  checked={editing.online_bookable !== false}
+                  checked={isOnlineBookable(editing.online_bookable)}
                   onChange={(e) => setEditing({ ...editing, online_bookable: e.target.checked })}
                 />
                 <span>

@@ -5,11 +5,21 @@ const { requireRole, requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-// GET /api/therapists  — active staff (no PIN hash returned)
-router.get('/', async (_req, res) => {
+// GET /api/therapists                — active BOOKABLE therapists (role='therapist').
+//   Used by booking pickers + rota, so non-therapist staff (reception/manager)
+//   must NOT appear here.
+// GET /api/therapists?include=staff   — the non-therapist till staff for the
+//   admin Staff tab: reception, managers AND admins (active + inactive so you
+//   can re-enable a returning member, and so the seeded default Admin stays
+//   editable — that's the only place to change its PIN 1234).
+// PIN hash is never returned in either case.
+router.get('/', async (req, res) => {
   try {
+    const staffOnly = req.query.include === 'staff';
     const { rows } = await pool.query(
-      'SELECT id, name, role, specialisms, photo_url, active FROM therapists WHERE active = TRUE ORDER BY name',
+      staffOnly
+        ? "SELECT id, name, role, active FROM therapists WHERE role <> 'therapist' ORDER BY active DESC, name"
+        : "SELECT id, name, role, specialisms, photo_url, active FROM therapists WHERE active = TRUE AND role = 'therapist' ORDER BY name",
     );
     res.json({ therapists: rows });
   } catch (err) {
@@ -177,7 +187,7 @@ router.get('/rota', requireAuth, async (req, res) => {
     const monthEnd = `${month}-${String(lastDay).padStart(2, '0')}`;
 
     const [therapistsRes, rotaRes, overridesRes, turnOrderRes] = await Promise.all([
-      pool.query('SELECT id, name, role, specialisms FROM therapists WHERE active = TRUE ORDER BY name'),
+      pool.query("SELECT id, name, role, specialisms FROM therapists WHERE active = TRUE AND role = 'therapist' ORDER BY name"),
       pool.query(
         `SELECT therapist_id, day_of_week, start_time, end_time
          FROM therapist_availability ORDER BY therapist_id, day_of_week`,
