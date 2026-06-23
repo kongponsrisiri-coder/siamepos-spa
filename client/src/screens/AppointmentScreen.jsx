@@ -1045,7 +1045,18 @@ export default function AppointmentScreen() {
             <button className="primary" onClick={() => setModal({})} style={{ marginTop: 12 }}>+ Book anyway</button>
           </div>
         ) : (
-          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8, position: 'relative' }}>
+            {/* SEPOS-SPA-BUGHUNT polish — friendly empty-state hint when the day has no
+                bookings yet. pointerEvents:none so it never blocks slot clicks underneath. */}
+            {appointments.length === 0 && (
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}>
+                <div style={{ background: 'rgba(255,255,255,0.94)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 24px', textAlign: 'center', boxShadow: 'var(--shadow-md)', maxWidth: 340 }}>
+                  <div style={{ fontSize: 28, marginBottom: 6 }}>🗓️</div>
+                  <div style={{ fontWeight: 700, color: 'var(--navy)', marginBottom: 4, fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20 }}>No appointments yet</div>
+                  <div className="muted" style={{ fontSize: 13 }}>Tap a free slot, or use <strong>+ New</strong>, to book {friendlyDate}.</div>
+                </div>
+              </div>
+            )}
             {!isMobile && columnOrder && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, fontSize: 12, color: 'var(--muted)' }}>
                 <span>⠿ Column order saved for {friendlyDate}</span>

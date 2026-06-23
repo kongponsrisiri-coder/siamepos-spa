@@ -69,7 +69,7 @@ export default function ClientSearchScreen() {
           return (
             <div
               key={c.id}
-              className="card"
+              className="card client-card"
               style={{ padding: 12, cursor: 'pointer' }}
               onClick={() => navigate(`/clients/${c.id}`)}
             >

@@ -188,6 +188,21 @@ label {
   box-shadow: var(--shadow-sm);
 }
 
+/* Clickable cards (e.g. client list) — subtle lift + gold edge on hover,
+   matches the tactile feel of the restaurant lists. */
+.client-card {
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.client-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--gold);
+  box-shadow: var(--shadow-md);
+}
+.client-card:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
 /* ── Layout helpers ──────────────────────────────────────────────── */
 .muted { color: var(--muted); font-size: 13px; }
 .row { display: flex; gap: 10px; align-items: center; }
