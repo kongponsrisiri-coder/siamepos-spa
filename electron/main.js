@@ -7,9 +7,12 @@
 //   - The local server serves both the API and the bundled React client, so
 //     everything runs on one localhost origin and keeps working with no
 //     internet. A background sync engine mirrors cloud⇆local when online.
-//   - The DB encryption key is generated once and stored in the OS keychain
-//     via Electron safeStorage (medical questionnaire data is encrypted at
-//     rest — UK GDPR).
+//   - The DB encryption key is generated once and kept in a local keyfile in
+//     userData (medical questionnaire data is still encrypted at rest — UK
+//     GDPR). The OS keychain is NOT used, so client tills never get a Keychain
+//     password prompt during setup. Trade-off: the key lives next to the DB, so
+//     this protects against casual snooping/backup leaks but not a full device
+//     theft — an intentional setup-simplicity decision by the owner.
 //
 // Escape hatch: set SPA_APP_URL to load a remote URL instead of spawning the
 // local server (the old Phase A thin-wrapper behaviour, handy for staging).
@@ -68,33 +71,39 @@ function configComplete(cfg) {
   return !!(cfg && cfg.cloud_api_url && cfg.sync_secret && cfg.spa_id);
 }
 
-// ── DB encryption key (OS keychain via safeStorage) ─────────────────
-// Stored as an encrypted blob on disk; the plaintext key only ever lives in
-// memory + the child server's env. Falls back to a plaintext keyfile (with a
-// loud warning) on platforms where safeStorage isn't available.
+// ── DB encryption key (local keyfile, no OS keychain) ───────────────
+// The DB stays SQLCipher-encrypted, but the key is kept in a local keyfile in
+// userData rather than the OS keychain — so a client till NEVER sees a macOS
+// Keychain password prompt on setup. The plaintext key only ever lives in
+// memory + the child server's env + this 0600 keyfile.
 function getOrCreateDbKey() {
   const userData = app.getPath('userData');
-  const encPath = path.join(userData, 'db-key.enc');
-  const rawPath = path.join(userData, 'db-key.raw');
+  const keyPath = path.join(userData, 'db-key.raw');
+  const legacyEncPath = path.join(userData, 'db-key.enc');
 
-  if (safeStorage.isEncryptionAvailable()) {
-    if (fs.existsSync(encPath)) {
-      try {
-        return safeStorage.decryptString(fs.readFileSync(encPath));
-      } catch (e) {
-        console.error('[key] failed to decrypt DB key — regenerating:', e.message);
-      }
-    }
-    const key = crypto.randomBytes(32).toString('hex');
-    fs.writeFileSync(encPath, safeStorage.encryptString(key));
-    return key;
+  // 1. Normal path: a fresh install (or one already migrated) — use the keyfile.
+  if (fs.existsSync(keyPath)) {
+    return fs.readFileSync(keyPath, 'utf8').trim();
   }
 
-  // Fallback: no OS keychain (e.g. some Linux setups). Keep working but warn.
-  console.warn('[key] safeStorage unavailable — DB key stored UNENCRYPTED on disk.');
-  if (fs.existsSync(rawPath)) return fs.readFileSync(rawPath, 'utf8');
+  // 2. Migration: an older build stored this machine's key in the keychain.
+  //    Pull it out into the keyfile ONCE so the existing encrypted DB keeps
+  //    opening. This is the only time the keychain is ever touched (one last
+  //    prompt on that machine); afterwards it's removed and never used again.
+  if (fs.existsSync(legacyEncPath) && safeStorage.isEncryptionAvailable()) {
+    try {
+      const key = safeStorage.decryptString(fs.readFileSync(legacyEncPath));
+      fs.writeFileSync(keyPath, key, { mode: 0o600 });
+      try { fs.unlinkSync(legacyEncPath); } catch {}
+      return key;
+    } catch (e) {
+      console.error('[key] could not migrate keychain key — generating a new one:', e.message);
+    }
+  }
+
+  // 3. Fresh install: generate a new key and store it in the keyfile.
   const key = crypto.randomBytes(32).toString('hex');
-  fs.writeFileSync(rawPath, key, { mode: 0o600 });
+  fs.writeFileSync(keyPath, key, { mode: 0o600 });
   return key;
 }
 
