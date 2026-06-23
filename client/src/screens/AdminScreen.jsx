@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { getStaff } from '../api.js';
 
 import TradingSection         from './admin/TradingSection.jsx';
@@ -23,32 +23,40 @@ import OnlineBookingSection   from './admin/OnlineBookingSection.jsx';
 // Slate Navy #0D1B3E sidebar · Thai Gold #C9A84C active state
 // Grouped navigation mirrors SiamEPOS admin pattern
 
-const NAV = [
-  // Revenue
-  { k: 'trading',    label: '📊 Trading' },
-  { k: 'reports',    label: '📈 Reports' },
-  { k: 'zreport',    label: '🔐 Z Report' },
-  // Clients
-  { divider: 'Clients' },
-  { k: 'bills',      label: '🧾 Bills' },
-  { k: 'clients',    label: '👤 Clients' },
-  { k: 'campaigns',  label: '📧 Campaigns' },
-  { k: 'vouchers',   label: '🎁 Vouchers' },
-  { k: 'payments',   label: '💳 Payments' },
-  // Spa management
-  { divider: 'Spa' },
-  { k: 'menu',       label: '💆 Treatments' },
-  { k: 'therapists', label: '👥 Therapists' },
-  { k: 'staff',      label: '🔑 Staff' },
-  { k: 'rota',       label: '📅 Rota' },
-  { k: 'rooms',      label: '🛁 Rooms' },
-  // Configuration
-  { divider: 'Settings' },
-  { k: 'booking',    label: '⚙️ Booking' },
-  { k: 'online',     label: '🌐 Online Booking' },
-  { k: 'embed',      label: '🔗 Embed Codes' },
-  { k: 'settings',   label: '🔧 Settings' },
+// SEPOS-SPA-BUGHUNT — collapsible sidebar groups (drop-lists) so the long nav
+// doesn't overflow the screen. Each group expands/collapses; the active section's
+// group auto-opens and the open set persists across sessions. Mirrors the
+// restaurant admin sidebar.
+const GROUPS = [
+  { title: 'Revenue', items: [
+    { k: 'trading',    label: '📊 Trading' },
+    { k: 'reports',    label: '📈 Reports' },
+    { k: 'zreport',    label: '🔐 Z Report' },
+  ] },
+  { title: 'Clients', items: [
+    { k: 'bills',      label: '🧾 Bills' },
+    { k: 'clients',    label: '👤 Clients' },
+    { k: 'campaigns',  label: '📧 Campaigns' },
+    { k: 'vouchers',   label: '🎁 Vouchers' },
+    { k: 'payments',   label: '💳 Payments' },
+  ] },
+  { title: 'Spa', items: [
+    { k: 'menu',       label: '💆 Treatments' },
+    { k: 'therapists', label: '👥 Therapists' },
+    { k: 'staff',      label: '🔑 Staff' },
+    { k: 'rota',       label: '📅 Rota' },
+    { k: 'rooms',      label: '🛁 Rooms' },
+  ] },
+  { title: 'Settings', items: [
+    { k: 'booking',    label: '⚙️ Booking' },
+    { k: 'online',     label: '🌐 Online Booking' },
+    { k: 'embed',      label: '🔗 Embed Codes' },
+    { k: 'settings',   label: '🔧 Settings' },
+  ] },
 ];
+
+const OPEN_GROUPS_KEY = 'spa_admin_open_groups';
+const groupContaining = (k) => GROUPS.find((g) => g.items.some((i) => i.k === k))?.title || null;
 
 const SECTIONS = {
   trading:    TradingSection,
@@ -72,6 +80,23 @@ const SECTIONS = {
 
 export default function AdminScreen() {
   const [tab, setTab] = useState('trading');
+  const [openGroups, setOpenGroups] = useState(() => {
+    try { const raw = localStorage.getItem(OPEN_GROUPS_KEY); if (raw) { const a = JSON.parse(raw); if (Array.isArray(a)) return new Set(a); } } catch {}
+    const init = groupContaining('trading');
+    return new Set(init ? [init] : []);
+  });
+  // Persist which groups are open across sessions.
+  useEffect(() => { try { localStorage.setItem(OPEN_GROUPS_KEY, JSON.stringify([...openGroups])); } catch {} }, [openGroups]);
+  // Keep the active section's group open so the highlighted item is always visible.
+  useEffect(() => {
+    const g = groupContaining(tab);
+    if (g) setOpenGroups((prev) => (prev.has(g) ? prev : new Set([...prev, g])));
+  }, [tab]);
+  const toggleGroup = (title) => setOpenGroups((prev) => {
+    const n = new Set(prev);
+    if (n.has(title)) n.delete(title); else n.add(title);
+    return n;
+  });
   const staff = getStaff();
 
   if (!staff || !['admin', 'manager'].includes(staff.role)) {
@@ -125,54 +150,70 @@ export default function AdminScreen() {
           Admin Panel
         </div>
 
-        {NAV.map((item, i) => {
-          if (item.divider) {
-            return (
-              <div key={`div-${i}`} className="admin-group-label" style={{
-                color: 'rgba(201,168,76,0.7)',
-                fontWeight: 700,
-                fontSize: 10,
-                padding: '14px 20px 5px',
-                textTransform: 'uppercase',
-                letterSpacing: '0.12em',
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                borderTop: '1px solid rgba(255,255,255,0.10)',
-                marginTop: 4,
-              }}>
-                {item.divider}
-              </div>
-            );
-          }
-
-          const active = tab === item.k;
+        {GROUPS.map((group) => {
+          const isOpen = openGroups.has(group.title);
           return (
-            <button
-              key={item.k}
-              data-active={active}
-              onClick={() => setTab(item.k)}
-              style={{
-                background: active ? '#C9A84C' : 'transparent',
-                border: 'none',
-                borderLeft: active ? '4px solid #E8C96A' : '4px solid transparent',
-                color: active ? '#0D1B3E' : 'white',
-                padding: '11px 20px',
-                paddingLeft: 16,
-                textAlign: 'left',
-                cursor: 'pointer',
-                fontSize: 13.5,
-                fontWeight: active ? 700 : 500,
-                fontFamily: 'system-ui, -apple-system, sans-serif',
-                transition: 'background 0.12s, color 0.12s',
-                width: '100%',
-                lineHeight: 1.3,
-                minHeight: 44,
-                WebkitTapHighlightColor: 'transparent',
-              }}
-              onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; } }}
-              onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; } }}
-            >
-              {item.label}
-            </button>
+            <div key={group.title}>
+              {/* Collapsible group header — click to expand/collapse the drop-list */}
+              <button
+                onClick={() => toggleGroup(group.title)}
+                className="admin-group-label"
+                style={{
+                  background: 'none', border: 'none',
+                  color: 'rgba(201,168,76,0.7)',
+                  fontWeight: 700,
+                  fontSize: 10,
+                  padding: '14px 20px 5px',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.12em',
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  borderTop: '1px solid rgba(255,255,255,0.10)',
+                  marginTop: 4,
+                  width: '100%',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  WebkitTapHighlightColor: 'transparent',
+                }}
+              >
+                <span>{group.title}</span>
+                <span style={{ fontSize: 9, opacity: 0.8 }}>{isOpen ? '▾' : '▸'}</span>
+              </button>
+
+              {isOpen && group.items.map((item) => {
+                const active = tab === item.k;
+                return (
+                  <button
+                    key={item.k}
+                    data-active={active}
+                    onClick={() => setTab(item.k)}
+                    style={{
+                      background: active ? '#C9A84C' : 'transparent',
+                      border: 'none',
+                      borderLeft: active ? '4px solid #E8C96A' : '4px solid transparent',
+                      color: active ? '#0D1B3E' : 'white',
+                      padding: '10px 20px',
+                      paddingLeft: 16,
+                      textAlign: 'left',
+                      cursor: 'pointer',
+                      fontSize: 13.5,
+                      fontWeight: active ? 700 : 500,
+                      fontFamily: 'system-ui, -apple-system, sans-serif',
+                      transition: 'background 0.12s, color 0.12s',
+                      width: '100%',
+                      lineHeight: 1.3,
+                      minHeight: 42,
+                      WebkitTapHighlightColor: 'transparent',
+                    }}
+                    onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; } }}
+                    onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; } }}
+                  >
+                    {item.label}
+                  </button>
+                );
+              })}
+            </div>
           );
         })}
       </aside>
