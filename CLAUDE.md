@@ -82,7 +82,9 @@ Feature spec: ~/Documents/Claude/Projects/SiamEpos/SiamEPOS-Spa-Feature-Spec.doc
    `spa-api.siamepos.co.uk`. Add the CNAME at the DNS provider.
 6. First deploy runs `npm start` → `initSchema()` creates all 10 tables
    and seeds a default admin (PIN `1234`). **Change the PIN via the
-   Therapists admin tab as soon as a real staff list exists.**
+   Staff admin tab as soon as a real staff list exists** (the Therapists
+   tab only lists bookable therapists; admins/reception/managers live
+   under Staff).
 7. In the Stripe dashboard, add a webhook endpoint at
    `https://spa-api.siamepos.co.uk/api/stripe/webhook` for the event
    `payment_intent.succeeded`. Paste the signing secret into
