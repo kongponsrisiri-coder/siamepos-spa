@@ -4,8 +4,83 @@ const { pool } = require('../db/dbAdapter');
 const { requireRole } = require('../middleware/auth');
 const { isOffline } = require('../services/syncService');
 const offlineQueue = require('../services/offlineQueue');
+const { sendBrevoEmail } = require('../services/emailService');
 
 const router = express.Router();
+
+// ── SEPOS-SPA-RECEIPT-001 — printable / emailable (VAT) receipt ─────────────
+async function getSettings() {
+  const { rows } = await pool.query('SELECT key, value FROM settings');
+  return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+}
+const esc = (s) => String(s == null ? '' : s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+const gbp = (n) => '£' + Number(n || 0).toFixed(2);
+
+// Self-contained HTML for a receipt — used for both the print preview and the
+// emailed copy, so they're always identical. Prices are VAT-inclusive; VAT is
+// shown only when the spa has a VAT number + a non-zero rate (else it's a plain
+// receipt). Tips are treated as outside the scope of VAT.
+function buildReceiptHtml({ bill, client, settings }) {
+  const name    = settings.legal_name || settings.spa_name || 'SiamEPOS Spa';
+  const vatNo   = (settings.vat_number || '').trim();
+  const rate    = Number(settings.vat_rate || 0);
+  const isVat   = !!vatNo && rate > 0;
+  const items   = Array.isArray(bill.items) ? bill.items : [];
+  const tip      = Number(bill.tip || 0);
+  const discount = Number(bill.discount || 0);
+  const total    = Number(bill.total || 0);
+  const goodsGross = +(total - tip).toFixed(2);            // VATable portion (excl. tip)
+  const net        = isVat ? +(goodsGross / (1 + rate / 100)).toFixed(2) : goodsGross;
+  const vat        = isVat ? +(goodsGross - net).toFixed(2) : 0;
+  const when       = bill.closed_at ? new Date(bill.closed_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  const method     = bill.payment_method === 'split' && Array.isArray(bill.split_payments)
+    ? bill.split_payments.map((p) => `${esc(p.method)} ${gbp(p.amount)}`).join(', ')
+    : esc(bill.payment_method || '—');
+
+  const rows = items.map((it) => `
+    <tr>
+      <td style="padding:6px 0;">${esc(it.name)}${Number(it.quantity) > 1 ? ` &times;${it.quantity}` : ''}</td>
+      <td style="padding:6px 0;text-align:right;">${gbp(it.line_total)}</td>
+    </tr>`).join('');
+
+  const totalsRows = [
+    discount > 0 ? `<tr><td style="padding:3px 0;color:#475569;">Discount</td><td style="padding:3px 0;text-align:right;color:#475569;">&minus;${gbp(discount)}</td></tr>` : '',
+    isVat ? `<tr><td style="padding:3px 0;color:#475569;">Net</td><td style="padding:3px 0;text-align:right;color:#475569;">${gbp(net)}</td></tr>` : '',
+    isVat ? `<tr><td style="padding:3px 0;color:#475569;">VAT (${rate}%)</td><td style="padding:3px 0;text-align:right;color:#475569;">${gbp(vat)}</td></tr>` : '',
+    tip > 0 ? `<tr><td style="padding:3px 0;color:#475569;">Tip (no VAT)</td><td style="padding:3px 0;text-align:right;color:#475569;">${gbp(tip)}</td></tr>` : '',
+  ].join('');
+
+  return `<!doctype html><html><head><meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>${isVat ? 'VAT Receipt' : 'Receipt'} #${bill.id}</title></head>
+  <body style="margin:0;background:#fff;color:#0f172a;font-family:system-ui,-apple-system,sans-serif;">
+  <div style="max-width:420px;margin:0 auto;padding:28px 24px;">
+    <div style="text-align:center;border-bottom:2px solid #0D1B3E;padding-bottom:14px;margin-bottom:14px;">
+      <div style="font-family:Georgia,serif;font-size:22px;font-weight:700;color:#0D1B3E;">${esc(name)}</div>
+      ${settings.business_address ? `<div style="font-size:12px;color:#475569;margin-top:4px;">${esc(settings.business_address)}</div>` : ''}
+      ${settings.business_phone ? `<div style="font-size:12px;color:#475569;">${esc(settings.business_phone)}</div>` : ''}
+      ${vatNo ? `<div style="font-size:12px;color:#475569;margin-top:4px;">VAT No: ${esc(vatNo)}</div>` : ''}
+      ${settings.company_number ? `<div style="font-size:11px;color:#94a3b8;">Company No: ${esc(settings.company_number)}</div>` : ''}
+    </div>
+    <div style="font-size:13px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:#0D1B3E;text-align:center;margin-bottom:12px;">${isVat ? 'VAT Receipt' : 'Receipt'}</div>
+    <table style="width:100%;font-size:13px;color:#475569;margin-bottom:12px;">
+      <tr><td>Receipt no.</td><td style="text-align:right;">#${bill.id}</td></tr>
+      <tr><td>Date</td><td style="text-align:right;">${esc(when)}</td></tr>
+      ${client && client.name ? `<tr><td>Customer</td><td style="text-align:right;">${esc(client.name)}</td></tr>` : ''}
+    </table>
+    <table style="width:100%;font-size:14px;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0;">
+      ${rows || '<tr><td style="padding:6px 0;">Treatment</td><td style="padding:6px 0;text-align:right;">' + gbp(total) + '</td></tr>'}
+    </table>
+    <table style="width:100%;font-size:13px;margin-top:8px;">
+      ${totalsRows}
+      <tr><td style="padding:8px 0 0;font-size:16px;font-weight:800;color:#0D1B3E;">Total paid</td><td style="padding:8px 0 0;text-align:right;font-size:16px;font-weight:800;color:#0D1B3E;">${gbp(total)}</td></tr>
+      <tr><td style="padding:2px 0;color:#475569;">Method</td><td style="padding:2px 0;text-align:right;color:#475569;">${method}</td></tr>
+    </table>
+    <div style="text-align:center;font-size:12px;color:#94a3b8;margin-top:22px;">
+      ${isVat ? '' : 'Not VAT registered.<br/>'}Thank you for visiting ${esc(settings.spa_name || name)}.
+    </div>
+  </div></body></html>`;
+}
 
 function stripeClient() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -693,6 +768,51 @@ router.post('/:id/refund', requireRole('admin', 'manager'), async (req, res) => 
     res.status(500).json({ error: 'server error' });
   } finally {
     client.release();
+  }
+});
+
+// GET /api/bills/:id/receipt — receipt HTML (for print/preview) + the client's email.
+router.get('/:id/receipt', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const bill = await loadBillWithItems(id);
+    if (!bill) return res.status(404).json({ error: 'not found' });
+    const cli = await pool.query(
+      `SELECT c.name, c.email FROM bills b
+         LEFT JOIN appointments a ON a.id = b.appointment_id
+         LEFT JOIN clients c ON c.id = a.client_id
+        WHERE b.id = $1`, [id]);
+    const client = cli.rows[0] || {};
+    const html = buildReceiptHtml({ bill, client, settings: await getSettings() });
+    res.json({ html, client_email: client.email || null, client_name: client.name || null });
+  } catch (err) {
+    console.error('[bills] receipt', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// POST /api/bills/:id/receipt-email  body { to } — email the receipt via Brevo.
+router.post('/:id/receipt-email', async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const to = String((req.body && req.body.to) || '').trim();
+    if (!to.includes('@')) return res.status(400).json({ error: 'A valid email address is required.' });
+    if (!process.env.BREVO_API_KEY) return res.status(503).json({ error: 'Email is not configured on this spa (BREVO_API_KEY missing).' });
+    const bill = await loadBillWithItems(id);
+    if (!bill) return res.status(404).json({ error: 'not found' });
+    const cli = await pool.query(
+      `SELECT c.name, c.email FROM bills b
+         LEFT JOIN appointments a ON a.id = b.appointment_id
+         LEFT JOIN clients c ON c.id = a.client_id
+        WHERE b.id = $1`, [id]);
+    const settings = await getSettings();
+    const html = buildReceiptHtml({ bill, client: cli.rows[0] || {}, settings });
+    const kind = (settings.vat_number || '').trim() ? 'VAT receipt' : 'receipt';
+    await sendBrevoEmail({ to, subject: `Your ${settings.spa_name || 'spa'} ${kind} (#${id})`, html });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[bills] receipt-email', err);
+    res.status(500).json({ error: 'server error' });
   }
 });
 

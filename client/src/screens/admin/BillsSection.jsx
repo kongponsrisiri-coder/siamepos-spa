@@ -31,6 +31,7 @@ export default function BillsSection() {
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(null);
   const [confirm, setConfirm]   = useState(null);
+  const [receipt, setReceipt]   = useState(null); // bill row for the receipt modal
 
   // ── Hidden 5-tap unlock ──────────────────────────────────────────────────
   // Tap the "🧾 Bill Records" heading 5 times within 3 s to open the
@@ -169,7 +170,7 @@ export default function BillsSection() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
             <thead>
               <tr style={{ borderBottom: '2px solid var(--border)', background: '#fafaf9' }}>
-                {['Date / Time','Client','Treatment','Subtotal','Tip','Total','Method', ...(isUnlocked ? [''] : [])].map(h => (
+                {['Date / Time','Client','Treatment','Subtotal','Tip','Total','Method','Receipt', ...(isUnlocked ? [''] : [])].map(h => (
                   <th key={h} style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -199,6 +200,10 @@ export default function BillsSection() {
                         ))}
                       </div>
                     )}
+                  </td>
+                  {/* SEPOS-SPA-RECEIPT-001 — issue a (VAT) receipt, printable + emailable */}
+                  <td style={{ padding: '10px' }}>
+                    <button onClick={() => setReceipt(b)} style={{ fontSize: 12, padding: '4px 10px' }}>🧾 Receipt</button>
                   </td>
                   {/* 🗑 only visible when manager has unlocked */}
                   {isUnlocked && (
@@ -256,6 +261,77 @@ export default function BillsSection() {
           onUnlocked={() => { setUnlockedUntil(Date.now() + UNLOCK_MS); setShowUnlock(false); }}
         />
       )}
+
+      {/* SEPOS-SPA-RECEIPT-001 — receipt preview / print / email */}
+      {receipt && <ReceiptModal bill={receipt} onClose={() => setReceipt(null)} />}
+    </div>
+  );
+}
+
+// ── Receipt modal — preview + print + email a (VAT) receipt ──────────────────
+function ReceiptModal({ bill, onClose }) {
+  const [html, setHtml]   = useState('');
+  const [to, setTo]       = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy]   = useState(false);
+  const [msg, setMsg]     = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await api.get(`/bills/${bill.id}/receipt`);
+        if (!alive) return;
+        setHtml(r.html || '');
+        setTo(r.client_email || '');
+      } catch (e) {
+        if (alive) setMsg(e.message || 'Could not load the receipt.');
+      } finally { if (alive) setLoading(false); }
+    })();
+    return () => { alive = false; };
+  }, [bill.id]);
+
+  function printReceipt() {
+    const w = window.open('', '_blank', 'width=420,height=640');
+    if (!w) { setMsg('Pop-up blocked — allow pop-ups to print.'); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { try { w.print(); } catch {} }, 350);
+  }
+
+  async function emailReceipt() {
+    if (!to.includes('@')) { setMsg('Enter a valid email address.'); return; }
+    setBusy(true); setMsg('');
+    try {
+      await api.post(`/bills/${bill.id}/receipt-email`, { to: to.trim() });
+      setMsg('✓ Receipt emailed to ' + to.trim());
+    } catch (e) {
+      setMsg(e.message || 'Could not send the receipt.');
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 460 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h3 style={{ margin: 0 }}>🧾 Receipt · #{bill.id}</h3>
+          <button onClick={onClose} style={{ fontSize: 13 }}>Close</button>
+        </div>
+        {loading ? (
+          <div className="muted" style={{ padding: 24, textAlign: 'center' }}>Loading…</div>
+        ) : (
+          <>
+            <iframe title="receipt" srcDoc={html} style={{ width: '100%', height: 340, border: '1px solid var(--border)', borderRadius: 8, background: '#fff' }} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+              <input value={to} onChange={e => { setTo(e.target.value); setMsg(''); }} placeholder="client@email.com" style={{ flex: 1 }} />
+              <button onClick={emailReceipt} disabled={busy || !to} className="primary">{busy ? 'Sending…' : '✉️ Email'}</button>
+              <button onClick={printReceipt}>🖨 Print</button>
+            </div>
+            {msg && <div style={{ marginTop: 10, fontSize: 13, color: msg.startsWith('✓') ? 'var(--success)' : 'var(--danger)' }}>{msg}</div>}
+          </>
+        )}
+      </div>
     </div>
   );
 }

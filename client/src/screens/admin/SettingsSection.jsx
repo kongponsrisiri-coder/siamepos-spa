@@ -2,9 +2,15 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../api.js';
 
 const KEYS = [
-  { k: 'spa_name',     t: 'Spa name'   },
-  { k: 'spa_email',    t: 'Spa email'  },
-  { k: 'owner_email',  t: 'Owner login email (for the Owner login magic link)' },
+  { k: 'spa_name',         t: 'Spa name'   },
+  { k: 'spa_email',        t: 'Spa email'  },
+  { k: 'owner_email',      t: 'Owner login email (for the Owner login magic link)' },
+  // Business details — appear on the VAT receipt (Bills → Receipt).
+  { k: 'legal_name',       t: 'Registered business name (for receipts)' },
+  { k: 'business_address', t: 'Business address (for receipts)' },
+  { k: 'business_phone',   t: 'Business phone (for receipts)' },
+  { k: 'vat_number',       t: 'VAT number (leave blank if not VAT registered)' },
+  { k: 'company_number',   t: 'Company number (optional)' },
 ];
 
 export default function SettingsSection() {
