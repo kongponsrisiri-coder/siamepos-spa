@@ -294,16 +294,20 @@ router.post('/book', async (req, res) => {
         );
     if (existing.rows[0]) {
       cli = existing.rows[0];
+      // SEPOS-SPA-BUGHUNT M4 — this is an UNAUTHENTICATED public endpoint that
+      // matches an existing client by email OR phone. Previously it OVERWROTE the
+      // matched client's name/phone/email with the submitter's values and
+      // force-set gdpr_consent — so anyone who knew a victim's email could tamper
+      // with their profile and false-stamp consent. Now we only FILL BLANKS
+      // (COALESCE existing-first) and never alter identity or consent flags on an
+      // existing record from the public widget; staff edit those in the back office.
       await client.query(
         `UPDATE clients SET
-           name = COALESCE($2, name),
-           phone = COALESCE($3, phone),
-           email = COALESCE($4, email),
-           gdpr_consent = TRUE,
-           gdpr_consent_at = COALESCE(gdpr_consent_at, now()),
-           marketing_consent = clients.marketing_consent OR $5
+           name  = COALESCE(name,  $2),
+           phone = COALESCE(phone, $3),
+           email = COALESCE(email, $4)
          WHERE id = $1`,
-        [cli.id, b.name, b.phone, b.email || null, !!b.marketing_consent],
+        [cli.id, b.name || null, b.phone || null, b.email || null],
       );
     } else {
       const ins = await client.query(

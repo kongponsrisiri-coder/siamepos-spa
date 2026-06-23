@@ -19,11 +19,19 @@ function stripeClient() {
 // reads those columns keeps working without knowing about line items.
 // `db` may be the pool or a transaction client. Returns the updated row.
 async function recomputeBillTotals(db, billId) {
+  // SEPOS-SPA-BUGHUNT H2 — clamp total at 0. Previously SUM(items) − discount + tip
+  // had no floor, so a discount left in place after a line item was deleted could
+  // produce a NEGATIVE total that then closed as "paid" and poisoned the reports.
+  // CASE (not GREATEST/MAX) so it's identical on PG and SQLite.
   const { rows } = await db.query(
     `UPDATE bills b SET
        subtotal = COALESCE((SELECT SUM(line_total) FROM bill_items WHERE bill_id = b.id), 0),
-       total    = COALESCE((SELECT SUM(line_total) FROM bill_items WHERE bill_id = b.id), 0)
-                  - COALESCE(b.discount, 0) + COALESCE(b.tip, 0)
+       total    = CASE WHEN COALESCE((SELECT SUM(line_total) FROM bill_items WHERE bill_id = b.id), 0)
+                            - COALESCE(b.discount, 0) + COALESCE(b.tip, 0) < 0
+                       THEN 0
+                       ELSE COALESCE((SELECT SUM(line_total) FROM bill_items WHERE bill_id = b.id), 0)
+                            - COALESCE(b.discount, 0) + COALESCE(b.tip, 0)
+                  END
      WHERE b.id = $1 RETURNING *`,
     [billId],
   );
