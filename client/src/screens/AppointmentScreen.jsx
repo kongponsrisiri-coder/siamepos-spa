@@ -1048,7 +1048,7 @@ export default function AppointmentScreen() {
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8, position: 'relative' }}>
             {/* SEPOS-SPA-BUGHUNT polish — friendly empty-state hint when the day has no
                 bookings yet. pointerEvents:none so it never blocks slot clicks underneath. */}
-            {appointments.length === 0 && (
+            {appointments.filter(a => !['cancelled', 'no_show'].includes(a.status)).length === 0 && (
               <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 5 }}>
                 <div style={{ background: 'rgba(255,255,255,0.94)', border: '1px solid var(--border)', borderRadius: 14, padding: '18px 24px', textAlign: 'center', boxShadow: 'var(--shadow-md)', maxWidth: 340 }}>
                   <div style={{ fontSize: 28, marginBottom: 6 }}>🗓️</div>
