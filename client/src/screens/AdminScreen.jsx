@@ -29,29 +29,29 @@ import OnlineBookingSection   from './admin/OnlineBookingSection.jsx';
 // restaurant admin sidebar.
 const GROUPS = [
   { title: 'Revenue', items: [
-    { k: 'trading',    label: '📊 Trading' },
-    { k: 'reports',    label: '📈 Reports' },
-    { k: 'zreport',    label: '🔐 Z Report' },
+    { k: 'trading',    label: 'Trading' },
+    { k: 'reports',    label: 'Reports' },
+    { k: 'zreport',    label: 'Z Report' },
   ] },
   { title: 'Clients', items: [
-    { k: 'bills',      label: '🧾 Bills' },
-    { k: 'clients',    label: '👤 Clients' },
-    { k: 'campaigns',  label: '📧 Campaigns' },
-    { k: 'vouchers',   label: '🎁 Vouchers' },
-    { k: 'payments',   label: '💳 Payments' },
+    { k: 'bills',      label: 'Bills' },
+    { k: 'clients',    label: 'Clients' },
+    { k: 'campaigns',  label: 'Campaigns' },
+    { k: 'vouchers',   label: 'Vouchers' },
+    { k: 'payments',   label: 'Payments' },
   ] },
   { title: 'Spa', items: [
-    { k: 'menu',       label: '💆 Treatments' },
-    { k: 'therapists', label: '👥 Therapists' },
-    { k: 'staff',      label: '🔑 Staff' },
-    { k: 'rota',       label: '📅 Rota' },
-    { k: 'rooms',      label: '🛁 Rooms' },
+    { k: 'menu',       label: 'Treatments' },
+    { k: 'therapists', label: 'Therapists' },
+    { k: 'staff',      label: 'Staff' },
+    { k: 'rota',       label: 'Rota' },
+    { k: 'rooms',      label: 'Rooms' },
   ] },
   { title: 'Settings', items: [
-    { k: 'booking',    label: '⚙️ Booking' },
-    { k: 'online',     label: '🌐 Online Booking' },
-    { k: 'embed',      label: '🔗 Embed Codes' },
-    { k: 'settings',   label: '🔧 Settings' },
+    { k: 'booking',    label: 'Booking' },
+    { k: 'online',     label: 'Online Booking' },
+    { k: 'embed',      label: 'Embed Codes' },
+    { k: 'settings',   label: 'Settings' },
   ] },
 ];
 
