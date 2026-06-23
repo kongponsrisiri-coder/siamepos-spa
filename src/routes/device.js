@@ -1,30 +1,19 @@
 // SEPOS-SPA-LICENSE-001 Part B — device heartbeat (ops visibility).
 //
 // Installed desktop tills sit behind NAT, so ops can't poll them. Each till
-// POSTs here on launch + on the license check-in cadence; the cloud records it
-// in `devices`, and /api/health surfaces the list so ops sees which devices are
-// installed, their version, and last-seen. Gated by the same SYNC_SECRET as the
-// sync feed (the till already holds it).
+// POSTs here on launch + every 5 min; the cloud records it in `devices`, and
+// /api/health surfaces the list so ops sees which devices are installed, their
+// version, and last-seen. UNGATED to match restaurant-epos 1:1 — the body is
+// non-sensitive (no medical/PII), device_id is the upsert key, and ops reads the
+// data back through /api/health, never this endpoint.
 
 const express = require('express');
-const crypto = require('crypto');
 const { pool } = require('../db/dbAdapter');
 
 const router = express.Router();
 
-function gate(req, res, next) {
-  const secret = process.env.SYNC_SECRET || '';
-  if (!secret) return res.status(401).json({ error: 'heartbeat disabled (no SYNC_SECRET)' });
-  const a = Buffer.from(req.get('x-sync-secret') || '');
-  const b = Buffer.from(secret);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
-    return res.status(401).json({ error: 'bad secret' });
-  }
-  next();
-}
-
 // POST /api/device/heartbeat  body: { device_id, spa_id?, app_version?, platform? }
-router.post('/heartbeat', gate, async (req, res) => {
+router.post('/heartbeat', async (req, res) => {
   const { device_id, spa_id, app_version, platform } = req.body || {};
   if (!device_id) return res.status(400).json({ error: 'device_id required' });
   try {
