@@ -751,6 +751,24 @@ async function initSchema() {
       cloud_id    INTEGER NOT NULL,
       deleted_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    -- ── payment_links (SEPOS-SPA-PAYLINK-001) — mirrors the cloud table ──────
+    CREATE TABLE IF NOT EXISTS payment_links (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      purpose           TEXT NOT NULL DEFAULT 'adhoc',
+      amount            REAL NOT NULL,
+      currency          TEXT NOT NULL DEFAULT 'gbp',
+      description       TEXT,
+      status            TEXT NOT NULL DEFAULT 'pending',
+      stripe_session_id TEXT UNIQUE,
+      url               TEXT,
+      customer_email    TEXT,
+      created_by        INTEGER REFERENCES therapists(id) ON DELETE SET NULL,
+      created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      expires_at        TEXT,
+      paid_at           TEXT,
+      cloud_id          INTEGER
+    );
   `);
 
   // ── indexes ───────────────────────────────────────────────────────────────

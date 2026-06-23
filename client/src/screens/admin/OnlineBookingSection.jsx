@@ -36,10 +36,19 @@ export default function OnlineBookingSection() {
   const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('upcoming'); // 'upcoming' | 'past' | 'all'
+  // null = unknown (don't flash the warning before it loads)
+  const [stripeConfigured, setStripeConfigured] = useState(null);
 
   const loadSettings = useCallback(async () => {
     const r = await api.get('/settings');
     setSettings(r.settings || {});
+  }, []);
+
+  const loadStripe = useCallback(async () => {
+    try {
+      const r = await api.get('/widget/stripe-config');
+      setStripeConfigured(!!r.configured);
+    } catch { setStripeConfigured(null); }
   }, []);
 
   const loadBookings = useCallback(async () => {
@@ -59,7 +68,7 @@ export default function OnlineBookingSection() {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { loadSettings(); loadBookings(); }, [loadSettings, loadBookings]);
+  useEffect(() => { loadSettings(); loadBookings(); loadStripe(); }, [loadSettings, loadBookings, loadStripe]);
 
   // Refetch on rota/appointment changes so cancellations from the
   // customer portal show up live without needing to refresh.
@@ -109,6 +118,23 @@ export default function OnlineBookingSection() {
           <div className="sub">Deposit policy + live view of online bookings</div>
         </div>
       </div>
+
+      {/* ── Stripe-not-connected warning ──────────────────────────── */}
+      {/* Deposits/prepay can't be charged unless Stripe is configured on the
+          server. Without this, "Full prepay" silently lets bookings through
+          with no payment — exactly the confusing case it warns about. */}
+      {stripeConfigured === false && (settings.deposit_model || 'fixed_amount') !== 'none' && (
+        <div className="card" style={{ background: '#fef3c7', border: '1px solid #fcd34d', color: '#92400e' }}>
+          <div style={{ fontWeight: 700, marginBottom: 4 }}>⚠️ Deposits are not being charged yet</div>
+          <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+            Your deposit policy is set, but <strong>Stripe isn't connected</strong>, so online bookings
+            currently come through <strong>without taking any payment</strong>. To start charging,
+            add <code>STRIPE_PUBLISHABLE_KEY</code> and <code>STRIPE_SECRET_KEY</code> to your
+            Railway environment variables (and <code>STRIPE_WEBHOOK_SECRET</code> for the webhook),
+            then redeploy.
+          </div>
+        </div>
+      )}
 
       {/* ── Policy settings ───────────────────────────────────────── */}
       <div className="card col">
