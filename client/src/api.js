@@ -54,6 +54,11 @@ export const api = {
   del:  (p)    => request('DELETE', p),
 };
 
+// SEPOS-SPA-LICENSE-001 — offline license lock (desktop till). The local server
+// exposes these; on the cloud/web they always read "not enforced" (never locks).
+export const getLicenseState = () => api.get('/license-state');
+export const recheckLicense  = () => api.post('/license-recheck', {});
+
 // Validates a PIN without changing the current session token.
 // Returns the staff object ({ id, name, role }) or throws on failure.
 export async function loginPin(pin) {

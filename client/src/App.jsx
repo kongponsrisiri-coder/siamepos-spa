@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
-import { getStaff, getToken, clearAuth } from './api.js';
+import { getStaff, getToken, clearAuth, getLicenseState } from './api.js';
 import { socket } from './socket.js';
 
 import LoginScreen         from './screens/LoginScreen.jsx';
+import LockScreen          from './screens/LockScreen.jsx';
 import AppointmentScreen   from './screens/AppointmentScreen.jsx';
 import CheckoutScreen      from './screens/CheckoutScreen.jsx';
 import ClientSearchScreen  from './screens/ClientSearchScreen.jsx';
@@ -309,6 +310,28 @@ function AppShell({ children }) {
 }
 
 export default function App() {
+  // SEPOS-SPA-LICENSE-001 — desktop offline license lock. Poll the local license
+  // state; if the subscription has lapsed (grace expired / clock rollback) the
+  // till is locked. Fails open everywhere else (cloud/web, or until the signing
+  // key is deployed), so it never blocks a paying till or the web app.
+  const [licenseLock, setLicenseLock] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      try {
+        const st = await getLicenseState();
+        if (alive) setLicenseLock(st && st.locked ? st : null);
+      } catch { /* unreachable → don't lock on a failed poll */ }
+    };
+    poll();
+    const id = setInterval(poll, 5 * 60 * 1000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+
+  if (licenseLock) {
+    return <LockScreen state={licenseLock} onUnlocked={() => setLicenseLock(null)} />;
+  }
+
   return (
     <Routes>
       <Route path="/login" element={<LoginScreen />} />
