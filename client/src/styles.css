@@ -419,6 +419,7 @@ tbody tr:hover td { background: var(--navy-muted); }
   .admin-sidebar .admin-group-label  { display: none; }
   .admin-sidebar button {
     flex-shrink: 0;
+    width: auto !important;   /* override inline width:100% so tabs sit side-by-side, not one-per-row */
     height: 48px;
     padding: 0 14px !important;
     border-left: none !important;
