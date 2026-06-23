@@ -91,17 +91,39 @@ async function webhookHandler(req, res) {
       const intent = event.data.object;
       const billId = intent.metadata?.bill_id;
       if (billId) {
-        await pool.query(
-          `UPDATE bills SET payment_status = 'paid', payment_method = 'card', closed_at = now()
-           WHERE id = $1`,
+        // SEPOS-SPA-BUGHUNT #3 — verify the amount + be idempotent before marking
+        // a bill paid. Previously this flipped payment_status='paid' from the
+        // metadata alone, with no amount check (a wrong/partial intent could close
+        // a bill) and no idempotency (a duplicate webhook re-ran the side effects).
+        const { rows } = await pool.query(
+          'SELECT id, total, payment_status, appointment_id FROM bills WHERE id = $1',
           [Number(billId)],
         );
-        await pool.query(
-          `UPDATE appointments SET status = 'completed'
-           WHERE id = (SELECT appointment_id FROM bills WHERE id = $1)
-             AND status NOT IN ('cancelled','no_show')`,
-          [Number(billId)],
-        );
+        const bill = rows[0];
+        if (!bill) {
+          console.warn(`[stripe] payment_intent.succeeded for unknown bill ${billId}`);
+        } else if (bill.payment_status === 'paid') {
+          // Already settled (duplicate/retried webhook) — no-op.
+        } else {
+          const expectedPence = Math.round(Number(bill.total) * 100);
+          const receivedPence = Number(intent.amount_received || 0);
+          if (Math.abs(receivedPence - expectedPence) > 1) {
+            // Amount doesn't match the bill total — do NOT close it. Log loudly
+            // so it's reconciled manually rather than silently mis-marked paid.
+            console.error(`[stripe] amount mismatch bill=${billId}: received ${receivedPence}p, expected ${expectedPence}p — NOT marking paid`);
+          } else {
+            await pool.query(
+              `UPDATE bills SET payment_status = 'paid', payment_method = 'card', closed_at = now()
+               WHERE id = $1 AND payment_status != 'paid'`,
+              [Number(billId)],
+            );
+            await pool.query(
+              `UPDATE appointments SET status = 'completed'
+               WHERE id = $1 AND status NOT IN ('cancelled','no_show')`,
+              [Number(bill.appointment_id)],
+            );
+          }
+        }
       }
     }
     res.json({ received: true });
