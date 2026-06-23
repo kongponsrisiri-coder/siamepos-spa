@@ -30,6 +30,8 @@ const campaignRoutes    = require('./routes/campaigns');
 const bookingRoutes     = require('./routes/booking');
 const syncRoutes        = require('./routes/sync');     // SEPOS-SPA-PRO-001 Phase B — offline pull feed
 const paymentLinkRoutes = require('./routes/paymentLinks'); // SEPOS-SPA-PAYLINK-001
+const { router: licenseRoutes, requireValidLicense } = require('./routes/license'); // SEPOS-SPA-LICENSE-001
+const licenseClient     = require('./services/licenseClient');
 const { parseUnsubscribeToken } = require('./services/emailService');
 const { pool: dbPool }  = require('./db/dbAdapter');
 const { router: stripeRouter, webhookHandler: stripeWebhookHandler } = require('./routes/stripe');
@@ -122,6 +124,10 @@ app.use('/api/auth',      authRoutes);
 // Desktop installs poll this to mirror cloud data into local SQLite.
 app.use('/api/sync',      syncRoutes);
 
+// License — GET /api/license (cloud signs the pass), plus the till's local
+// state/recheck endpoints. Public: the token is signed, no auth needed.
+app.use('/api', licenseRoutes);
+
 // Sync status for the desktop app's online/offline indicator (B4). Cheap +
 // unauthenticated — it only reports connection state, no data. In cloud mode
 // it always reads as online.
@@ -175,9 +181,9 @@ app.get('/api/unsubscribe', async (req, res) => {
 app.use('/api/treatments',   requireAuth, treatmentRoutes);
 app.use('/api/therapists',   requireAuth, therapistRoutes);
 app.use('/api/rooms',        requireAuth, roomRoutes);
-app.use('/api/appointments', requireAuth, appointmentRoutes);
+app.use('/api/appointments', requireAuth, requireValidLicense, appointmentRoutes);
 app.use('/api/clients',      requireAuth, clientRoutes);
-app.use('/api/bills',        requireAuth, billRoutes);
+app.use('/api/bills',        requireAuth, requireValidLicense, billRoutes);
 app.use('/api/stripe',       requireAuth, stripeRouter);
 app.use('/api/reports',      requireAuth, reportRoutes);
 app.use('/api/settings',     requireAuth, settingsRoutes);
@@ -243,6 +249,8 @@ if (require.main === module) {
           // socket.io for sub-second updates. Falls back to the 5s pull if it
           // can't connect.
           require('./services/cloudRelay').start(io, syncService);
+          // SEPOS-SPA-LICENSE-001 — start the offline license poller (fail-open).
+          licenseClient.start();
         } catch (e) {
           console.error('[server] sync engine / relay failed to start:', e.message);
         }
