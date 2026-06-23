@@ -770,6 +770,15 @@ async function initSchema() {
       paid_at           TEXT,
       cloud_id          INTEGER
     );
+
+    -- ── devices (SEPOS-SPA-LICENSE-001 Part B) — mirrors the cloud table ─────
+    CREATE TABLE IF NOT EXISTS devices (
+      device_id   TEXT PRIMARY KEY,
+      spa_id      TEXT,
+      app_version TEXT,
+      platform    TEXT,
+      last_seen   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // ── indexes ───────────────────────────────────────────────────────────────

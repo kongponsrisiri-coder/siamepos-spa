@@ -12,11 +12,12 @@
 
 const crypto = require('crypto');
 
-// Public key — safe to ship in the desktop bundle. Regenerate the pair only if
-// you rotate it (then re-deploy the desktop + set the new private key on the
-// spa cloud).
+// Public key — safe to ship in the desktop bundle. This is the SHARED SiamEPOS
+// keypair (same as restaurant-epos, per SEPOS-SPA-LICENSE-001 §A): ops/Pose hold
+// ONE private key (BO-LICENSE-001) that signs for both products, so setting the
+// same LICENSE_PRIVATE_KEY on a spa's Railway "just works". Do not fork the crypto.
 const PUBLIC_KEY_PEM = `-----BEGIN PUBLIC KEY-----
-MCowBQYDK2VwAyEAoDD4z4TecwhIxz713b5O26KmkLl7sBmKp5z4pTIlaLs=
+MCowBQYDK2VwAyEAom6IYhuc0q4ITkFya3H3tusgKu7qPXxpC39zAjAjIhU=
 -----END PUBLIC KEY-----`;
 
 // How long an issued license is valid offline before the till must re-check in.
