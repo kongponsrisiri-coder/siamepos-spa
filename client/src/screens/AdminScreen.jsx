@@ -58,6 +58,39 @@ const GROUPS = [
 const OPEN_GROUPS_KEY = 'spa_admin_open_groups';
 const groupContaining = (k) => GROUPS.find((g) => g.items.some((i) => i.k === k))?.title || null;
 
+// One section button — shared by the desktop collapsible groups and the mobile
+// flat tab strip (styles.css restyles .admin-sidebar button for each layout).
+function NavItem({ item, active, onClick }) {
+  return (
+    <button
+      data-active={active}
+      onClick={onClick}
+      style={{
+        background: active ? '#C9A84C' : 'transparent',
+        border: 'none',
+        borderLeft: active ? '4px solid #E8C96A' : '4px solid transparent',
+        color: active ? '#0D1B3E' : 'white',
+        padding: '10px 20px',
+        paddingLeft: 16,
+        textAlign: 'left',
+        cursor: 'pointer',
+        fontSize: 13.5,
+        fontWeight: active ? 700 : 500,
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        transition: 'background 0.12s, color 0.12s',
+        width: '100%',
+        lineHeight: 1.3,
+        minHeight: 42,
+        WebkitTapHighlightColor: 'transparent',
+      }}
+      onMouseEnter={(e) => { if (!active) e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; }}
+      onMouseLeave={(e) => { if (!active) e.currentTarget.style.background = 'transparent'; }}
+    >
+      {item.label}
+    </button>
+  );
+}
+
 const SECTIONS = {
   trading:    TradingSection,
   reports:    ReportsSection,
@@ -97,6 +130,15 @@ export default function AdminScreen() {
     if (n.has(title)) n.delete(title); else n.add(title);
     return n;
   });
+  // SEPOS-SPA-BUGHUNT — collapsing is a desktop space-saver. On mobile the sidebar
+  // is a horizontal scrolling tab strip (see styles.css @768px), so we render a FLAT
+  // list of all sections there — collapsible groups would hide most sections.
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   const staff = getStaff();
 
   if (!staff || !['admin', 'manager'].includes(staff.role)) {
@@ -150,72 +192,49 @@ export default function AdminScreen() {
           Admin Panel
         </div>
 
-        {GROUPS.map((group) => {
-          const isOpen = openGroups.has(group.title);
-          return (
-            <div key={group.title}>
-              {/* Collapsible group header — click to expand/collapse the drop-list */}
-              <button
-                onClick={() => toggleGroup(group.title)}
-                className="admin-group-label"
-                style={{
-                  background: 'none', border: 'none',
-                  color: 'rgba(201,168,76,0.7)',
-                  fontWeight: 700,
-                  fontSize: 10,
-                  padding: '14px 20px 5px',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.12em',
-                  fontFamily: 'system-ui, -apple-system, sans-serif',
-                  borderTop: '1px solid rgba(255,255,255,0.10)',
-                  marginTop: 4,
-                  width: '100%',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  WebkitTapHighlightColor: 'transparent',
-                }}
-              >
-                <span>{group.title}</span>
-                <span style={{ fontSize: 9, opacity: 0.8 }}>{isOpen ? '▾' : '▸'}</span>
-              </button>
-
-              {isOpen && group.items.map((item) => {
-                const active = tab === item.k;
-                return (
-                  <button
-                    key={item.k}
-                    data-active={active}
-                    onClick={() => setTab(item.k)}
-                    style={{
-                      background: active ? '#C9A84C' : 'transparent',
-                      border: 'none',
-                      borderLeft: active ? '4px solid #E8C96A' : '4px solid transparent',
-                      color: active ? '#0D1B3E' : 'white',
-                      padding: '10px 20px',
-                      paddingLeft: 16,
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      fontSize: 13.5,
-                      fontWeight: active ? 700 : 500,
-                      fontFamily: 'system-ui, -apple-system, sans-serif',
-                      transition: 'background 0.12s, color 0.12s',
-                      width: '100%',
-                      lineHeight: 1.3,
-                      minHeight: 42,
-                      WebkitTapHighlightColor: 'transparent',
-                    }}
-                    onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; } }}
-                    onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; } }}
-                  >
-                    {item.label}
-                  </button>
-                );
-              })}
-            </div>
-          );
-        })}
+        {isMobile ? (
+          // Mobile: flat horizontal tab strip of every section (no collapse).
+          GROUPS.flatMap((g) => g.items).map((item) => (
+            <NavItem key={item.k} item={item} active={tab === item.k} onClick={() => setTab(item.k)} />
+          ))
+        ) : (
+          // Desktop: collapsible drop-list groups to save vertical space.
+          GROUPS.map((group) => {
+            const isOpen = openGroups.has(group.title);
+            return (
+              <div key={group.title}>
+                <button
+                  onClick={() => toggleGroup(group.title)}
+                  className="admin-group-label"
+                  style={{
+                    background: 'none', border: 'none',
+                    color: 'rgba(201,168,76,0.7)',
+                    fontWeight: 700,
+                    fontSize: 10,
+                    padding: '14px 20px 5px',
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.12em',
+                    fontFamily: 'system-ui, -apple-system, sans-serif',
+                    borderTop: '1px solid rgba(255,255,255,0.10)',
+                    marginTop: 4,
+                    width: '100%',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    WebkitTapHighlightColor: 'transparent',
+                  }}
+                >
+                  <span>{group.title}</span>
+                  <span style={{ fontSize: 9, opacity: 0.8 }}>{isOpen ? '▾' : '▸'}</span>
+                </button>
+                {isOpen && group.items.map((item) => (
+                  <NavItem key={item.k} item={item} active={tab === item.k} onClick={() => setTab(item.k)} />
+                ))}
+              </div>
+            );
+          })
+        )}
       </aside>
 
       {/* ── Content pane ────────────────────────────────────────── */}
