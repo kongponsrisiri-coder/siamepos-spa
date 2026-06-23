@@ -49,29 +49,22 @@ Signed + notarized builds come from CI (below).
 
 ## Releasing (signed + auto-update) via GitHub Actions
 
-Workflow: `.github/workflows/release-spa.yml` (triggers on `spa-v*` tags).
+Workflow: `.github/workflows/release.yml` (triggers on `v*` tags).
 It builds a **signed + notarized** Mac DMG and a Windows EXE and publishes
 them — with the `latest-mac.yml` / `latest.yml` manifests electron-updater
-needs — to a dedicated releases repo.
+needs — as a normal GitHub Release in THIS repo (`siamepos-spa`).
 
 ### One-time setup
-1. **Create an empty public repo** `kongponsrisiri-coder/siamepos-spa-releases`.
-   This is where spa installers + auto-update manifests are published. Keeping
-   it separate from `restaurant-epos` means the two apps' update manifests
-   never collide. (`electron/package.json` → `build.publish` already points
-   here.)
-2. **Add a `GH_PAT` secret** to the `restaurant-epos` repo (Settings → Secrets
-   → Actions): a classic Personal Access Token with `repo` scope. The workflow
-   uses it to publish cross-repo (the default `GITHUB_TOKEN` can only write to
-   the current repo).
-3. **Apple signing secrets** are already in this repo (shared with the
-   restaurant build) and are reused automatically — nothing to do.
+- **Apple signing secrets** in this repo's Actions secrets: `MAC_CERT_P12_BASE64`,
+  `MAC_CERT_PASSWORD`, `MAC_APPLE_ID`, `MAC_APPLE_APP_PASSWORD`, `MAC_TEAM_ID`
+  (without them the Mac build stays unsigned). No Personal Access Token, no
+  separate releases repo — publishing uses the built-in `GITHUB_TOKEN`.
 
 ### Cut a release
 ```bash
 # bump the version in electron/package.json first, then:
-git tag spa-v0.1.0
-git push origin spa-v0.1.0
+git tag v0.2.0
+git push origin v0.2.0
 ```
 GitHub Actions builds both installers and publishes the release. Installs
 already on a build with this publish config then auto-update silently on next

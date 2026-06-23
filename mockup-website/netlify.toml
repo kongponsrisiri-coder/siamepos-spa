@@ -2,7 +2,7 @@
 # Deploy notes are in README.md alongside this file.
 
 [build]
-  base = "spa-epos/mockup-website"
+  base = "mockup-website"
   publish = "."
 
 [[headers]]

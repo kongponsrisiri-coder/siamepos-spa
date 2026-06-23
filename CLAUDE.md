@@ -15,12 +15,15 @@ Owner: Korakot Kongponsrisiri | info@siamepos.co.uk
 - Database: PostgreSQL on Railway (separate from restaurant DB)
 
 ## Folder
-This project lives at ~/Desktop/restaurant-epos/spa-epos/
-Do NOT work outside this folder.
+This project lives in its OWN repo at ~/Desktop/siamepos-spa/ (GitHub:
+kongponsrisiri-coder/siamepos-spa). It was extracted from the restaurant repo's
+spa-epos/ subfolder on 2026-06-23 — full history preserved. Do NOT work outside
+this folder.
 
 ## Reference
-The restaurant EPOS is at ~/Desktop/restaurant-epos — use it as a pattern reference only.
-Never copy-paste business logic from it. The spa workflow is fundamentally different.
+The restaurant EPOS is a SEPARATE repo at ~/Desktop/restaurant-epos — use it as
+a pattern reference only. Never copy-paste business logic from it. The spa
+workflow is fundamentally different.
 
 ## Tech Stack
 - Frontend: React + Vite (base: './' in vite.config.js)

@@ -1,0 +1,157 @@
+name: Release
+
+# SiamEPOS Spa desktop installer pipeline (own repo).
+#
+# Tag `vX.Y.Z` → builds a signed + notarized Mac DMG and a Windows EXE, then
+# publishes both (with the electron-updater manifests) as a normal GitHub
+# Release in THIS repo using the built-in GITHUB_TOKEN. No Personal Access
+# Token, no separate releases repo.
+#
+# The spa runs its own local server on an encrypted SQLite DB, so the build
+# bundles the React client + the server + node_modules and rebuilds the native
+# SQLCipher module (better-sqlite3-multiple-ciphers) for Electron's ABI via
+# @electron/rebuild (prebuilt when available, source build otherwise — which is
+# what makes the Windows build work).
+#
+# Prerequisites: the 5 Apple signing secrets (MAC_CERT_P12_BASE64,
+# MAC_CERT_PASSWORD, MAC_APPLE_ID, MAC_APPLE_APP_PASSWORD, MAC_TEAM_ID) in this
+# repo's Actions secrets. If they're absent the Mac build stays unsigned.
+#
+# Cut a release:   git tag v0.2.0 && git push origin v0.2.0
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  # ── Mac ────────────────────────────────────────────────────────────
+  build-mac:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      HAS_MAC_CERT: ${{ secrets.MAC_CERT_P12_BASE64 != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Install dependencies (root + client + electron)
+        run: |
+          npm install
+          cd client && npm install && cd ..
+          cd electron && npm install
+
+      - name: Import Apple Developer ID certificate
+        if: env.HAS_MAC_CERT == 'true'
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          p12-file-base64: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          p12-password:    ${{ secrets.MAC_CERT_PASSWORD }}
+
+      - name: Build Mac DMG
+        run: |
+          cd electron
+          npm run build:mac
+        env:
+          VITE_API_BASE:               ''
+          CSC_LINK:                    ${{ secrets.MAC_CERT_P12_BASE64 }}
+          CSC_KEY_PASSWORD:            ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_ID:                    ${{ secrets.MAC_APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.MAC_APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID:               ${{ secrets.MAC_TEAM_ID }}
+
+      - name: Upload DMG + update manifest
+        uses: actions/upload-artifact@v5
+        with:
+          name: spa-mac-installer
+          path: |
+            electron/dist-electron/*.dmg
+            electron/dist-electron/*.blockmap
+            electron/dist-electron/latest-mac.yml
+          if-no-files-found: error
+          retention-days: 14
+
+  # ── Windows ────────────────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: electron/package-lock.json
+
+      - name: Install dependencies (root + client + electron)
+        run: |
+          npm install
+          cd client && npm install && cd ..
+          cd electron && npm install
+
+      - name: Build Windows installer
+        run: |
+          cd electron
+          npm run build:win
+        env:
+          VITE_API_BASE: ''
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload EXE + update manifest
+        uses: actions/upload-artifact@v5
+        with:
+          name: spa-windows-installer
+          path: |
+            electron/dist-electron/*.exe
+            electron/dist-electron/*.blockmap
+            electron/dist-electron/latest.yml
+          if-no-files-found: error
+          retention-days: 14
+
+  # ── Release (publishes to THIS repo with the built-in token) ────────
+  release:
+    needs: [build-mac, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Publish as long as AT LEAST ONE platform built — a failure on the other
+    # must not block shipping the installer that did build.
+    if: always() && startsWith(github.ref, 'refs/tags/v') &&
+        (needs.build-mac.result == 'success' || needs.build-windows.result == 'success')
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: dist
+
+      - name: Show downloaded files
+        run: ls -laR dist
+
+      - name: Publish SiamEPOS Spa release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: SiamEPOS Spa ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            dist/spa-mac-installer/*.dmg
+            dist/spa-mac-installer/*.blockmap
+            dist/spa-mac-installer/latest-mac.yml
+            dist/spa-windows-installer/*.exe
+            dist/spa-windows-installer/*.blockmap
+            dist/spa-windows-installer/latest.yml
