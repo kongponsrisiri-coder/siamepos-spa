@@ -28,6 +28,13 @@ export default function ClientProfileScreen() {
   const [error, setError]             = useState('');
 
   const load = useCallback(async () => {
+    // SEPOS-SPA-BUGHUNT — clear the previous client's data BEFORE fetching. Without
+    // this, switching clients (or a failed reload) left the prior patient's medical
+    // notes on screen under the error — a wrong-patient medical-safety hazard.
+    setError('');
+    setClient(null);
+    setMedical(null);
+    setAppointments([]);
     try {
       const r = await api.get(`/clients/${id}`);
       setClient(r.client);
