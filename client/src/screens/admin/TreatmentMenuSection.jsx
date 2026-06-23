@@ -30,6 +30,7 @@ export default function TreatmentMenuSection() {
   const [newCatName, setNewCatName] = useState('');
   const [search,     setSearch]     = useState('');
   const [showHidden, setShowHidden] = useState(false);
+  const [catFilter,  setCatFilter]  = useState('all'); // 'all' | category id | '__none__' — focus one category, like the restaurant Menu
   const [collapsed,  setCollapsed]  = useState({});    // catId → bool
 
   const load = useCallback(async () => {
@@ -122,10 +123,14 @@ export default function TreatmentMenuSection() {
       if (t.category_id && byId.has(t.category_id)) byId.get(t.category_id).items.push(t);
       else uncategorised.push(t);
     });
-    const result = Array.from(byId.values()).filter((g) => g.items.length > 0 || categories.length <= 8);
+    let result = Array.from(byId.values()).filter((g) => g.items.length > 0 || categories.length <= 8);
     if (uncategorised.length > 0) result.push({ category: { id: null, name: 'Uncategorised' }, items: uncategorised });
+    // Category drop-list — focus a single category (like the restaurant Menu).
+    if (catFilter !== 'all') {
+      result = result.filter((g) => String(g.category.id ?? '__none__') === catFilter);
+    }
     return result;
-  }, [filtered, categories]);
+  }, [filtered, categories, catFilter]);
 
   const totalActive = treatments.filter((t) => t.active).length;
   const totalHidden = treatments.filter((t) => !t.active).length;
@@ -151,6 +156,22 @@ export default function TreatmentMenuSection() {
             onChange={(e) => setSearch(e.target.value)}
             style={{ flex: 1, minWidth: 220 }}
           />
+          {/* Category drop-list — focus one category at a time (like the restaurant Menu) */}
+          <select
+            value={catFilter}
+            onChange={(e) => setCatFilter(e.target.value)}
+            style={{ width: 'auto', minWidth: 180 }}
+            title="Filter by category"
+          >
+            <option value="all">All categories</option>
+            {categories.map((c) => {
+              const count = treatments.filter((t) => t.category_id === c.id && (showHidden || t.active)).length;
+              return <option key={c.id} value={String(c.id)}>{c.name} ({count})</option>;
+            })}
+            {treatments.some((t) => !t.category_id || !categories.find((c) => c.id === t.category_id)) && (
+              <option value="__none__">Uncategorised</option>
+            )}
+          </select>
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--muted)', cursor: 'pointer' }}>
             <input
               type="checkbox"
