@@ -14,6 +14,7 @@ import SettingsSection        from './admin/SettingsSection.jsx';
 import RotaSection            from './admin/RotaSection.jsx';
 import BillsSection           from './admin/BillsSection.jsx';
 import VouchersSection        from './admin/VouchersSection.jsx';
+import PaymentsSection        from './admin/PaymentsSection.jsx';
 import ClientsSection         from './admin/ClientsSection.jsx';
 import CampaignsSection       from './admin/CampaignsSection.jsx';
 import OnlineBookingSection   from './admin/OnlineBookingSection.jsx';
@@ -33,6 +34,7 @@ const NAV = [
   { k: 'clients',    label: '👤 Clients' },
   { k: 'campaigns',  label: '📧 Campaigns' },
   { k: 'vouchers',   label: '🎁 Vouchers' },
+  { k: 'payments',   label: '💳 Payments' },
   // Spa management
   { divider: 'Spa' },
   { k: 'menu',       label: '💆 Treatments' },
@@ -56,6 +58,7 @@ const SECTIONS = {
   clients:    ClientsSection,
   campaigns:  CampaignsSection,
   vouchers:   VouchersSection,
+  payments:   PaymentsSection,
   menu:       TreatmentMenuSection,
   therapists: TherapistSection,
   staff:      StaffSection,

@@ -64,6 +64,18 @@ async function webhookHandler(req, res) {
     return res.status(400).send(`Webhook Error: ${err.message}`);
   }
   try {
+    // Payment links (SEPOS-SPA-PAYLINK-001) — mark the link paid when its
+    // Checkout session completes.
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      if (session.id) {
+        await pool.query(
+          `UPDATE payment_links SET status = 'paid', paid_at = now()
+           WHERE stripe_session_id = $1 AND status <> 'paid'`,
+          [session.id],
+        );
+      }
+    }
     if (event.type === 'payment_intent.succeeded') {
       const intent = event.data.object;
       const billId = intent.metadata?.bill_id;

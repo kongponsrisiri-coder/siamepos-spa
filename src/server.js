@@ -29,6 +29,7 @@ const treatwellRoutes   = require('./routes/treatwell');
 const campaignRoutes    = require('./routes/campaigns');
 const bookingRoutes     = require('./routes/booking');
 const syncRoutes        = require('./routes/sync');     // SEPOS-SPA-PRO-001 Phase B — offline pull feed
+const paymentLinkRoutes = require('./routes/paymentLinks'); // SEPOS-SPA-PAYLINK-001
 const { parseUnsubscribeToken } = require('./services/emailService');
 const { pool: dbPool }  = require('./db/dbAdapter');
 const { router: stripeRouter, webhookHandler: stripeWebhookHandler } = require('./routes/stripe');
@@ -91,6 +92,23 @@ app.get('/booking-widget.js', sendWidget);
 // resolves at spa-api.siamepos.co.uk/my-booking.html?token=…
 app.get('/my-booking.html', (_req, res) => {
   res.sendFile(path.resolve(__dirname, '..', 'client', 'public', 'my-booking.html'));
+});
+
+// SEPOS-SPA-PAYLINK-001 — landing page a payment-link customer returns to after
+// Stripe Checkout (success_url / cancel_url). Public, no auth.
+app.get('/pay-thanks', (req, res) => {
+  const ok = req.query.status !== 'cancelled';
+  res.type('html').send(`<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SiamEPOS Spa</title></head>
+<body style="margin:0;font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#0D1B3E;color:#fff;display:flex;min-height:100vh;align-items:center;justify-content:center">
+<div style="text-align:center;padding:32px;max-width:420px">
+<div style="font-size:54px">${ok ? '✅' : '↩️'}</div>
+<h1 style="margin:12px 0;color:#C9A84C">${ok ? 'Payment received' : 'Payment cancelled'}</h1>
+<p style="opacity:.85;line-height:1.5">${ok
+  ? 'Thank you — your payment was successful. You can close this page.'
+  : 'No payment was taken. You can close this page, or ask the spa for a new link.'}</p>
+</div></body></html>`);
 });
 
 // ---- Public routes (NO auth) ---------------------------------------------
@@ -165,6 +183,7 @@ app.use('/api/reports',      requireAuth, reportRoutes);
 app.use('/api/settings',     requireAuth, settingsRoutes);
 app.use('/api/vouchers',     requireAuth, voucherRoutes);
 app.use('/api/campaigns',    requireAuth, campaignRoutes);
+app.use('/api/payment-links', requireAuth, paymentLinkRoutes);
 
 // 404 for any unmatched /api/* request.
 app.use('/api', (_req, res) => res.status(404).json({ error: 'not found' }));

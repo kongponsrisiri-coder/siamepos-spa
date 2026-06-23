@@ -580,6 +580,30 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_deleted_records_deleted_at ON deleted_records (deleted_at);
   `);
 
+  // ── Payment links (SEPOS-SPA-PAYLINK-001, Phase 1) ──────────────────────
+  // Staff-generated one-off Stripe Checkout links (ad-hoc custom amount). The
+  // status is reconciled by the checkout.session.completed webhook AND by an
+  // on-demand refresh in GET /api/payment-links, so it works on the cloud and
+  // the local till regardless of webhook delivery.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS payment_links (
+      id                SERIAL PRIMARY KEY,
+      purpose           TEXT NOT NULL DEFAULT 'adhoc',
+      amount            NUMERIC(10,2) NOT NULL,
+      currency          TEXT NOT NULL DEFAULT 'gbp',
+      description       TEXT,
+      status            TEXT NOT NULL DEFAULT 'pending',  -- pending | paid | cancelled | expired
+      stripe_session_id TEXT UNIQUE,
+      url               TEXT,
+      customer_email    TEXT,
+      created_by        INT REFERENCES therapists(id) ON DELETE SET NULL,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+      expires_at        TIMESTAMPTZ,
+      paid_at           TIMESTAMPTZ
+    );
+    CREATE INDEX IF NOT EXISTS idx_payment_links_created_at ON payment_links (created_at);
+  `);
+
   console.log('[db] schema ready');
 }
 
