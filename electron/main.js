@@ -331,9 +331,17 @@ function buildMenu() {
 }
 
 // ── Auto-update (packaged builds only) ──────────────────────────────
+// Module-scoped so the IPC handlers (manual "Check for updates" button in the
+// admin Settings → App & Updates card) can drive the same updater instance.
+let autoUpdater = null;
+let lastUpdateStatus = { state: 'idle', version: null };
+// A till often stays open for days. The old code only checked at launch, so a
+// release shipped mid-session wasn't seen until someone quit + reopened. Re-poll
+// hourly so long-running tills pick up updates on their own.
+const UPDATE_CHECK_INTERVAL_MS = 1000 * 60 * 60; // 1 hour
+
 function initAutoUpdate() {
   if (IS_DEV || !app.isPackaged) return;
-  let autoUpdater;
   try { ({ autoUpdater } = require('electron-updater')); } catch { return; }
   autoUpdater.autoDownload = true;
   // The spa now lives in its OWN repo (siamepos-spa) and publishes normal stable
@@ -347,15 +355,42 @@ function initAutoUpdate() {
     const logLine = (msg) => { try { fs.appendFileSync(logFile, `${new Date().toISOString()} ${msg}\n`); } catch {} };
     autoUpdater.logger = { info: logLine, warn: logLine, error: logLine, debug: () => {} };
     const send = (ch, payload) => mainWindow && mainWindow.webContents.send(ch, payload);
-    autoUpdater.on('checking-for-update', () => { logLine('checking-for-update'); send('siamepos-spa:update-checking'); });
-    autoUpdater.on('update-available', (i) => { logLine(`update-available ${i && i.version}`); send('siamepos-spa:update-available', i && i.version); });
-    autoUpdater.on('update-not-available', () => { logLine('update-not-available'); send('siamepos-spa:update-none'); });
-    autoUpdater.on('error', (err) => { logLine(`error ${err && err.message}`); send('siamepos-spa:update-error', err && err.message ? err.message : String(err)); });
+    autoUpdater.on('checking-for-update', () => { lastUpdateStatus = { state: 'checking', version: null }; logLine('checking-for-update'); send('siamepos-spa:update-checking'); });
+    autoUpdater.on('update-available', (i) => { lastUpdateStatus = { state: 'available', version: i && i.version }; logLine(`update-available ${i && i.version}`); send('siamepos-spa:update-available', i && i.version); });
+    autoUpdater.on('update-not-available', () => { lastUpdateStatus = { state: 'none', version: null }; logLine('update-not-available'); send('siamepos-spa:update-none'); });
+    autoUpdater.on('download-progress', (p) => { send('siamepos-spa:update-progress', p && Math.round(p.percent)); });
+    autoUpdater.on('error', (err) => { lastUpdateStatus = { state: 'error', version: null }; logLine(`error ${err && err.message}`); send('siamepos-spa:update-error', err && err.message ? err.message : String(err)); });
   } catch {}
 
-  autoUpdater.on('update-downloaded', () => mainWindow && mainWindow.webContents.send('siamepos-spa:update-ready'));
+  autoUpdater.on('update-downloaded', () => {
+    lastUpdateStatus = { state: 'ready', version: lastUpdateStatus.version };
+    mainWindow && mainWindow.webContents.send('siamepos-spa:update-ready');
+  });
+
   autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+  setInterval(() => { autoUpdater.checkForUpdatesAndNotify().catch(() => {}); }, UPDATE_CHECK_INTERVAL_MS);
 }
+
+// ── Update IPC for the admin "App & Updates" card ───────────────────
+// app-version works everywhere (reads package.json); the rest no-op safely when
+// the updater isn't running (dev / unpackaged).
+ipcMain.handle('app-version', () => app.getVersion());
+ipcMain.handle('update-status', () => lastUpdateStatus);
+ipcMain.handle('check-for-updates', async () => {
+  if (!autoUpdater) return { ok: false, reason: app.isPackaged ? 'unavailable' : 'dev' };
+  try {
+    await autoUpdater.checkForUpdates(); // events drive the live status in the UI
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, reason: e && e.message ? e.message : String(e) };
+  }
+});
+ipcMain.handle('quit-and-install', () => {
+  if (!autoUpdater) return { ok: false };
+  // Defer so the IPC reply is flushed before the app tears down.
+  setImmediate(() => { try { autoUpdater.quitAndInstall(); } catch {} });
+  return { ok: true };
+});
 
 // ── Single-instance lock ────────────────────────────────────────────
 const gotLock = app.requestSingleInstanceLock();

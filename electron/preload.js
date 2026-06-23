@@ -21,4 +21,21 @@ contextBridge.exposeInMainWorld('siamposSpa', {
 
   // Fired when a background auto-update finished downloading.
   onUpdateReady: (cb) => { ipcRenderer.on('siamepos-spa:update-ready', () => cb && cb()); },
+
+  // ── App & Updates (admin Settings card) ──────────────────────────
+  getAppVersion:   () => ipcRenderer.invoke('app-version'),
+  getUpdateStatus: () => ipcRenderer.invoke('update-status'),
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  quitAndInstall:  () => ipcRenderer.invoke('quit-and-install'),
+
+  // Subscribe to a live update event. `event` is one of:
+  //   checking | available | none | progress | error | ready
+  // Returns an unsubscribe fn so the React card can clean up on unmount
+  // (avoids stacking listeners each time the Settings tab re-mounts).
+  onUpdate: (event, cb) => {
+    const channel = `siamepos-spa:update-${event}`;
+    const handler = (_e, payload) => cb && cb(payload);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
 });
