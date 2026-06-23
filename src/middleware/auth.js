@@ -2,8 +2,19 @@
 // Public endpoints (auth/login, widget/*, stripe/webhook) skip this.
 
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-change-me';
+// SEPOS-061 parity — the 'dev-only-change-me' default is public (open-source repo),
+// so on any deploy that forgets JWT_SECRET an attacker could forge admin tokens.
+// If it's unset/default we use a RANDOM per-boot secret: tokens become unforgeable
+// (the public default no longer validates). Trade-off: sessions reset on restart
+// until JWT_SECRET is set on Railway. The desktop till always passes its own
+// JWT_SECRET (electron config) so only an unconfigured cloud is affected.
+let JWT_SECRET = process.env.JWT_SECRET || '';
+if (!JWT_SECRET || JWT_SECRET === 'dev-only-change-me') {
+  JWT_SECRET = crypto.randomBytes(32).toString('hex');
+  console.warn('[auth] JWT_SECRET not set — using a random per-boot secret (sessions reset on restart). Set JWT_SECRET on Railway for stable, persistent sessions.');
+}
 
 function signStaffToken(staff, expiresIn = '12h') {
   return jwt.sign(

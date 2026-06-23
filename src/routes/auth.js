@@ -21,11 +21,12 @@ function verifyPassword(password, stored) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 // Secret-gate for set-credentials so it can't be abused to mint an admin login.
-// SEPOS-061 parity — never accept the PUBLIC default in production: if no real
-// secret is set, use a random per-boot one so the known default can't call it
-// (ops must set SETUP_SECRET/JWT_SECRET to provision; same as the restaurant).
-let SETUP_SECRET = process.env.SETUP_SECRET || process.env.JWT_SECRET || 'dev-only-change-me';
-if (SETUP_SECRET === 'dev-only-change-me' && process.env.NODE_ENV === 'production') {
+// SEPOS-061 parity — NEVER accept the public default (no NODE_ENV dependency, since
+// the spa Railway doesn't set it): if no real secret is configured, use a random
+// per-boot one so the known default can't call this. Ops MUST set SETUP_SECRET or
+// JWT_SECRET on Railway to provision an owner login (same as the restaurant).
+let SETUP_SECRET = process.env.SETUP_SECRET || process.env.JWT_SECRET || '';
+if (!SETUP_SECRET || SETUP_SECRET === 'dev-only-change-me') {
   SETUP_SECRET = crypto.randomBytes(32).toString('hex');
 }
 
