@@ -11,7 +11,6 @@
 const { getDeviceId } = require('./syncService');
 
 const CLOUD_API_URL = process.env.CLOUD_API_URL;
-const SYNC_SECRET = process.env.SYNC_SECRET;
 const SQLITE_PATH = process.env.SQLITE_PATH; // present only on a desktop till
 const SPA_ID = process.env.SPA_ID || null;
 const APP_VERSION = process.env.APP_VERSION || null;
@@ -23,12 +22,12 @@ const INTERVAL_MS = 5 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 10000;
 
 async function send() {
-  if (!SQLITE_PATH || !CLOUD_API_URL || !SYNC_SECRET) return;
+  if (!SQLITE_PATH || !CLOUD_API_URL) return;
   try {
     const device_id = await getDeviceId();
     await fetch(CLOUD_API_URL + '/api/device/heartbeat', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-sync-secret': SYNC_SECRET },
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ device_id, spa_id: SPA_ID, app_version: APP_VERSION, platform: process.platform }),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
