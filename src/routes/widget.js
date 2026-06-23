@@ -110,6 +110,13 @@ router.get('/availability', async (req, res) => {
     return res.status(400).json({ error: 'treatment_id + date required' });
   }
   try {
+    // online_bookable guard — don't compute/expose slots for a treatment the
+    // operator has marked in-store-only (also blocked at /book + /payment-intent).
+    const tr = await pool.query(
+      'SELECT id FROM treatments WHERE id = $1 AND active = TRUE AND online_bookable = TRUE',
+      [Number(treatment_id)],
+    );
+    if (!tr.rows[0]) return res.status(400).json({ error: 'This treatment isn’t available for online booking' });
     const slots = await computeAvailability({
       treatment_id: Number(treatment_id),
       date,
@@ -160,11 +167,14 @@ router.post('/payment-intent', async (req, res) => {
   const s = stripeClient();
   if (!s) return res.status(503).json({ error: 'stripe not configured' });
   try {
+    // online_bookable guard — an in-store-only treatment is hidden from the
+    // public list, but must ALSO be un-bookable here (stops a stale deep-link
+    // or hand-typed id from taking a deposit for it).
     const tr = await pool.query(
-      'SELECT id, name, price FROM treatments WHERE id = $1 AND active = TRUE',
+      'SELECT id, name, price FROM treatments WHERE id = $1 AND active = TRUE AND online_bookable = TRUE',
       [b.treatment_id],
     );
-    if (!tr.rows[0]) return res.status(400).json({ error: 'treatment not found' });
+    if (!tr.rows[0]) return res.status(400).json({ error: 'This treatment isn’t available for online booking' });
     const policy = await loadDepositPolicy();
     const deposit = computeDeposit(policy, tr.rows[0].price);
     if (deposit <= 0) {
@@ -264,10 +274,10 @@ router.post('/book', async (req, res) => {
     // locks in the quoted amount even if the treatment's price is
     // edited later.
     const tr = await client.query(
-      'SELECT id, duration_minutes, name, price FROM treatments WHERE id = $1 AND active = TRUE',
+      'SELECT id, duration_minutes, name, price FROM treatments WHERE id = $1 AND active = TRUE AND online_bookable = TRUE',
       [b.treatment_id],
     );
-    if (!tr.rows[0]) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'treatment not found' }); }
+    if (!tr.rows[0]) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'This treatment isn’t available for online booking' }); }
     const ends_at = new Date(new Date(b.starts_at).getTime() + tr.rows[0].duration_minutes * 60_000);
     const priceAtBooking = Number(tr.rows[0].price || 0);
 
