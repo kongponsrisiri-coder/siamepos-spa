@@ -77,7 +77,7 @@ app.get('/api/health', async (_req, res) => {
   let tills = [];
   try {
     const { rows } = await pool.query(
-      `SELECT device_id, app_version AS version, platform, last_seen
+      `SELECT device_id, app_version, platform, last_seen
        FROM devices ORDER BY last_seen DESC LIMIT 100`,
     );
     tills = rows;
