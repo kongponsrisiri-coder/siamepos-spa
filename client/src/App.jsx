@@ -32,7 +32,7 @@ const LogoBrand = () => (
     <span style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1 }}>
       <span style={{ color: 'white' }}>Siam</span><span style={{ color: '#C9A84C' }}>EPOS</span>
       <span style={{ color: 'rgba(201,168,76,0.65)', fontSize: 11, fontWeight: 600, marginLeft: 5,
-        letterSpacing: '0.1em', fontFamily: 'Inter, sans-serif', textTransform: 'uppercase',
+        letterSpacing: '0.1em', fontFamily: 'system-ui, -apple-system, sans-serif', textTransform: 'uppercase',
         verticalAlign: 'middle' }}>Spa</span>
     </span>
   </span>

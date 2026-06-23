@@ -25,7 +25,7 @@ function StatCard({ label, value, color }) {
         fontSize: 28,
         fontWeight: 800,
         color: color,
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
         lineHeight: 1,
         letterSpacing: '-0.5px',
       }}>{value}</div>

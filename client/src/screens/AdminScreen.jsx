@@ -120,7 +120,7 @@ export default function AdminScreen() {
           padding: '0 20px 14px',
           textTransform: 'uppercase',
           letterSpacing: '0.12em',
-          fontFamily: 'Inter, sans-serif',
+          fontFamily: 'system-ui, -apple-system, sans-serif',
         }}>
           Admin Panel
         </div>
@@ -135,7 +135,7 @@ export default function AdminScreen() {
                 padding: '14px 20px 5px',
                 textTransform: 'uppercase',
                 letterSpacing: '0.12em',
-                fontFamily: 'Inter, sans-serif',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
                 borderTop: '1px solid rgba(255,255,255,0.10)',
                 marginTop: 4,
               }}>
@@ -161,7 +161,7 @@ export default function AdminScreen() {
                 cursor: 'pointer',
                 fontSize: 13.5,
                 fontWeight: active ? 700 : 500,
-                fontFamily: 'Inter, sans-serif',
+                fontFamily: 'system-ui, -apple-system, sans-serif',
                 transition: 'background 0.12s, color 0.12s',
                 width: '100%',
                 lineHeight: 1.3,
