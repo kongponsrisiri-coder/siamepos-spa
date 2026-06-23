@@ -115,7 +115,10 @@ router.get('/clients', async (req, res) => {
     let clientMedical;
     if (hasSince) {
       clients = await pool.query(
-        `SELECT * FROM clients WHERE created_at >= $1 ORDER BY id`,
+        // SEPOS-SPA-BUGHUNT H5 — was created_at, which never re-ships edited
+        // clients (created_at doesn't move on UPDATE). updated_at is bumped by a
+        // trigger on every edit, so the delta now ships both new AND changed rows.
+        `SELECT * FROM clients WHERE updated_at >= $1 ORDER BY id`,
         [since],
       );
       clientMedical = await pool.query(

@@ -257,6 +257,18 @@ async function initSchema() {
   await pool.query(`
     ALTER TABLE clients ADD COLUMN IF NOT EXISTS unsubscribed_at TIMESTAMPTZ;
 
+    -- SEPOS-SPA-BUGHUNT H5 — clients had no updated_at, so the delta sync (which
+    -- filters on it) never re-shipped EDITED clients to the till (stale name /
+    -- consent / unsubscribe on the floor). Add it + a trigger that bumps it on
+    -- every UPDATE so edits propagate regardless of which code path made them.
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+    CREATE OR REPLACE FUNCTION sepos_clients_touch_updated_at() RETURNS TRIGGER AS $touch$
+    BEGIN NEW.updated_at = now(); RETURN NEW; END;
+    $touch$ LANGUAGE plpgsql;
+    DROP TRIGGER IF EXISTS tr_clients_updated_at ON clients;
+    CREATE TRIGGER tr_clients_updated_at BEFORE UPDATE ON clients
+      FOR EACH ROW EXECUTE FUNCTION sepos_clients_touch_updated_at();
+
     CREATE TABLE IF NOT EXISTS campaigns (
       id              SERIAL PRIMARY KEY,
       subject         TEXT NOT NULL,

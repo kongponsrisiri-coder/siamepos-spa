@@ -486,6 +486,7 @@ async function initSchema() {
       notes                    TEXT,
       unsubscribed_at          TEXT,
       created_at               TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at               TEXT,
       cloud_id                 INTEGER
     );
 
@@ -880,6 +881,7 @@ function runMigrations() {
 
   // clients
   addColumnIfMissing('clients', 'unsubscribed_at', 'TEXT');
+  addColumnIfMissing('clients', 'updated_at',      'TEXT'); // SEPOS-SPA-BUGHUNT H5 (nullable: SQLite ALTER can't default CURRENT_TIMESTAMP)
   addColumnIfMissing('clients', 'cloud_id',        'INTEGER');
 
   // appointments
