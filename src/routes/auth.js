@@ -38,8 +38,24 @@ function loginThrottled(ip) {
 // POST /api/auth/login  body: { pin: '1234' }
 // PINs are stored as bcrypt hashes — we compare against every active staff
 // row. For a spa with <50 staff this is plenty fast.
+// GET /api/auth/staff — public list for the "tap your name" login picker.
+// Returns id/name/role only (never the PIN hash). The staff names being visible
+// on a shared till's login screen is standard for PIN POS — same as the
+// restaurant EPOS — and it's what lets login check a SINGLE bcrypt row.
+router.get('/staff', async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, name, role FROM therapists WHERE active = TRUE ORDER BY name',
+    );
+    res.json({ staff: rows });
+  } catch (err) {
+    console.error('[auth/staff] error', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 router.post('/login', async (req, res) => {
-  const { pin } = req.body || {};
+  const { pin, staff_id } = req.body || {};
   if (!pin || typeof pin !== 'string') {
     return res.status(400).json({ error: 'pin required' });
   }
@@ -47,10 +63,21 @@ router.post('/login', async (req, res) => {
     return res.status(429).json({ error: 'Too many sign-in attempts — please wait a moment and try again.' });
   }
   try {
-    const { rows } = await pool.query(
-      'SELECT id, name, pin, role FROM therapists WHERE active = TRUE',
-    );
-    const match = rows.find((r) => bcrypt.compareSync(pin, r.pin));
+    let match;
+    if (staff_id != null && staff_id !== '') {
+      // SEPOS-SPA-BUGHUNT — name-then-PIN: bcrypt-compare a SINGLE row, not every
+      // staff row. Fixes the login DoS the stress test found (bcrypt-per-row × N).
+      const r = await pool.query(
+        'SELECT id, name, pin, role FROM therapists WHERE id = $1 AND active = TRUE',
+        [Number(staff_id)],
+      );
+      const row = r.rows[0];
+      if (row && bcrypt.compareSync(pin, row.pin)) match = row;
+    } else {
+      // Fallback (legacy clients / cached frontends that send only a PIN).
+      const { rows } = await pool.query('SELECT id, name, pin, role FROM therapists WHERE active = TRUE');
+      match = rows.find((row) => bcrypt.compareSync(pin, row.pin));
+    }
     if (!match) return res.status(401).json({ error: 'invalid pin' });
     const staff = { id: match.id, name: match.name, role: match.role };
     return res.json({ staff, token: signStaffToken(staff) });
