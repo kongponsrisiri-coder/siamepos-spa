@@ -23,6 +23,18 @@ async function getSetting(key) {
   return rows[0]?.value ?? null;
 }
 
+// SEPOS-SPA-BUGHUNT — PIN login bcrypt-compares against every staff row, so a
+// flood of concurrent logins pegs the CPU (a stress test hit 10s p95 at 20
+// concurrent). Cap it per IP: ~30 attempts / 60s — plenty for a busy till, but
+// it stops a login flood from DoS-ing the spa.
+const loginHits = new Map();
+function loginThrottled(ip) {
+  const now = Date.now(), win = 60 * 1000, max = 30;
+  const arr = (loginHits.get(ip) || []).filter((t) => now - t < win);
+  if (arr.length >= max) { loginHits.set(ip, arr); return true; }
+  arr.push(now); loginHits.set(ip, arr); return false;
+}
+
 // POST /api/auth/login  body: { pin: '1234' }
 // PINs are stored as bcrypt hashes — we compare against every active staff
 // row. For a spa with <50 staff this is plenty fast.
@@ -30,6 +42,9 @@ router.post('/login', async (req, res) => {
   const { pin } = req.body || {};
   if (!pin || typeof pin !== 'string') {
     return res.status(400).json({ error: 'pin required' });
+  }
+  if (loginThrottled('ip:' + (req.ip || ''))) {
+    return res.status(429).json({ error: 'Too many sign-in attempts — please wait a moment and try again.' });
   }
   try {
     const { rows } = await pool.query(

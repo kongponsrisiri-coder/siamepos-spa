@@ -293,14 +293,14 @@ router.post('/', async (req, res) => {
     const validTwType = validSource === 'treatwell' && ['full', 'partial'].includes(treatwell_payment_type)
       ? treatwell_payment_type : null;
 
-    // SEPOS-SPA-BUGHUNT #1 — race-safe insert. The check above and the insert
-    // used to be two separate statements, so two near-simultaneous bookings for
-    // the same therapist/room+slot could both pass the check and both insert
-    // (double-book). This makes the overlap re-check atomic with the insert in a
-    // single statement (works on PG and SQLite) — if the slot got taken in the
-    // gap, 0 rows insert and we report the conflict. Does NOT affect move/swap.
-    const { rows } = await pool.query(
-      `INSERT INTO appointments
+    // SEPOS-SPA-BUGHUNT #1 (v2) — race-safe insert. The WHERE NOT EXISTS re-check
+    // is NOT enough under PostgreSQL READ COMMITTED: concurrent inserts each
+    // evaluate it against their pre-commit snapshot, so several can win the same
+    // slot (a 25-way stress test created 10). On PG we serialise per therapist +
+    // room with transaction-scoped advisory locks, then re-check inside the lock so
+    // only the first booking inserts. SQLite is single-writer, so the plain
+    // statement is already atomic there. Swap (/swap) is a separate handler.
+    const insertSql = `INSERT INTO appointments
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
           status, source, notes, therapist_requested, price_at_booking, treatwell_payment_type)
        SELECT $1,$2,$3,$4,$5,$6,'booked',$7,$8,$9,$10,$11
@@ -311,14 +311,30 @@ router.post('/', async (req, res) => {
               OR ($4::int IS NOT NULL AND a.room_id      = $4) )
            AND NOT (a.ends_at <= $5 OR a.starts_at >= $6)
        )
-       RETURNING *`,
-      [
-        client_id || null, treatment_id, therapist_id || null, room_id || null,
-        starts_at, ends_at, validSource, notes || null, !!therapist_requested,
-        priceAtBooking, validTwType,
-      ],
-    );
-    const appt = rows[0];
+       RETURNING *`;
+    const insertParams = [
+      client_id || null, treatment_id, therapist_id || null, room_id || null,
+      starts_at, ends_at, validSource, notes || null, !!therapist_requested,
+      priceAtBooking, validTwType,
+    ];
+    let appt;
+    if ((process.env.DB_MODE || '').toLowerCase() === 'local') {
+      appt = (await pool.query(insertSql, insertParams)).rows[0];
+    } else {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        if (therapist_id) await client.query('SELECT pg_advisory_xact_lock(1, $1)', [Number(therapist_id)]);
+        if (room_id)      await client.query('SELECT pg_advisory_xact_lock(2, $1)', [Number(room_id)]);
+        appt = (await client.query(insertSql, insertParams)).rows[0];
+        await client.query('COMMIT');
+      } catch (e) {
+        try { await client.query('ROLLBACK'); } catch {}
+        throw e;
+      } finally {
+        client.release();
+      }
+    }
     if (!appt) {
       return res.status(409).json({
         error: 'conflict',
@@ -572,8 +588,7 @@ router.put('/:id', async (req, res) => {
            AND NOT (a.ends_at <= $16 OR a.starts_at >= $17)
        )` : '';
     const moveParams = needsConflictCheck ? [checkTherapist ?? null, checkRoom ?? null, checkStart, checkEnd] : [];
-    const { rows } = await pool.query(
-      `UPDATE appointments SET
+    const moveSql = `UPDATE appointments SET
          therapist_id         = COALESCE($2, therapist_id),
          room_id              = COALESCE($3, room_id),
          starts_at            = COALESCE($4, starts_at),
@@ -586,9 +601,24 @@ router.put('/:id', async (req, res) => {
          price_at_booking     = COALESCE($11, price_at_booking),
          source               = $12,
          treatwell_payment_type = $13
-       WHERE id = $1${moveGuard} RETURNING *`,
-      [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null, newPriceAtBooking, newSource, newTwType, ...moveParams],
-    );
+       WHERE id = $1${moveGuard} RETURNING *`;
+    const moveAllParams = [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null, newPriceAtBooking, newSource, newTwType, ...moveParams];
+    // SEPOS-SPA-BUGHUNT #1 (v2) — a move into an empty slot has the same concurrency
+    // race as create. When it's an actual move, serialise per therapist + room on PG
+    // with advisory locks (SQLite is single-writer). Status/notes-only edits skip it.
+    let rows;
+    if (needsConflictCheck && (process.env.DB_MODE || '').toLowerCase() !== 'local') {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        if (checkTherapist) await client.query('SELECT pg_advisory_xact_lock(1, $1)', [Number(checkTherapist)]);
+        if (checkRoom)      await client.query('SELECT pg_advisory_xact_lock(2, $1)', [Number(checkRoom)]);
+        ({ rows } = await client.query(moveSql, moveAllParams));
+        await client.query('COMMIT');
+      } catch (e) { try { await client.query('ROLLBACK'); } catch {} throw e; } finally { client.release(); }
+    } else {
+      ({ rows } = await pool.query(moveSql, moveAllParams));
+    }
     if (!rows[0]) {
       // The row exists (validated above) — so 0 rows on a move means the slot was
       // just taken in the race; otherwise it's genuinely gone.
