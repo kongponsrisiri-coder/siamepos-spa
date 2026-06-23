@@ -34,6 +34,9 @@ const LOCAL_URL = `http://localhost:${LOCAL_PORT}`;
 
 let mainWindow = null;
 let serverProc = null;
+// SEPOS-SPA-BUGHUNT C4 — server crash-recovery state.
+let appQuitting = false;
+let serverRestarts = 0;
 
 // ── Paths (differ between dev `npm start` and a packaged install) ────
 function resolvePaths() {
@@ -141,7 +144,28 @@ function startLocalServer() {
   serverProc = spawn(process.execPath, [serverEntry], { env, stdio: ['ignore', 'pipe', 'pipe'] });
   serverProc.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`));
   serverProc.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
-  serverProc.on('exit', (code) => console.log(`[server] exited (${code})`));
+  // SEPOS-SPA-BUGHUNT C4 — a server crash must NOT brick the till. Previously the
+  // exit handler only logged and never nulled serverProc, so `if (!serverProc)`
+  // guards could never respawn it. Now: null the handle, then auto-respawn with
+  // backoff (unless we're deliberately quitting) and reload the window once it's
+  // healthy again.
+  serverProc.on('exit', (code, signal) => {
+    console.log(`[server] exited (code=${code}, signal=${signal})`);
+    serverProc = null;
+    if (appQuitting) return;
+    serverRestarts += 1;
+    const delay = Math.min(30000, 1000 * serverRestarts);
+    console.warn(`[server] crashed — respawning in ${delay}ms (restart #${serverRestarts})`);
+    setTimeout(async () => {
+      if (appQuitting || serverProc) return;
+      startLocalServer();
+      const ok = await waitForServer();
+      if (ok) {
+        serverRestarts = 0;
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.loadURL(LOCAL_URL).catch(() => {});
+      }
+    }, delay);
+  });
 }
 
 // Poll /api/health until the local server answers (or we give up).
@@ -414,6 +438,7 @@ if (!gotLock) {
 
 // Make sure the spawned server dies with the app.
 function killServer() {
+  appQuitting = true; // SEPOS-SPA-BUGHUNT C4 — stop crash-recovery from respawning during shutdown.
   if (serverProc && !serverProc.killed) { try { serverProc.kill(); } catch {} }
 }
 app.on('before-quit', killServer);

@@ -466,6 +466,38 @@ router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
         [bill.appointment_id],
       );
     }
+    // SEPOS-SPA-BUGHUNT C3 — restore any vouchers redeemed against this bill
+    // BEFORE deleting it. Without this, deleting a voucher-paid bill left the
+    // voucher drained forever (the FK is ON DELETE SET NULL, so the redemption
+    // row just got orphaned and was unrecoverable). Same reversal /refund uses.
+    const reds = await client.query(
+      `SELECT vr.id, vr.voucher_id, vr.amount_used, vr.sessions_used, v.voucher_type
+       FROM voucher_redemptions vr
+       JOIN vouchers v ON v.id = vr.voucher_id
+       WHERE vr.bill_id = $1 AND vr.reversed_at IS NULL`,
+      [id],
+    );
+    for (const r of reds.rows) {
+      if (r.voucher_type === 'sessions') {
+        await client.query(
+          `UPDATE vouchers
+              SET sessions_remaining = sessions_remaining + $2,
+                  remaining_value = ROUND((initial_value / NULLIF(total_sessions, 0)) * (sessions_remaining + $2), 2),
+                  status = CASE WHEN status IN ('used', 'expired') THEN 'active' ELSE status END
+            WHERE id = $1`,
+          [r.voucher_id, Number(r.sessions_used || 0)],
+        );
+      } else {
+        await client.query(
+          `UPDATE vouchers
+              SET remaining_value = remaining_value + $2,
+                  status = CASE WHEN status IN ('used', 'expired') THEN 'active' ELSE status END
+            WHERE id = $1`,
+          [r.voucher_id, Number(r.amount_used || 0)],
+        );
+      }
+      await client.query(`UPDATE voucher_redemptions SET reversed_at = now() WHERE id = $1`, [r.id]);
+    }
     await client.query('DELETE FROM bills WHERE id = $1', [id]);
     await client.query('COMMIT');
     res.json({ ok: true });

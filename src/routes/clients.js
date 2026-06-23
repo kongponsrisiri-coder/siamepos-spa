@@ -172,49 +172,71 @@ router.get('/:id/medical', async (req, res) => {
   }
 });
 
+// SEPOS-SPA-BUGHUNT C1 — the medical write used to hard-code 18 columns, so the
+// expanded intake fields (autoimmune_disorder, blood_clots, neuropathy,
+// pregnancy_months, reason_for_massage, pressure_preference, …) the form sends
+// were SILENTLY DROPPED — a clinical-safety + GDPR record bug. We now write every
+// writable column the table actually has (cross-DB catalog lookup, like sync.js),
+// so the column list can never drift from the schema again.
+const MEDICAL_NONWRITABLE = new Set(['id', 'client_id', 'signed_at', 'updated_at', 'created_at', 'cloud_id']);
+let _medicalColsCache = null;
+async function medicalWritableColumns() {
+  if (_medicalColsCache) return _medicalColsCache;
+  let cols;
+  if ((process.env.DB_MODE || '').toLowerCase() === 'local') {
+    const r = await pool.query(`PRAGMA table_info(client_medical)`);
+    cols = r.rows.map((c) => c.name);
+  } else {
+    const r = await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = $1`,
+      ['client_medical'],
+    );
+    cols = r.rows.map((c) => c.column_name);
+  }
+  // digital_signature is handled separately (drives signed_at); exclude metadata.
+  _medicalColsCache = cols.filter((c) => !MEDICAL_NONWRITABLE.has(c) && c !== 'digital_signature');
+  return _medicalColsCache;
+}
+
 // PUT /api/clients/:id/medical  — upsert (one active record per client)
 router.put('/:id/medical', async (req, res) => {
   const id = Number(req.params.id);
   const b = req.body || {};
-  const cols = [
-    'pregnancy','heart_condition','blood_pressure','diabetes','epilepsy','cancer','dvt',
-    'recent_surgery','bone_fracture','skin_condition','varicose_veins','osteoporosis','lymphoedema',
-    'medications','allergies','areas_to_avoid','skin_conditions_detail','digital_signature',
-  ];
-  // BUG-SPA-001 fix — the schema marks the boolean columns NOT NULL DEFAULT FALSE
-  // and blood_pressure NOT NULL DEFAULT 'none'. Passing an explicit NULL bypasses
-  // the DEFAULT and hits the NOT NULL constraint, so when the medical record is
-  // being INSERTed (no prior row) we COALESCE the placeholder to the same value
-  // the schema would have used. Anything not listed here is nullable TEXT.
-  const insertDefaults = {
-    pregnancy: 'FALSE', heart_condition: 'FALSE', blood_pressure: "'none'",
-    diabetes: 'FALSE', epilepsy: 'FALSE', cancer: 'FALSE', dvt: 'FALSE',
-    recent_surgery: 'FALSE', bone_fracture: 'FALSE', skin_condition: 'FALSE',
-    varicose_veins: 'FALSE', osteoporosis: 'FALSE', lymphoedema: 'FALSE',
-  };
-  const values = cols.map((k) => b[k] ?? null);
   try {
+    const writable = await medicalWritableColumns();
+    // Persist only keys the caller actually sent with a real value. Omitting a
+    // NOT NULL column lets its schema DEFAULT apply on INSERT (and leaves the
+    // existing value untouched on UPDATE), so we never hit a NOT NULL violation
+    // by writing an explicit NULL. The form sends every field (false / '' for
+    // empties), so in practice the whole questionnaire is now saved.
+    const keys = writable.filter((c) => b[c] !== undefined && b[c] !== null);
+    const hasSig = b.digital_signature !== undefined && b.digital_signature !== null && b.digital_signature !== '';
+
     const exists = await pool.query('SELECT id FROM client_medical WHERE client_id = $1 LIMIT 1', [id]);
+
     if (exists.rows[0]) {
-      const setClause = cols.map((c, i) => `${c} = COALESCE($${i + 2}, ${c})`).join(', ');
-      const signedClause = b.digital_signature ? ', signed_at = now()' : '';
+      const setParts = keys.map((c, i) => `${c} = $${i + 2}`);
+      const params = [id, ...keys.map((k) => b[k])];
+      if (hasSig) { setParts.push(`digital_signature = $${params.length + 1}`, 'signed_at = now()'); params.push(b.digital_signature); }
+      setParts.push('updated_at = now()');
       const { rows } = await pool.query(
-        `UPDATE client_medical SET ${setClause}, updated_at = now() ${signedClause}
-         WHERE client_id = $1 RETURNING *`,
-        [id, ...values],
+        `UPDATE client_medical SET ${setParts.join(', ')} WHERE client_id = $1 RETURNING *`,
+        params,
       );
       await offlineQueue.enqueue('save_medical', { localId: rows[0].id });
       return res.json({ medical: rows[0] });
     }
-    const placeholders = cols.map((c, i) => {
-      const ph = `$${i + 2}`;
-      return insertDefaults[c] ? `COALESCE(${ph}, ${insertDefaults[c]})` : ph;
-    }).join(', ');
+
+    const insertCols = ['client_id', ...keys];
+    const params = [id, ...keys.map((k) => b[k])];
+    if (hasSig) { insertCols.push('digital_signature'); params.push(b.digital_signature); }
+    const ph = insertCols.map((_, i) => `$${i + 1}`);
+    const signedCol = hasSig ? ', signed_at' : '';
+    const signedVal = hasSig ? ', now()' : '';
     const { rows } = await pool.query(
-      `INSERT INTO client_medical (client_id, ${cols.join(', ')}, signed_at)
-       VALUES ($1, ${placeholders}, CASE WHEN $${cols.length + 2}::text IS NOT NULL THEN now() ELSE NULL END)
-       RETURNING *`,
-      [id, ...values, b.digital_signature || null],
+      `INSERT INTO client_medical (${insertCols.join(', ')}${signedCol})
+       VALUES (${ph.join(', ')}${signedVal}) RETURNING *`,
+      params,
     );
     await offlineQueue.enqueue('save_medical', { localId: rows[0].id });
     res.status(201).json({ medical: rows[0] });
