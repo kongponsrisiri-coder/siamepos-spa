@@ -596,12 +596,15 @@ async function initSchema() {
       stripe_session_id TEXT UNIQUE,
       url               TEXT,
       customer_email    TEXT,
+      appointment_id    INT REFERENCES appointments(id) ON DELETE SET NULL,  -- set for a 'deposit' link tied to a phone booking
       created_by        INT REFERENCES therapists(id) ON DELETE SET NULL,
       created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
       expires_at        TIMESTAMPTZ,
       paid_at           TIMESTAMPTZ
     );
     CREATE INDEX IF NOT EXISTS idx_payment_links_created_at ON payment_links (created_at);
+    -- Older deploys created payment_links before appointment_id existed.
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS appointment_id INT REFERENCES appointments(id) ON DELETE SET NULL;
   `);
 
   console.log('[db] schema ready');
