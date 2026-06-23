@@ -264,6 +264,33 @@ router.post('/:id/redeem', async (req, res) => {
     if (!vRows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'not found' }); }
     const v = vRows[0];
 
+    // SEPOS-SPA-BUGHUNT C2 — idempotency. Voucher redemption and bill closure are
+    // two separate client calls; if /pay failed after a successful redeem and the
+    // operator retried, the voucher would be decremented a SECOND time (double
+    // spend / lost value). Checked first (before the status gate) so a retry on a
+    // now-'used' voucher still returns success rather than "Voucher is used".
+    // The FOR UPDATE lock above serializes concurrent retries on the same voucher.
+    if (bill_id) {
+      const dup = await client.query(
+        `SELECT * FROM voucher_redemptions
+           WHERE voucher_id = $1 AND bill_id = $2 AND reversed_at IS NULL
+           ORDER BY id DESC LIMIT 1`,
+        [id, Number(bill_id)],
+      );
+      if (dup.rows[0]) {
+        await client.query('COMMIT');
+        const r = dup.rows[0];
+        return res.json({
+          redemption: r,
+          idempotent: true,
+          amount_used: Number(r.amount_used || 0),
+          sessions_used: Number(r.sessions_used || 0),
+          remaining_value: Number(v.remaining_value || 0),
+          sessions_remaining: Number(v.sessions_remaining || 0),
+        });
+      }
+    }
+
     if (v.status !== 'active') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: `Voucher is ${v.status}` });

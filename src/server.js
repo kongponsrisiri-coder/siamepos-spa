@@ -256,6 +256,26 @@ if (require.main === module) {
         console.log(`[server] SiamEPOS Spa listening on :${PORT}`);
       });
 
+      // SEPOS-SPA-BUGHUNT C5/#7 — loudly flag insecure default secrets on a
+      // CLOUD (internet-facing) deploy. Forgeable JWT/booking/unsub secrets allow
+      // forged admin tokens (full medical-record access) and forged
+      // cancel-with-Stripe-refund booking tokens. Ops MUST set these on the spa
+      // Railway. Warn-only (not a hard boot-fail) so a missing env can never take a
+      // live till offline; desktop mode injects its own random JWT_SECRET.
+      if ((process.env.DB_MODE || '').toLowerCase() !== 'local') {
+        const weak = [];
+        if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'dev-only-change-me') weak.push('JWT_SECRET');
+        if (!process.env.BOOKING_SECRET) weak.push('BOOKING_SECRET');
+        if (!process.env.UNSUB_SECRET)  weak.push('UNSUB_SECRET');
+        if (weak.length) {
+          console.error('==========================================================');
+          console.error('[SECURITY] ⚠️  INSECURE DEFAULT secret(s) in use: ' + weak.join(', '));
+          console.error('[SECURITY] These are forgeable. Set them on the spa Railway env NOW.');
+          console.error('[SECURITY] Risk: forged admin tokens (medical records) + forged booking cancel/refund.');
+          console.error('==========================================================');
+        }
+      }
+
       // Desktop offline mode: start the cloud⇆local sync engine. No-op in
       // cloud mode (the service guards on DB_MODE internally).
       if ((process.env.DB_MODE || '').toLowerCase() === 'local') {
