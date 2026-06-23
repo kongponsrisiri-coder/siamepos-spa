@@ -77,6 +77,7 @@ jobs:
           name: spa-mac-installer
           path: |
             electron/dist-electron/*.dmg
+            electron/dist-electron/*.zip
             electron/dist-electron/*.blockmap
             electron/dist-electron/latest-mac.yml
           if-no-files-found: error
@@ -150,6 +151,7 @@ jobs:
           fail_on_unmatched_files: false
           files: |
             dist/spa-mac-installer/*.dmg
+            dist/spa-mac-installer/*.zip
             dist/spa-mac-installer/*.blockmap
             dist/spa-mac-installer/latest-mac.yml
             dist/spa-windows-installer/*.exe

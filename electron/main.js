@@ -154,6 +154,10 @@ function waitForServer(timeoutMs = 25000) {
 // ── Window ──────────────────────────────────────────────────────────
 function createWindow() {
   mainWindow = new BrowserWindow({
+    // Launch the till full-screen to match the restaurant app (SEPOS-PRO-007).
+    // Staff can still leave full-screen: Mac Ctrl+Cmd+F · Windows F11 · Esc.
+    // width/height are the restored size when they do.
+    fullscreen: true,
     width: 1280,
     height: 800,
     minWidth: 900,
@@ -325,6 +329,21 @@ function initAutoUpdate() {
   autoUpdater.autoDownload = true;
   // The spa now lives in its OWN repo (siamepos-spa) and publishes normal stable
   // releases there, so no prerelease juggling is needed anymore.
+
+  // Diagnostics (SEPOS-SPA-PRO-002) — a broken updater used to fail SILENTLY.
+  // Append every lifecycle event to ~/Library/Logs/SiamEPOS Spa/updater.log and
+  // forward the real error to the renderer so it can be shown, not swallowed.
+  try {
+    const logFile = path.join(app.getPath('logs'), 'updater.log');
+    const logLine = (msg) => { try { fs.appendFileSync(logFile, `${new Date().toISOString()} ${msg}\n`); } catch {} };
+    autoUpdater.logger = { info: logLine, warn: logLine, error: logLine, debug: () => {} };
+    const send = (ch, payload) => mainWindow && mainWindow.webContents.send(ch, payload);
+    autoUpdater.on('checking-for-update', () => { logLine('checking-for-update'); send('siamepos-spa:update-checking'); });
+    autoUpdater.on('update-available', (i) => { logLine(`update-available ${i && i.version}`); send('siamepos-spa:update-available', i && i.version); });
+    autoUpdater.on('update-not-available', () => { logLine('update-not-available'); send('siamepos-spa:update-none'); });
+    autoUpdater.on('error', (err) => { logLine(`error ${err && err.message}`); send('siamepos-spa:update-error', err && err.message ? err.message : String(err)); });
+  } catch {}
+
   autoUpdater.on('update-downloaded', () => mainWindow && mainWindow.webContents.send('siamepos-spa:update-ready'));
   autoUpdater.checkForUpdatesAndNotify().catch(() => {});
 }
