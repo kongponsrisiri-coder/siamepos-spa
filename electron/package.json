@@ -1,6 +1,6 @@
 {
   "name": "siamepos-spa-electron",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "SiamEPOS Spa desktop shell — Thai massage & spa management till",
   "main": "main.js",
   "private": true,
@@ -16,7 +16,7 @@
   "build": {
     "appId": "uk.co.siamepos.spa",
     "productName": "SiamEPOS Spa",
-    "artifactName": "${productName}-${version}-Setup.${ext}",
+    "artifactName": "SiamEPOS-Spa-${version}-Setup.${ext}",
     "asar": true,
     "directories": {
       "output": "dist-electron",
