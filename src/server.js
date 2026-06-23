@@ -32,6 +32,8 @@ const syncRoutes        = require('./routes/sync');     // SEPOS-SPA-PRO-001 Pha
 const paymentLinkRoutes = require('./routes/paymentLinks'); // SEPOS-SPA-PAYLINK-001
 const { router: licenseRoutes, requireValidLicense } = require('./routes/license'); // SEPOS-SPA-LICENSE-001
 const licenseClient     = require('./services/licenseClient');
+const deviceRoutes      = require('./routes/device');             // SEPOS-SPA-LICENSE-001 Part B
+const deviceHeartbeat   = require('./services/deviceHeartbeat');
 const { parseUnsubscribeToken } = require('./services/emailService');
 const { pool: dbPool }  = require('./db/dbAdapter');
 const { router: stripeRouter, webhookHandler: stripeWebhookHandler } = require('./routes/stripe');
@@ -67,8 +69,20 @@ app.post(
 app.use(express.json({ limit: '2mb' }));
 
 // Health check for Railway + uptime monitors.
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'siamepos-spa', time: new Date().toISOString() });
+// SEPOS-SPA-LICENSE-001 Part B — ops polls this every 5 min and reads `tills`
+// to see which desktop devices are installed, their version + last-seen. Tills
+// sit behind NAT (can't be polled), so they POST /api/device/heartbeat up; this
+// surfaces them. Shape matches restaurant-epos so one ops ingestion handles both.
+app.get('/api/health', async (_req, res) => {
+  let tills = [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT device_id, app_version AS version, platform, last_seen
+       FROM devices ORDER BY last_seen DESC LIMIT 100`,
+    );
+    tills = rows;
+  } catch (e) { /* devices table may not exist on an old DB — report no tills */ }
+  res.json({ ok: true, service: 'siamepos-spa', time: new Date().toISOString(), tills });
 });
 
 // Public booking widget — served from the backend so any external site can
@@ -127,6 +141,9 @@ app.use('/api/sync',      syncRoutes);
 // License — GET /api/license (cloud signs the pass), plus the till's local
 // state/recheck endpoints. Public: the token is signed, no auth needed.
 app.use('/api', licenseRoutes);
+
+// Device heartbeat — POST /api/device/heartbeat (gated by SYNC_SECRET).
+app.use('/api/device', deviceRoutes);
 
 // Sync status for the desktop app's online/offline indicator (B4). Cheap +
 // unauthenticated — it only reports connection state, no data. In cloud mode
@@ -251,6 +268,8 @@ if (require.main === module) {
           require('./services/cloudRelay').start(io, syncService);
           // SEPOS-SPA-LICENSE-001 — start the offline license poller (fail-open).
           licenseClient.start();
+          // SEPOS-SPA-LICENSE-001 Part B — report this device up to ops.
+          deviceHeartbeat.start();
         } catch (e) {
           console.error('[server] sync engine / relay failed to start:', e.message);
         }

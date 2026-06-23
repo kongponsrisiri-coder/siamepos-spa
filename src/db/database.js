@@ -607,6 +607,20 @@ async function initSchema() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS appointment_id INT REFERENCES appointments(id) ON DELETE SET NULL;
   `);
 
+  // ── Device heartbeat (SEPOS-SPA-LICENSE-001 Part B) ─────────────────────
+  // Each installed desktop till POSTs /api/device/heartbeat; ops reads these
+  // back via /api/health to track installed devices + their version + last-seen.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS devices (
+      device_id   TEXT PRIMARY KEY,
+      spa_id      TEXT,
+      app_version TEXT,
+      platform    TEXT,
+      last_seen   TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices (last_seen);
+  `);
+
   console.log('[db] schema ready');
 }
 

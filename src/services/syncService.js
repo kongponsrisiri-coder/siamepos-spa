@@ -769,4 +769,6 @@ module.exports = {
   ping,
   tick,
   upsertRows,
+  // SEPOS-SPA-LICENSE-001 Part B — stable per-device id, reused by the heartbeat.
+  getDeviceId,
 };

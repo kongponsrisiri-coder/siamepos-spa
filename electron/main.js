@@ -132,6 +132,8 @@ function startLocalServer() {
     SPA_ID: cfg.spa_id || '',
     SPA_NAME: cfg.spa_name || 'SiamEPOS Spa',
     SPA_EMAIL: cfg.spa_email || 'info@siamepos.co.uk',
+    // SEPOS-SPA-LICENSE-001 Part B — so the device heartbeat reports the version.
+    APP_VERSION: app.getVersion(),
   };
   // Never let a leftover DATABASE_URL pull us back onto Postgres.
   delete env.DATABASE_URL;
