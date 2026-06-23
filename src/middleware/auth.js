@@ -5,11 +5,11 @@ const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-change-me';
 
-function signStaffToken(staff) {
+function signStaffToken(staff, expiresIn = '12h') {
   return jwt.sign(
     { sub: staff.id, name: staff.name, role: staff.role },
     JWT_SECRET,
-    { expiresIn: '12h' },
+    { expiresIn },
   );
 }
 

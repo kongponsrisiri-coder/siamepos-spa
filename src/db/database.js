@@ -249,6 +249,10 @@ async function initSchema() {
   await pool.query(`
     ALTER TABLE therapists ADD COLUMN IF NOT EXISTS specialisms TEXT;
     ALTER TABLE therapists ADD COLUMN IF NOT EXISTS photo_url   TEXT;
+    -- SEPOS-SPA-OWNER-001 (v2) — email + password login (matches the restaurant
+    -- web-app login). scrypt hash format "<saltHex>:<hashHex>".
+    ALTER TABLE therapists ADD COLUMN IF NOT EXISTS email         TEXT;
+    ALTER TABLE therapists ADD COLUMN IF NOT EXISTS password_hash TEXT;
   `);
 
   // ── SPA-003: Treatwell integration ──────────────────────────────────────

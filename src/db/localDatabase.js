@@ -890,6 +890,8 @@ function runMigrations() {
   // therapists
   addColumnIfMissing('therapists', 'specialisms', 'TEXT');
   addColumnIfMissing('therapists', 'photo_url',   'TEXT');
+  addColumnIfMissing('therapists', 'email',         'TEXT'); // SEPOS-SPA-OWNER-001 v2 — email+password login
+  addColumnIfMissing('therapists', 'password_hash', 'TEXT');
 
   // clients
   addColumnIfMissing('clients', 'unsubscribed_at', 'TEXT');
