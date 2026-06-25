@@ -250,9 +250,14 @@ function logBase(parsed, raw) {
  */
 async function ingestBooking(parsed, raw, io) {
   if (!parsed || !parsed.ok || !parsed.ref) {
-    await logIngestion({ ref: parsed?.ref, action: parsed?.action, status: 'needs_review',
+    // No order ref → not a booking email (Treatwell marketing/statement/review):
+    // 'ignore' it quietly (still audited, but kept out of the review queue). A
+    // ref present but unparseable → keep for review (never silently drop a real
+    // booking).
+    const status = (parsed && parsed.ref) ? 'needs_review' : 'ignored';
+    await logIngestion({ ref: parsed?.ref, action: parsed?.action, status,
       confidence: parsed?.confidence || 'none', parsed, raw, error: parsed?.reason || 'unparseable' });
-    return { status: 'needs_review', reason: parsed?.reason || 'unparseable' };
+    return { status, reason: parsed?.reason || 'unparseable' };
   }
   try {
     if (parsed.action === 'cancel')     return await cancelBooking(parsed, raw, io);

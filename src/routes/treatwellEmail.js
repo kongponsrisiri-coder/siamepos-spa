@@ -74,12 +74,14 @@ router.post('/inbound', async (req, res) => {
 
   try {
     let parsed = parseTreatwellEmail({ subject, text });
-    if (!parsed.ok || parsed.confidence !== 'high') {
-      const ai = await extractBookingWithAI({ subject, text });
-      parsed = mergeParsed(parsed, ai);
+    // Only spend an AI call when there's a real booking signal (a Treatwell
+    // order ref) but the deterministic parse wasn't fully confident. Emails
+    // with NO T-ref are almost certainly not bookings (Treatwell marketing /
+    // statements / review requests) — ingestBooking will quietly 'ignore' them.
+    if (parsed.ref && (!parsed.ok || parsed.confidence !== 'high')) {
+      parsed = mergeParsed(parsed, await extractBookingWithAI({ subject, text }));
     }
-    const io = req.app.get('io');
-    const result = await ingestBooking(parsed, text, io);
+    const result = await ingestBooking(parsed, text, req.app.get('io'));
     // Always 200 to the provider so it doesn't retry-storm; the real outcome is
     // in the body + ingestion_log.
     return res.json({ ok: true, ...result, ref: parsed && parsed.ref, confidence: parsed && parsed.confidence });
