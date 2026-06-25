@@ -18,6 +18,7 @@ import PaymentsSection        from './admin/PaymentsSection.jsx';
 import ClientsSection         from './admin/ClientsSection.jsx';
 import CampaignsSection       from './admin/CampaignsSection.jsx';
 import OnlineBookingSection   from './admin/OnlineBookingSection.jsx';
+import TreatwellSection        from './admin/TreatwellSection.jsx';
 
 // ── Sandy: AdminScreen — left sidebar, SiamEPOS Spa brand CI ──────
 // Slate Navy #0D1B3E sidebar · Thai Gold #C9A84C active state
@@ -37,6 +38,7 @@ const GROUPS = [
     { k: 'bills',      label: 'Bills' },
     { k: 'clients',    label: 'Clients' },
     { k: 'campaigns',  label: 'Campaigns' },
+    { k: 'treatwell',  label: 'Treatwell' },
     { k: 'vouchers',   label: 'Vouchers' },
     { k: 'payments',   label: 'Payments' },
   ] },
@@ -98,6 +100,7 @@ const SECTIONS = {
   bills:      BillsSection,
   clients:    ClientsSection,
   campaigns:  CampaignsSection,
+  treatwell:  TreatwellSection,
   vouchers:   VouchersSection,
   payments:   PaymentsSection,
   menu:       TreatmentMenuSection,

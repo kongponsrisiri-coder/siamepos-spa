@@ -26,6 +26,7 @@ const settingsRoutes    = require('./routes/settings');
 const voucherRoutes     = require('./routes/vouchers');
 const widgetRoutes      = require('./routes/widget');
 const treatwellRoutes   = require('./routes/treatwell');
+const treatwellEmailRoutes = require('./routes/treatwellEmail'); // SPA-TREATWELL-001 — email ingest + review queue
 const campaignRoutes    = require('./routes/campaigns');
 const bookingRoutes     = require('./routes/booking');
 const syncRoutes        = require('./routes/sync');     // SEPOS-SPA-PRO-001 Phase B — offline pull feed
@@ -130,6 +131,7 @@ app.get('/pay-thanks', (req, res) => {
 // ---- Public routes (NO auth) ---------------------------------------------
 app.use('/api/widget',    widgetRoutes);
 app.use('/api/treatwell', treatwellRoutes);
+app.use('/api/treatwell-email', treatwellEmailRoutes); // public /inbound (secret-gated) + staff review queue
 app.use('/api/booking',   bookingRoutes);     // public self-service via HMAC token
 app.use('/api/auth',      authRoutes);
 
