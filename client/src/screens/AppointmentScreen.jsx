@@ -35,11 +35,11 @@ function getWorkHours(therapistId, dateStr, weeklyRota, overrides) {
 }
 
 const PAYMENT_COLOR = {
-  cash:      '#f97316',
-  card:      '#ec4899',
-  voucher:   '#16a34a',
-  treatwell: '#eab308',
-  split:     '#7c3aed',
+  cash:      '#c2410c',   // brick orange (deepened — separates from Treatwell-deposit amber)
+  card:      '#db2777',   // pink
+  voucher:   '#7c3aed',   // violet  (was green — collided with Treatwell/Online)
+  treatwell: '#0891b2',   // cyan    — Treatwell's single signature colour
+  split:     '#c026d3',   // magenta
   other:     '#6b7280',
 };
 function pmColor(method) { return PAYMENT_COLOR[method] || PAYMENT_COLOR.other; }
@@ -71,22 +71,28 @@ const HEADER_H   = 52;
 // still scheduled. Once it COMPLETES, switch to the payment-method
 // colour so the receptionist can see at a glance how each customer
 // settled the bill.
+// One distinct hue per entry, and Treatwell = a single CYAN identity wherever
+// it appears (block + paid-by), so it can't be mistaken for Online (green) or
+// Voucher. Hue map (kept deliberately far apart):
+//   phone=blue · walk-in/staff=slate · online=green · treatwell=cyan ·
+//   treatwell deposit=amber · cash=orange · card=pink · voucher=violet ·
+//   split=magenta.
 const SOURCE_STYLE = {
-  phone:            { bg: '#f3e8ff', border: '#a855f7', text: '#6b21a8' },  // PURPLE — phone (changed from teal: too similar to treatwell-full's green)
-  walkin:           { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3' },  // indigo — in-store
-  staff:            { bg: '#e0e7ff', border: '#6366f1', text: '#3730a3' },  // indigo — staff-created
-  online:           { bg: '#f5e6d3', border: '#8b4513', text: '#5a3a1f' },  // brown — widget (was blue, too similar to walkin indigo)
-  treatwell_full:   { bg: '#dcfce7', border: '#16a34a', text: '#14532d' },  // green — Treatwell prepaid in full
-  treatwell_partial:{ bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },  // amber — Treatwell partial deposit
+  phone:            { bg: '#dbeafe', border: '#2563eb', text: '#1e3a8a' },  // blue — phone
+  walkin:           { bg: '#f1f5f9', border: '#64748b', text: '#334155' },  // slate — in-store
+  staff:            { bg: '#f1f5f9', border: '#64748b', text: '#334155' },  // slate — staff-created
+  online:           { bg: '#dcfce7', border: '#16a34a', text: '#14532d' },  // green — website widget
+  treatwell_full:   { bg: '#cffafe', border: '#0891b2', text: '#155e75' },  // cyan — Treatwell prepaid (signature)
+  treatwell_partial:{ bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },  // amber — Treatwell deposit (balance owed)
   cancelled:        { bg: '#f3f4f6', border: '#9ca3af', text: '#9ca3af' },  // grey — used by apptStyle, not in legend
   no_show:          { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' },  // red  — used by apptStyle, not in legend
 };
 const PAYMENT_STYLE = {
-  cash:      { bg: '#ffedd5', border: '#f97316', text: '#9a3412' },  // orange
-  card:      { bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },  // pink
-  voucher:   { bg: '#d1fae5', border: '#10b981', text: '#065f46' },  // emerald — distinct from treatwell-full's green
-  treatwell: { bg: '#fef9c3', border: '#eab308', text: '#854d0e' },  // yellow
-  split:     { bg: '#ede9fe', border: '#7c3aed', text: '#4c1d95' },  // violet
+  cash:      { bg: '#ffedd5', border: '#c2410c', text: '#7c2d12' },  // brick orange — distinct from amber deposit
+  card:      { bg: '#fce7f3', border: '#db2777', text: '#9d174d' },  // pink
+  voucher:   { bg: '#ede9fe', border: '#7c3aed', text: '#5b21b6' },  // violet — moved off green
+  treatwell: { bg: '#cffafe', border: '#0891b2', text: '#155e75' },  // cyan — matches the Treatwell block
+  split:     { bg: '#fae8ff', border: '#c026d3', text: '#86198f' },  // magenta
 };
 function apptStyle(a) {
   if (a.status === 'cancelled') return SOURCE_STYLE.cancelled;
