@@ -15,6 +15,7 @@
 
 const { pool } = require('../db/dbAdapter');
 const { computeAvailability } = require('./availability');
+const { sendOwnerNewBookingEmail } = require('./emailService');
 
 const DB_MODE = process.env.DB_MODE || 'cloud';
 
@@ -27,6 +28,7 @@ function londonOffset(dateStr) {
   return tz === 'BST' ? '+01:00' : '+00:00';
 }
 function toStartIso(parsed) {
+  if (parsed.startIso) return parsed.startIso;   // already tz-aware (e.g. a webhook payload)
   if (!parsed.startLocal || !parsed.date) return null;
   return `${parsed.startLocal}${londonOffset(parsed.date)}`;
 }
@@ -169,6 +171,29 @@ async function createBooking(parsed, raw, io) {
   }
 
   io?.emit('new_appointment', appt);
+
+  // Owner notification (fire-and-forget) — parity with Sam's webhook so the
+  // owner is alerted to Treatwell bookings arriving via email too.
+  (async () => {
+    try {
+      const named = await pool.query(
+        `SELECT c.*, th.name AS therapist_name, t.name AS treatment_name, t.duration_minutes, t.price
+         FROM appointments a
+         JOIN clients c       ON c.id  = a.client_id
+         LEFT JOIN therapists th ON th.id = a.therapist_id
+         LEFT JOIN treatments  t  ON t.id  = a.treatment_id
+         WHERE a.id = $1`, [appt.id]);
+      const row = named.rows[0];
+      if (row) await sendOwnerNewBookingEmail({
+        appointment: appt,
+        client: row,
+        treatment: row.treatment_name ? { name: row.treatment_name, duration_minutes: row.duration_minutes, price: row.price } : null,
+        therapistName: row.therapist_name,
+        source: 'treatwell',
+      });
+    } catch (e) { console.error('[treatwellIngest] owner notify failed:', e.message); }
+  })();
+
   await logIngestion({ ...logBase(parsed, raw), status: 'placed', appointmentId: appt.id });
   return { action: 'create', status: 'placed', appointment_id: appt.id,
            treatment_matched: !!treatmentId, therapist_assigned: !!therapistId, conflict: !!conflict };
