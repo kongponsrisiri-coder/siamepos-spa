@@ -652,6 +652,28 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices (last_seen);
   `);
 
+  // SPA-TREATWELL-001 — audit log for every ingested Treatwell email (raw +
+  // parsed + outcome) so nothing is silently dropped and items can be
+  // re-processed / reviewed. `clients.source` tags acquisition channel.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS ingestion_log (
+      id             SERIAL PRIMARY KEY,
+      source         TEXT NOT NULL DEFAULT 'treatwell_email',
+      external_ref   TEXT,
+      action         TEXT,
+      status         TEXT NOT NULL DEFAULT 'received',
+      confidence     TEXT,
+      parsed         JSONB,
+      raw            TEXT,
+      appointment_id INT,
+      error          TEXT,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_ingestion_log_ref    ON ingestion_log (external_ref);
+    CREATE INDEX IF NOT EXISTS idx_ingestion_log_status ON ingestion_log (status, created_at);
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'direct';
+  `);
+
   console.log('[db] schema ready');
 }
 

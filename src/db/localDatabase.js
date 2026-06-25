@@ -792,6 +792,24 @@ async function initSchema() {
       created_at  TEXT DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_owner_login_token_hash ON owner_login_tokens (token_hash);
+
+    -- SPA-TREATWELL-001 — Treatwell email ingest audit (cloud feature; mirrored
+    -- here so the shared ingest code never hits a missing table on a till).
+    CREATE TABLE IF NOT EXISTS ingestion_log (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      source         TEXT NOT NULL DEFAULT 'treatwell_email',
+      external_ref   TEXT,
+      action         TEXT,
+      status         TEXT NOT NULL DEFAULT 'received',
+      confidence     TEXT,
+      parsed         TEXT,
+      raw            TEXT,
+      appointment_id INTEGER,
+      error          TEXT,
+      created_at     TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_ingestion_log_ref    ON ingestion_log (external_ref);
+    CREATE INDEX IF NOT EXISTS idx_ingestion_log_status ON ingestion_log (status, created_at);
   `);
 
   // ── indexes ───────────────────────────────────────────────────────────────
@@ -894,6 +912,7 @@ function runMigrations() {
   addColumnIfMissing('therapists', 'password_hash', 'TEXT');
 
   // clients
+  addColumnIfMissing('clients', 'source',          "TEXT NOT NULL DEFAULT 'direct'"); // SPA-TREATWELL-001
   addColumnIfMissing('clients', 'unsubscribed_at', 'TEXT');
   addColumnIfMissing('clients', 'updated_at',      'TEXT'); // SEPOS-SPA-BUGHUNT H5 (nullable: SQLite ALTER can't default CURRENT_TIMESTAMP)
   addColumnIfMissing('clients', 'cloud_id',        'INTEGER');
