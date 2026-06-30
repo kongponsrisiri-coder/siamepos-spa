@@ -668,53 +668,60 @@ router.delete('/:id/items/:itemId', async (req, res) => {
 router.post('/:id/refund', requireRole('admin', 'manager'), async (req, res) => {
   const id = Number(req.params.id);
   const { reason } = req.body || {};
-  // Read the bill + deposit info first so the Stripe refund happens BEFORE we
-  // open the DB transaction — a failed Stripe call must not leave a
-  // half-applied refund.
-  let bill;
-  try {
-    const billRow = await pool.query(
-      `SELECT b.*, a.id AS appt_id, a.deposit_stripe_id, COALESCE(a.deposit_amount, 0) AS deposit_amount
-       FROM bills b JOIN appointments a ON a.id = b.appointment_id
-       WHERE b.id = $1`,
-      [id],
-    );
-    if (!billRow.rows[0]) return res.status(404).json({ error: 'not found' });
-    bill = billRow.rows[0];
-    if (bill.payment_status !== 'paid') {
-      return res.status(409).json({ error: 'only a paid bill can be refunded' });
-    }
-  } catch (err) {
-    console.error('[bills] refund read', err);
-    return res.status(500).json({ error: 'server error' });
-  }
-
-  let stripeRefunded = 0;
-  if (bill.deposit_stripe_id) {
-    const s = stripeClient();
-    if (s) {
-      try {
-        await s.refunds.create({ payment_intent: bill.deposit_stripe_id });
-        stripeRefunded = Number(bill.deposit_amount || 0);
-      } catch (e) {
-        console.error('[bills] stripe refund', e);
-        return res.status(502).json({ error: `Stripe refund failed — ${e.message || 'try the Stripe dashboard'}` });
-      }
-    }
-  }
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // Lock the bill row and re-check its status UNDER the lock. Two refunds
+    // racing on the same bill must not both fire the Stripe refund or both
+    // restore the voucher — the loser blocks here until the winner commits,
+    // then sees payment_status='refunded' and is rejected below.
+    const billRow = await client.query(
+      `SELECT b.*, a.id AS appt_id, a.deposit_stripe_id, COALESCE(a.deposit_amount, 0) AS deposit_amount
+       FROM bills b JOIN appointments a ON a.id = b.appointment_id
+       WHERE b.id = $1
+       FOR UPDATE OF b`,
+      [id],
+    );
+    if (!billRow.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'not found' });
+    }
+    const bill = billRow.rows[0];
+    if (bill.payment_status !== 'paid') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'only a paid bill can be refunded' });
+    }
+
+    // Only now — with the bill row locked and confirmed still 'paid' — issue
+    // the Stripe refund, so it can fire at most once per bill. A failed Stripe
+    // call rolls the whole transaction back, leaving no half-applied refund.
+    let stripeRefunded = 0;
+    if (bill.deposit_stripe_id) {
+      const s = stripeClient();
+      if (s) {
+        try {
+          await s.refunds.create({ payment_intent: bill.deposit_stripe_id });
+          stripeRefunded = Number(bill.deposit_amount || 0);
+        } catch (e) {
+          await client.query('ROLLBACK').catch(() => {});
+          console.error('[bills] stripe refund', e);
+          return res.status(502).json({ error: `Stripe refund failed — ${e.message || 'try the Stripe dashboard'}` });
+        }
+      }
+    }
+
     // Reverse any gift-voucher redemptions taken against this bill so the
     // customer's balance (or sessions) is put back. Without this, refunding a
-    // voucher-paid bill silently kept the voucher drained.
+    // voucher-paid bill silently kept the voucher drained. Lock the redemption
+    // rows being reversed so a concurrent refund can't double-restore them.
     const reds = await client.query(
       `SELECT vr.id, vr.voucher_id, vr.amount_used, vr.sessions_used,
               v.voucher_type, v.total_sessions, v.initial_value
        FROM voucher_redemptions vr
        JOIN vouchers v ON v.id = vr.voucher_id
-       WHERE vr.bill_id = $1 AND vr.reversed_at IS NULL`,
+       WHERE vr.bill_id = $1 AND vr.reversed_at IS NULL
+       FOR UPDATE OF vr`,
       [id],
     );
     const vouchersRestored = [];
@@ -749,9 +756,15 @@ router.post('/:id/refund', requireRole('admin', 'manager'), async (req, res) => 
       `UPDATE bills
           SET payment_status = 'refunded', refunded_at = now(),
               refund_amount = $2, refund_reason = $3
-        WHERE id = $1 RETURNING *`,
+        WHERE id = $1 AND payment_status = 'paid' RETURNING *`,
       [id, Number(bill.total), reason || null],
     );
+    // Defence in depth: if the guard matched 0 rows the bill was already
+    // refunded out from under us — abort rather than commit a no-op.
+    if (!rows[0]) {
+      await client.query('ROLLBACK').catch(() => {});
+      return res.status(409).json({ error: 'only a paid bill can be refunded' });
+    }
     await client.query(
       `UPDATE appointments
           SET status = 'booked',

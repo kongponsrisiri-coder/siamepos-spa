@@ -257,6 +257,26 @@ router.post('/book', async (req, res) => {
       if (intent.status !== 'succeeded') {
         return res.status(402).json({ error: 'deposit payment not completed', stripe_status: intent.status });
       }
+      // SEPOS-SPA-BUGHUNT M1 — verify the captured amount actually matches the
+      // deposit the policy requires for THIS treatment's price. Previously we
+      // blindly took intent.amount_received, so a tampered/low PaymentIntent
+      // could underpay the deposit. Require an exact match (±1 penny rounding).
+      const requiredPence = Math.round(computeDeposit(policy, tr0.rows[0]?.price) * 100);
+      if (Math.abs(intent.amount_received - requiredPence) > 1) {
+        return res.status(402).json({ error: 'deposit amount does not match the required deposit' });
+      }
+      // If the PaymentIntent was minted for a specific treatment, it must be the
+      // one being booked — stops a deposit quoted for a cheap treatment paying
+      // for a more expensive one.
+      if (intent.metadata && intent.metadata.treatment_id != null && intent.metadata.treatment_id !== ''
+          && String(intent.metadata.treatment_id) !== String(b.treatment_id)) {
+        return res.status(402).json({ error: 'deposit was taken for a different treatment' });
+      }
+      // SEPOS-SPA-BUGHUNT H6 — one deposit PaymentIntent backs exactly ONE
+      // booking. Reject a PI already recorded against an appointment (mirror the
+      // voucher reuse guard) so a single £25 deposit can't fund many bookings.
+      const usedPi = await pool.query('SELECT 1 FROM appointments WHERE deposit_stripe_id = $1', [intent.id]);
+      if (usedPi.rows[0]) return res.status(409).json({ error: 'this payment has already been used for a booking' });
       // Defend against amount tampering — Stripe is the source of truth.
       depositAmount = +(intent.amount_received / 100).toFixed(2);
       depositStripeId = intent.id;
@@ -332,13 +352,34 @@ router.post('/book', async (req, res) => {
     if (!therapist_id) therapist_id = slot.therapists[0];
     const room_id = slot.rooms[0];
 
+    // SEPOS-SPA-BUGHUNT H5 — race-safe insert (mirror the staff route in
+    // appointments.js). computeAvailability above runs against a READ COMMITTED
+    // snapshot, so two concurrent online bookings can each see the same slot
+    // free and both INSERT — double-booking one therapist/room. On PostgreSQL we
+    // serialise per therapist + room with transaction-scoped advisory locks, then
+    // re-check for an overlapping live appointment INSIDE the lock (the WHERE NOT
+    // EXISTS) so only the first booking wins. SQLite is single-writer, so the
+    // statement is already atomic there (advisory locks don't exist on SQLite).
+    const isLocal = (process.env.DB_MODE || '').toLowerCase() === 'local';
+    if (!isLocal) {
+      if (therapist_id) await client.query('SELECT pg_advisory_xact_lock(1, $1)', [Number(therapist_id)]);
+      if (room_id)      await client.query('SELECT pg_advisory_xact_lock(2, $1)', [Number(room_id)]);
+    }
+
     const ap = await client.query(
       `INSERT INTO appointments
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
           status, source, notes,
           deposit_amount, deposit_stripe_id, payment_status,
           price_at_booking)
-       VALUES ($1,$2,$3,$4,$5,$6,'booked','online',$7,$8,$9,$10,$11)
+       SELECT $1,$2,$3,$4,$5,$6,'booked','online',$7,$8,$9,$10,$11
+       WHERE NOT EXISTS (
+         SELECT 1 FROM appointments a
+         WHERE a.status NOT IN ('cancelled','no_show')
+           AND ( ($3::int IS NOT NULL AND a.therapist_id = $3)
+              OR ($4::int IS NOT NULL AND a.room_id      = $4) )
+           AND NOT (a.ends_at <= $5 OR a.starts_at >= $6)
+       )
        RETURNING *`,
       [
         cli.id, b.treatment_id, therapist_id, room_id, b.starts_at, ends_at, b.notes || null,
@@ -348,6 +389,12 @@ router.post('/book', async (req, res) => {
         priceAtBooking,
       ],
     );
+    // 0 rows inserted → the overlap re-check fired: another booking took this
+    // therapist/room for an overlapping time between availability and insert.
+    if (!ap.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'slot just taken' });
+    }
 
     // Look up the names the widget renders on the confirmation card.
     const named = await client.query(

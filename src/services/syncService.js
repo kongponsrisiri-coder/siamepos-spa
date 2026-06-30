@@ -156,11 +156,19 @@ async function upsertByCloudId(table, rows, pendingCloudIds, fkRemap = {}) {
       fields[k] = v;
     }
     // FK remaps (may set a column to a translated local id, or signal a skip).
+    // Distinguish a LEGIT null cloud FK (e.g. a walk-in appointment whose
+    // client_id is genuinely null) from a parent that simply hasn't synced to
+    // this till yet. Only the latter is a "parent missing" skip — a null cloud
+    // FK leaves the column null and the row proceeds (otherwise walk-ins would
+    // be skipped on every tick and never sync). The cloud FK lives under the
+    // same column name on the cloud row (e.g. row.client_id / row.bill_id).
     let parentMissing = false;
     for (const [localCol, fn] of Object.entries(fkRemap)) {
       if (!localCols.includes(localCol)) continue;
+      const cloudFk = row[localCol];
+      if (cloudFk == null) continue; // legit null — leave column null, proceed
       const mapped = await fn(row);
-      if (mapped == null) { parentMissing = true; break; }
+      if (mapped == null) { parentMissing = true; break; } // parent not local yet
       fields[localCol] = mapped;
     }
     if (parentMissing) { skipped++; continue; }
@@ -306,9 +314,15 @@ async function pullClients(pending) {
     if (c.inserted || c.updated || m.inserted || m.updated) {
       console.log(`[sync] pull clients: ${c.inserted}+${c.updated} clients, ${m.inserted}+${m.updated} medical`);
     }
-    // Advance the cursor to "now" so the next tick only ships fresh rows.
-    // (Conservative: use ISO now; the cloud filters created_at/updated_at >= since.)
-    await writeSyncState('clients_since', new Date().toISOString());
+    // Advance the cursor to the SERVER's max updated_at (not the till's wall
+    // clock). Using "now" silently dropped rows whose updated_at was older than
+    // the till clock but newer than the last cursor. The server returns
+    // max_cursor = greatest updated_at among the rows it just shipped (or the
+    // prior `since` when nothing changed); persist exactly that — mirroring how
+    // pullBills advances its cursor.
+    if (data.max_cursor) {
+      await writeSyncState('clients_since', String(data.max_cursor));
+    }
   } catch (err) {
     console.warn('[sync] pull clients failed:', err.message);
   }
@@ -319,7 +333,9 @@ async function pullAppointments(pending) {
   try {
     const data = await getJSON('/api/sync/appointments', { headers: syncHeaders() });
     const a = await upsertByCloudId('appointments', data.appointments || [], pending.appointments, {
-      client_id:    (row) => row.client_id    == null ? row.client_id    : findLocalIdByCloudId('clients', row.client_id),
+      // client_id may be null (walk-in) — upsertByCloudId leaves a null cloud FK
+      // untouched and only skips when a NON-null id has no local match yet.
+      client_id: (row) => findLocalIdByCloudId('clients', row.client_id),
     });
     // amendments.appointment_id is a cloud FK → translate to the local appt id.
     const am = await upsertByCloudId('appointment_amendments', data.appointment_amendments || [], pending.appointment_amendments, {
@@ -382,12 +398,14 @@ async function pullVouchers(pending) {
   try {
     const data = await getJSON('/api/sync/vouchers', { headers: syncHeaders() });
     const v = await upsertByCloudId('vouchers', data.vouchers || [], pending.vouchers, {
-      // client_id / treatment_id may be null (drop-through) or map to a local id.
-      client_id:    (row) => row.client_id    == null ? row.client_id    : findLocalIdByCloudId('clients', row.client_id),
+      // client_id may be null (unassigned voucher) — a null cloud FK is left
+      // null and proceeds; a non-null id with no local match skips till later.
+      client_id: (row) => findLocalIdByCloudId('clients', row.client_id),
     });
     const vr = await upsertByCloudId('voucher_redemptions', data.voucher_redemptions || [], pending.voucher_redemptions, {
       voucher_id: (row) => findLocalIdByCloudId('vouchers', row.voucher_id),
-      bill_id:    (row) => row.bill_id == null ? row.bill_id : findLocalIdByCloudId('bills', row.bill_id),
+      // bill_id may be null — left null and proceeds when so.
+      bill_id:    (row) => findLocalIdByCloudId('bills', row.bill_id),
     });
     if (v.inserted || v.updated || vr.inserted || vr.updated) {
       console.log(`[sync] pull vouchers: ${v.inserted}+${v.updated} vouchers, ${vr.inserted}+${vr.updated} redemptions`);

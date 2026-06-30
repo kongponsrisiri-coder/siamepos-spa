@@ -170,6 +170,12 @@ function preTranslate(sql) {
   // TRUE / FALSE literals → 1 / 0 (only standalone keywords)
   out = out.replace(/\bTRUE\b/g, '1').replace(/\bFALSE\b/g, '0');
 
+  // FOR UPDATE [OF alias, …] [NOWAIT | SKIP LOCKED] → stripped.
+  // SQLite is single-writer (a write holds a DB-level lock), so Postgres
+  // row-level locking is implicit and the clause is a safe no-op — but SQLite
+  // can't parse it. Used by the bill-refund + medical-save transactions.
+  out = out.replace(/\s+FOR\s+UPDATE(\s+OF\s+[A-Za-z_][\w.]*(\s*,\s*[A-Za-z_][\w.]*)*)?(\s+NOWAIT|\s+SKIP\s+LOCKED)?/gi, '');
+
   // DATE / TIMESTAMP casts carry MEANING — they must become a function call,
   // not be stripped. Postgres `starts_at::date = $1::date` compares calendar
   // days; if we just dropped `::date` it would compare a full timestamp string

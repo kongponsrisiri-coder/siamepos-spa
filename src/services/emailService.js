@@ -9,12 +9,23 @@ const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 // ─── SPA-CAMPAIGNS-001: HMAC unsubscribe token ─────────────────────────
 // Stateless single-use-ish token: `<base64url(email)>.<hmac>` signed with
 // UNSUB_SECRET. Public /api/unsubscribe?token=… verifies and stamps the
-// client. The secret has an insecure default so dev still works, but the
-// .env.example warns about setting it in production.
+// client.
+//
+// L1 parity with auth.js JWT_SECRET — the committed default literal is
+// public (open-source repo), so on any deploy that forgets UNSUB_SECRET an
+// attacker could forge unsubscribe tokens. If it's unset OR equals the
+// committed default we use a RANDOM per-boot secret: tokens become
+// unforgeable (the public default no longer validates). Trade-off:
+// already-issued links break on restart until UNSUB_SECRET is set on Railway.
+let UNSUB_SECRET = process.env.UNSUB_SECRET || '';
+if (!UNSUB_SECRET || UNSUB_SECRET === 'siamspa-default-unsub-secret-change-me') {
+  UNSUB_SECRET = crypto.randomBytes(32).toString('hex');
+  console.warn('[email] UNSUB_SECRET not set — using a random per-boot secret (unsubscribe links reset on restart). Set UNSUB_SECRET on Railway for stable links.');
+}
+
 function unsubscribeToken(email) {
-  const secret = process.env.UNSUB_SECRET || 'siamspa-default-unsub-secret-change-me';
   const e = String(email || '').trim().toLowerCase();
-  const hmac = crypto.createHmac('sha256', secret).update(e).digest('hex').slice(0, 16);
+  const hmac = crypto.createHmac('sha256', UNSUB_SECRET).update(e).digest('hex').slice(0, 16);
   return Buffer.from(e).toString('base64url') + '.' + hmac;
 }
 
@@ -23,8 +34,7 @@ function parseUnsubscribeToken(token) {
     const [b64, hmac] = String(token || '').split('.');
     if (!b64 || !hmac) return null;
     const email = Buffer.from(b64, 'base64url').toString('utf8');
-    const secret = process.env.UNSUB_SECRET || 'siamspa-default-unsub-secret-change-me';
-    const expected = crypto.createHmac('sha256', secret).update(email).digest('hex').slice(0, 16);
+    const expected = crypto.createHmac('sha256', UNSUB_SECRET).update(email).digest('hex').slice(0, 16);
     if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(hmac))) return null;
     return email;
   } catch { return null; }
@@ -34,10 +44,22 @@ function parseUnsubscribeToken(token) {
 // Encodes the appointment id; the public /api/booking/by-token/:token
 // endpoint verifies the HMAC before returning data. Separate secret
 // from UNSUB_SECRET so a compromise of one doesn't compromise the other.
+//
+// C2 parity with auth.js JWT_SECRET — appointment ids are sequential, so a
+// public committed default would let anyone forge manage-link tokens to read
+// PII / reschedule / DELETE bookings (firing real Stripe refunds). If it's
+// unset OR equals the committed default we use a RANDOM per-boot secret so
+// tokens become unforgeable. Trade-off: already-issued manage links break on
+// restart until BOOKING_SECRET is set on Railway.
+let BOOKING_SECRET = process.env.BOOKING_SECRET || '';
+if (!BOOKING_SECRET || BOOKING_SECRET === 'siamspa-default-booking-secret-change-me') {
+  BOOKING_SECRET = crypto.randomBytes(32).toString('hex');
+  console.warn('[email] BOOKING_SECRET not set — using a random per-boot secret (manage links reset on restart). Set BOOKING_SECRET on Railway for stable links.');
+}
+
 function bookingToken(appointmentId) {
-  const secret = process.env.BOOKING_SECRET || 'siamspa-default-booking-secret-change-me';
   const id = String(appointmentId);
-  const hmac = crypto.createHmac('sha256', secret).update(id).digest('hex').slice(0, 20);
+  const hmac = crypto.createHmac('sha256', BOOKING_SECRET).update(id).digest('hex').slice(0, 20);
   return Buffer.from(id).toString('base64url') + '.' + hmac;
 }
 
@@ -46,8 +68,7 @@ function parseBookingToken(token) {
     const [b64, hmac] = String(token || '').split('.');
     if (!b64 || !hmac) return null;
     const id = Buffer.from(b64, 'base64url').toString('utf8');
-    const secret = process.env.BOOKING_SECRET || 'siamspa-default-booking-secret-change-me';
-    const expected = crypto.createHmac('sha256', secret).update(id).digest('hex').slice(0, 20);
+    const expected = crypto.createHmac('sha256', BOOKING_SECRET).update(id).digest('hex').slice(0, 20);
     if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(hmac))) return null;
     const n = Number(id);
     return Number.isFinite(n) && n > 0 ? n : null;

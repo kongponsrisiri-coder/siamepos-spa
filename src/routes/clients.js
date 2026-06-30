@@ -202,6 +202,13 @@ async function medicalWritableColumns() {
 router.put('/:id/medical', async (req, res) => {
   const id = Number(req.params.id);
   const b = req.body || {};
+  // SEPOS-SPA-BUGHUNT L2 — the check-then-write upsert used to run the existence
+  // SELECT and the UPDATE/INSERT as two separate queries with no transaction, so
+  // two concurrent saves for the same client could both miss the existing row and
+  // each INSERT, leaving duplicate medical records. We now run the read + write in
+  // one transaction on a single pooled connection, taking a row lock
+  // (SELECT … FOR UPDATE) so concurrent saves serialise instead of racing.
+  const client = await pool.connect();
   try {
     const writable = await medicalWritableColumns();
     // Persist only keys the caller actually sent with a real value. Omitting a
@@ -212,17 +219,19 @@ router.put('/:id/medical', async (req, res) => {
     const keys = writable.filter((c) => b[c] !== undefined && b[c] !== null);
     const hasSig = b.digital_signature !== undefined && b.digital_signature !== null && b.digital_signature !== '';
 
-    const exists = await pool.query('SELECT id FROM client_medical WHERE client_id = $1 LIMIT 1', [id]);
+    await client.query('BEGIN');
+    const exists = await client.query('SELECT id FROM client_medical WHERE client_id = $1 LIMIT 1 FOR UPDATE', [id]);
 
     if (exists.rows[0]) {
       const setParts = keys.map((c, i) => `${c} = $${i + 2}`);
       const params = [id, ...keys.map((k) => b[k])];
       if (hasSig) { setParts.push(`digital_signature = $${params.length + 1}`, 'signed_at = now()'); params.push(b.digital_signature); }
       setParts.push('updated_at = now()');
-      const { rows } = await pool.query(
+      const { rows } = await client.query(
         `UPDATE client_medical SET ${setParts.join(', ')} WHERE client_id = $1 RETURNING *`,
         params,
       );
+      await client.query('COMMIT');
       await offlineQueue.enqueue('save_medical', { localId: rows[0].id });
       return res.json({ medical: rows[0] });
     }
@@ -233,16 +242,20 @@ router.put('/:id/medical', async (req, res) => {
     const ph = insertCols.map((_, i) => `$${i + 1}`);
     const signedCol = hasSig ? ', signed_at' : '';
     const signedVal = hasSig ? ', now()' : '';
-    const { rows } = await pool.query(
+    const { rows } = await client.query(
       `INSERT INTO client_medical (${insertCols.join(', ')}${signedCol})
        VALUES (${ph.join(', ')}${signedVal}) RETURNING *`,
       params,
     );
+    await client.query('COMMIT');
     await offlineQueue.enqueue('save_medical', { localId: rows[0].id });
     res.status(201).json({ medical: rows[0] });
   } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) { /* connection already gone */ }
     console.error('[clients] medical put', err);
     res.status(500).json({ error: 'server error' });
+  } finally {
+    client.release();
   }
 });
 
@@ -251,7 +264,12 @@ router.put('/:id/medical', async (req, res) => {
 router.delete('/:id', requireRole('admin'), async (req, res) => {
   const id = Number(req.params.id);
   try {
-    const c = await pool.query('SELECT id, name, email, cloud_id FROM clients WHERE id = $1', [id]);
+    // SEPOS-SPA-BUGHUNT C1 — select only the base columns that exist in BOTH the
+    // cloud Postgres and local SQLite schemas. `cloud_id` exists ONLY on local
+    // SQLite, so selecting it unconditionally 500'd every erasure on the cloud
+    // (the GDPR-critical path) and no deletion/tombstone ever happened. We now
+    // fetch cloud_id separately INSIDE the local-only branch below.
+    const c = await pool.query('SELECT id, name, email FROM clients WHERE id = $1', [id]);
     if (!c.rows[0]) return res.status(404).json({ error: 'not found' });
 
     if (offlineQueue.isLocal) {
@@ -264,7 +282,10 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
           message: 'Erasing a client needs an internet connection so the deletion reaches the cloud and all devices. Please try again when back online.',
         });
       }
-      const cloudId = c.rows[0].cloud_id;
+      // cloud_id exists only on the local SQLite schema — fetch it here, on the
+      // local path, so the cloud path never references a missing column.
+      const cl = await pool.query('SELECT cloud_id FROM clients WHERE id = $1', [id]);
+      const cloudId = cl.rows[0] ? cl.rows[0].cloud_id : null;
       await pool.query('DELETE FROM clients WHERE id = $1', [id]); // cascades to client_medical
       // Push the erasure up; the cloud deletes its copy + writes a tombstone so
       // other tills wipe their local copy on their next pull.
