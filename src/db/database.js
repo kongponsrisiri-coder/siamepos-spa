@@ -674,6 +674,36 @@ async function initSchema() {
     ALTER TABLE clients ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'direct';
   `);
 
+  // ── Unique-index backstops (SEPOS-SPA-BUGHUNT follow-up) ────────────────
+  // Defence-in-depth for H6 (one deposit PaymentIntent must back ≤1 booking) and
+  // L2/H3 (client_medical is 1:1 with a client). Dedup any pre-existing rows the
+  // bugs may have created, THEN add the unique index. Guarded on the index's
+  // existence so the dedup runs only once (first boot after this ships). Dedup
+  // keys on the never-null PK `id`, so it always leaves exactly one row → the
+  // index creation can't fail.
+  async function ensureUnique(idxName, dedupSql, createSql) {
+    const { rows } = await pool.query('SELECT 1 FROM pg_indexes WHERE indexname = $1', [idxName]);
+    if (rows[0]) return;
+    await pool.query(dedupSql);
+    await pool.query(createSql);
+    console.log(`[db] backfilled unique index ${idxName}`);
+  }
+  // client_medical: keep the latest row (max id) per client, drop older dupes.
+  await ensureUnique(
+    'uq_client_medical_client_id',
+    `DELETE FROM client_medical WHERE id NOT IN (SELECT MAX(id) FROM client_medical GROUP BY client_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_client_medical_client_id ON client_medical (client_id)`,
+  );
+  // appointments: a deposit PaymentIntent backs ≤1 booking — keep it on the
+  // first (min id) appointment, NULL it on any later duplicates.
+  await ensureUnique(
+    'uq_appointments_deposit_stripe_id',
+    `UPDATE appointments SET deposit_stripe_id = NULL
+       WHERE deposit_stripe_id IS NOT NULL
+         AND id NOT IN (SELECT MIN(id) FROM appointments WHERE deposit_stripe_id IS NOT NULL GROUP BY deposit_stripe_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_appointments_deposit_stripe_id ON appointments (deposit_stripe_id) WHERE deposit_stripe_id IS NOT NULL`,
+  );
+
   console.log('[db] schema ready');
 }
 
