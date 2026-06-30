@@ -4,21 +4,41 @@
 //   1. Auto-mount: <script> + <div id="siamespa-booking"></div>
 //   2. Manual:    <script> + <button onclick="SiamEPOSSpa.open()">…</button>
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+
+// The embed always goes on the spa's PUBLIC website, so its API origin must be
+// the public cloud — never localhost (the desktop till serves this admin from
+// http://localhost:5050, which no website visitor can reach).
+const PUBLIC_FALLBACK = 'https://spa-api.siamepos.co.uk';
 
 // Best-guess of the public API origin. In production the frontend lives at
-// spa.siamepos.co.uk and the backend at spa-api.siamepos.co.uk — we just
-// flip the host. If `VITE_API_BASE` is set (e.g. during local dev) we use
-// that. The user can also override the value in the textbox below.
+// spa.siamepos.co.uk and the backend at spa-api.siamepos.co.uk — we flip the
+// host. `VITE_API_BASE` wins if set. When viewed from the desktop app (served
+// from localhost) we fall back to the public cloud, and the useEffect below
+// upgrades it to the spa's actual configured cloud_api_url. The user can also
+// override the value in the textbox.
 function defaultApiOrigin() {
   const fromEnv = import.meta.env.VITE_API_BASE;
   if (fromEnv) return fromEnv.replace(/\/$/, '');
   const loc = window.location.origin;
+  if (/localhost|127\.0\.0\.1/i.test(loc) || loc.startsWith('file:')) return PUBLIC_FALLBACK;
   return loc.replace(/^https?:\/\/spa\./, 'https://spa-api.');
 }
 
 export default function EmbedCodesSection() {
   const [origin, setOrigin] = useState(defaultApiOrigin());
+
+  // Desktop till: this admin is served from localhost, which is useless in a
+  // public embed. Prefer the spa's real cloud API from the app config so the
+  // owner gets a working snippet without having to know the URL.
+  useEffect(() => {
+    const sp = typeof window !== 'undefined' && window.siamposSpa;
+    if (sp && sp.getConfig) {
+      sp.getConfig()
+        .then((cfg) => { if (cfg && cfg.cloud_api_url) setOrigin(String(cfg.cloud_api_url).replace(/\/$/, '')); })
+        .catch(() => {});
+    }
+  }, []);
 
   const autoMount =
 `<script src="${origin}/booking-widget.js" defer></script>
