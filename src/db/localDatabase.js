@@ -996,6 +996,32 @@ function runMigrations() {
 
   // payment_links
   addColumnIfMissing('payment_links', 'appointment_id', 'INTEGER');
+
+  // ── Unique-index backstops (SEPOS-SPA-BUGHUNT follow-up) — mirror the cloud.
+  // Dedup pre-existing duplicates ONCE (keyed on the never-null PK id, so a
+  // single row always survives), then add the unique index. Guarded on the
+  // index's existence so the dedup runs only on the first boot after this ships.
+  ensureUniqueIndex(
+    'uq_client_medical_client_id',
+    `DELETE FROM client_medical WHERE id NOT IN (SELECT MAX(id) FROM client_medical GROUP BY client_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_client_medical_client_id ON client_medical (client_id)`,
+  );
+  ensureUniqueIndex(
+    'uq_appointments_deposit_stripe_id',
+    `UPDATE appointments SET deposit_stripe_id = NULL
+       WHERE deposit_stripe_id IS NOT NULL
+         AND id NOT IN (SELECT MIN(id) FROM appointments WHERE deposit_stripe_id IS NOT NULL GROUP BY deposit_stripe_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS uq_appointments_deposit_stripe_id ON appointments (deposit_stripe_id) WHERE deposit_stripe_id IS NOT NULL`,
+  );
+}
+
+// Idempotent: dedup + create a unique index only if it doesn't already exist.
+// Runs raw SQLite (no PG translation needed — these statements are dialect-neutral).
+function ensureUniqueIndex(idxName, dedupSql, createSql) {
+  const exists = db.prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name = ?").get(idxName);
+  if (exists) return;
+  db.exec(dedupSql);
+  db.exec(createSql);
 }
 
 module.exports = { pool, query, initSchema };
