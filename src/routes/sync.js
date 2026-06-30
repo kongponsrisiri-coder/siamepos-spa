@@ -130,9 +130,26 @@ router.get('/clients', async (req, res) => {
       clientMedical = await pool.query(`SELECT * FROM client_medical ORDER BY id`);
     }
 
+    // Server-side delta cursor: the greatest updated_at across the rows we're
+    // shipping (clients + client_medical), so the till advances its cursor to
+    // real data instead of its own wall clock (which silently dropped rows).
+    // When nothing changed, fall back to the request's prior `since` so the
+    // cursor never moves backwards (and stays null on a full, since-less pull).
+    let maxCursor = hasSince ? new Date(since).toISOString() : null;
+    for (const row of [...clients.rows, ...clientMedical.rows]) {
+      // clients are filtered by created_at, client_medical by updated_at — use
+      // whichever the row has so the cursor advances for both streams (the
+      // clients table has no updated_at column).
+      const ts = row.updated_at != null ? row.updated_at : row.created_at;
+      if (ts == null) continue;
+      const iso = new Date(ts).toISOString();
+      if (maxCursor == null || iso > maxCursor) maxCursor = iso;
+    }
+
     res.json({
       clients:        clients.rows,
       client_medical: clientMedical.rows,
+      max_cursor:     maxCursor,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -354,7 +371,11 @@ async function writableData(table, data, { excludeId = true } = {}) {
   return out;
 }
 
-async function applyOp(action, data) {
+// `db` is the executor for all DATA writes — the per-op pooled client running
+// inside a BEGIN/COMMIT transaction (see POST /push). It defaults to `pool` so
+// the function still works for any direct (non-transactional) caller. Catalog
+// reads (tableColumns/writableData) stay on `pool` — they're read-only metadata.
+async function applyOp(action, data, db = pool) {
   const spec = PUSH_ACTIONS[action];
   if (!spec) throw new Error(`unknown push action: ${action}`);
   const { table, kind } = spec;
@@ -364,7 +385,7 @@ async function applyOp(action, data) {
     const keys = Object.keys(fields);
     if (keys.length === 0) throw new Error(`${action}: no writable columns`);
     const ph = keys.map((_, i) => `$${i + 1}`).join(',');
-    const r = await pool.query(
+    const r = await db.query(
       `INSERT INTO ${table} (${keys.join(',')}) VALUES (${ph}) RETURNING id`,
       keys.map((k) => fields[k]),
     );
@@ -378,7 +399,7 @@ async function applyOp(action, data) {
     const keys = Object.keys(fields);
     if (keys.length === 0) throw new Error(`${action}: no writable columns`);
     const sets = keys.map((k, i) => `${k}=$${i + 1}`).join(',');
-    await pool.query(
+    await db.query(
       `UPDATE ${table} SET ${sets} WHERE id=$${keys.length + 1}`,
       [...keys.map((k) => fields[k]), id],
     );
@@ -390,8 +411,8 @@ async function applyOp(action, data) {
   if (kind === 'delete') {
     const id = Number(data.id);
     if (!Number.isFinite(id)) throw new Error(`${action}: missing target id`);
-    await pool.query(`DELETE FROM ${table} WHERE id=$1`, [id]);
-    await pool.query(`INSERT INTO deleted_records (entity, cloud_id) VALUES ($1, $2)`, [spec.entity || table, id]);
+    await db.query(`DELETE FROM ${table} WHERE id=$1`, [id]);
+    await db.query(`INSERT INTO deleted_records (entity, cloud_id) VALUES ($1, $2)`, [spec.entity || table, id]);
     return id;
   }
 
@@ -402,24 +423,28 @@ async function applyOp(action, data) {
     const fields = await writableData(table, data);
     delete fields.client_id; // set explicitly below
     const keys = Object.keys(fields);
-    const upd = keys.map((k, i) => `${k}=$${i + 1}`).join(',');
-    let updated = { rowCount: 0 };
+    let updated = { rowCount: 0, rows: [] };
     if (keys.length) {
-      updated = await pool.query(
-        `UPDATE ${table} SET ${upd} WHERE client_id=$${keys.length + 1}`,
+      const upd = keys.map((k, i) => `${k}=$${i + 1}`).join(',');
+      updated = await db.query(
+        // RETURNING id so we hand back the client_medical row id — NOT the
+        // client id. Returning clientId here corrupted the cloud_id mapping and
+        // spawned duplicate medical rows on the next pull.
+        `UPDATE ${table} SET ${upd} WHERE client_id=$${keys.length + 1} RETURNING id`,
         [...keys.map((k) => fields[k]), clientId],
       );
     }
-    if (!updated.rowCount) {
-      const insKeys = ['client_id', ...keys];
-      const ph = insKeys.map((_, i) => `$${i + 1}`).join(',');
-      const r = await pool.query(
-        `INSERT INTO ${table} (${insKeys.join(',')}) VALUES (${ph}) RETURNING id`,
-        [clientId, ...keys.map((k) => fields[k])],
-      );
-      return r.rows[0].id;
+    if (updated.rowCount) {
+      return updated.rows[0].id;
     }
-    return clientId;
+    // No existing row updated → insert a fresh medical row.
+    const insKeys = ['client_id', ...keys];
+    const ph = insKeys.map((_, i) => `$${i + 1}`).join(',');
+    const r = await db.query(
+      `INSERT INTO ${table} (${insKeys.join(',')}) VALUES (${ph}) RETURNING id`,
+      [clientId, ...keys.map((k) => fields[k])],
+    );
+    return r.rows[0].id;
   }
 
   throw new Error(`unhandled push kind: ${kind}`);
@@ -436,22 +461,37 @@ router.post('/push', async (req, res) => {
       results.push({ op_key: op_key || null, ok: false, error: 'op_key and action required' });
       continue;
     }
+    // Crash-atomic: run the data write AND its sync_applied_ops record on ONE
+    // pooled client inside a single transaction, so they either both land or
+    // neither does. Previously these were two separate pool.query() calls — a
+    // crash in between let a retry re-apply the op and duplicate the booking/bill.
+    const client = await pool.connect();
+    let inTxn = false;
     try {
-      // Idempotency: already applied? return the stored cloud_id.
-      const seen = await pool.query('SELECT cloud_id FROM sync_applied_ops WHERE op_key=$1', [op_key]);
+      // Idempotency: already applied? return the stored cloud_id (no txn needed).
+      const seen = await client.query('SELECT cloud_id FROM sync_applied_ops WHERE op_key=$1', [op_key]);
       if (seen.rows[0]) {
         results.push({ op_key, ok: true, cloud_id: seen.rows[0].cloud_id, duplicate: true });
         continue;
       }
-      const cloudId = await applyOp(action, data || {});
-      await pool.query(
+      await client.query('BEGIN');
+      inTxn = true;
+      const cloudId = await applyOp(action, data || {}, client);
+      await client.query(
         `INSERT INTO sync_applied_ops (op_key, action, cloud_id) VALUES ($1, $2, $3)
          ON CONFLICT (op_key) DO NOTHING`,
         [op_key, action, cloudId ?? null],
       );
+      await client.query('COMMIT');
+      inTxn = false;
       results.push({ op_key, ok: true, cloud_id: cloudId });
     } catch (e) {
+      if (inTxn) {
+        try { await client.query('ROLLBACK'); } catch (_) { /* already torn down */ }
+      }
       results.push({ op_key, ok: false, error: e.message });
+    } finally {
+      client.release();
     }
   }
   res.json({ results });

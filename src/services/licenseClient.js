@@ -31,8 +31,8 @@ const SQLITE_PATH = process.env.SQLITE_PATH;
 // till → this module is inert (getLicenseState always returns unlocked).
 const STATE_PATH = SQLITE_PATH ? path.join(path.dirname(SQLITE_PATH), 'license-state.json') : null;
 
-const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;   // re-check every 6h (and on launch)
-const CLOCK_TOLERANCE_MS = 24 * 60 * 60 * 1000; // tolerate 1 day of legit clock drift
+const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;       // re-check every 6h (and on launch)
+const CLOCK_TOLERANCE_MS = 7 * 24 * 60 * 60 * 1000; // tolerate 7 days of legit clock drift
 const FETCH_TIMEOUT_MS = 10000;
 
 let state = {
@@ -66,11 +66,18 @@ function getLicenseState() {
   if (!STATE_PATH || !state.enforced || !state.valid_until) {
     return { locked: false, reason: 'not_enforced', valid_until: state.valid_until, status: state.status, enforced: state.enforced };
   }
-  // Clock rolled back past the highest time we've seen → tampering.
-  if (state.max_seen && now < state.max_seen - CLOCK_TOLERANCE_MS) {
-    return { locked: true, reason: 'clock_rollback', valid_until: state.valid_until, status: state.status, enforced: true };
-  }
+  // While the cached signed token is still valid the till is paid up and MUST
+  // keep working — we never lock a paid-up till, not even for a wildly wrong
+  // clock. A clock rolled back past the highest VERIFIED server time we've seen
+  // only matters once the token has ALSO actually expired; otherwise a fast/dead
+  // RTC that inflated max_seen (or a legit clock correction) could brick a
+  // paying spa. A later re-verified signed token resets max_seen to the server's
+  // issued_at (see checkIn), clearing any latched rollback and trusting real
+  // time again.
   if (now > state.valid_until) {
+    if (state.max_seen && now < state.max_seen - CLOCK_TOLERANCE_MS) {
+      return { locked: true, reason: 'clock_rollback', valid_until: state.valid_until, status: state.status, enforced: true };
+    }
     return { locked: true, reason: 'expired', valid_until: state.valid_until, status: state.status, enforced: true };
   }
   return { locked: false, reason: 'ok', valid_until: state.valid_until, status: state.status, enforced: true };
@@ -83,7 +90,10 @@ async function checkIn() {
   const now = Date.now();
   try {
     const r = await fetch(CLOUD_API_URL + '/api/license', { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
-    state.max_seen = Math.max(state.max_seen || 0, now);
+    // NB: do NOT advance max_seen from the local clock here — a fast/dead RTC
+    // would capture an inflated "highest time seen" and brick the till once the
+    // clock is corrected. max_seen is only ever advanced from a VERIFIED token's
+    // server-supplied issued_at (below).
     state.last_check = now;
     if (!r.ok) { save(); return; }
     const data = await r.json();
@@ -95,6 +105,14 @@ async function checkIn() {
         state.enforced = true;                 // enforcement is now active for this till
         state.valid_until = payload.valid_until;
         state.status = payload.status || 'active';
+        // A freshly verified, server-signed token is ground truth for "now":
+        // adopt its issued_at as max_seen. This advances the rollback guard from
+        // trusted server time AND clears any latched clock_rollback (e.g. from a
+        // previously inflated max_seen), so once we re-verify against the cloud
+        // we trust real time again.
+        if (typeof payload.issued_at === 'number') {
+          state.max_seen = payload.issued_at;
+        }
         save();
         return;
       }
