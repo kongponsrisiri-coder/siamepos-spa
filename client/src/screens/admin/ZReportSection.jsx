@@ -5,6 +5,9 @@ function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
 const KIND_LABEL = { treatment: '💆 Treatments', retail: '🛍 Products', addon: '➕ Add-ons' };
 const PM_LABEL = { card: '💳 Card', cash: '💵 Cash', treatwell: '🌐 Treatwell', online: '🌐 Online prepayment', split: '⇄ Split', voucher: '🎁 Voucher' };
 const AP_LABEL = { voucher: '🎁 Voucher redeemed', external: '🧾 Already paid (external)', deposit: '🌐 Deposit (prepaid online)' };
+// Plain labels (no emoji) for the CSV export.
+const PM_PLAIN = { card: 'Card', cash: 'Cash', treatwell: 'Treatwell', online: 'Online prepayment', split: 'Split', voucher: 'Voucher' };
+const AP_PLAIN = { voucher: 'Voucher redeemed', external: 'Already paid (external)', deposit: 'Deposit (prepaid online)' };
 // Local-time YYYY-MM-DD — toISOString returns UTC, which rolls over to
 // "tomorrow" between 23:00 and 00:00 local for any TZ ahead of UTC.
 function todayISO() {
@@ -122,10 +125,21 @@ export default function ZReportSection() {
       Number(data.totals.total || 0).toFixed(2),
       `${data.totals.bills} bills`,
     ]);
+    // Two-group payment breakdown (mirrors the on-screen + printed view).
+    const pb = data.payment_breakdown || { money_taken: data.by_payment_method || [], already_paid: [] };
     rows.push([]);
-    rows.push(['By payment method', 'Count', 'Revenue £']);
-    for (const m of data.by_payment_method || []) {
-      rows.push([m.payment_method, m.n, Number(m.revenue).toFixed(2)]);
+    rows.push(['By payment method — money taken (= revenue)', 'Count', 'Amount £']);
+    for (const m of pb.money_taken) {
+      const note = Number(m.voucher_portion) > 0 ? ` (incl. ${Number(m.voucher_portion).toFixed(2)} voucher sales)` : '';
+      rows.push([(PM_PLAIN[m.payment_method] || m.payment_method) + note, m.n, Number(m.revenue).toFixed(2)]);
+    }
+    rows.push(['Total revenue', '', Number(data.totals?.revenue || 0).toFixed(2)]);
+    if (pb.already_paid && pb.already_paid.length) {
+      rows.push([]);
+      rows.push(['Covered by an earlier payment (NOT in revenue)', 'Count', 'Amount £']);
+      for (const m of pb.already_paid) {
+        rows.push([AP_PLAIN[m.payment_method] || m.payment_method, m.n, Number(m.amount).toFixed(2)]);
+      }
     }
 
     // SPA-BILL-ITEMS — revenue-by-type + VAT split for the accountant.
@@ -153,15 +167,16 @@ export default function ZReportSection() {
       rows.push(['Forfeit (late cancel)',  data.online_deposits.count_forfeit || 0]);
     }
 
-    // Voucher sales — deferred revenue, listed separately from bill totals
+    // Voucher sales — now folded into the card/cash money-taken lines above;
+    // listed here just for the accountant's reference (not added again).
     if (data.voucher_sales && Number(data.voucher_sales.count) > 0) {
       rows.push([]);
-      rows.push(['Voucher sales']);
-      rows.push(['Count', data.voucher_sales.count]);
+      rows.push(['Voucher sales (already included in the card/cash totals above)']);
+      rows.push(['Vouchers sold', data.voucher_sales.count]);
       rows.push(['Total £', '', Number(data.voucher_sales.total).toFixed(2)]);
       if (Array.isArray(data.voucher_sales.by_payment_method)) {
         for (const m of data.voucher_sales.by_payment_method) {
-          rows.push([`  ${m.payment_method}`, m.n, Number(m.revenue).toFixed(2)]);
+          rows.push([`  ${PM_PLAIN[m.payment_method] || m.payment_method}`, m.n, Number(m.revenue).toFixed(2)]);
         }
       }
     }
@@ -296,27 +311,11 @@ export default function ZReportSection() {
           </div>
         )}
 
-        {/* Voucher sales — money received today against vouchers, which
-            is deferred revenue (service to come). Tracked separately
-            from bill revenue so the operator doesn't double-count
-            voucher cash at end of day. */}
+        {/* Voucher sales are folded into the card/cash lines above — just a
+            reference line so the operator sees how many sold today. */}
         {data.voucher_sales && Number(data.voucher_sales.count) > 0 && (
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 4 }}>
-            <strong>🎁 Voucher sales</strong>
-            <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
-              <span>{data.voucher_sales.count} voucher{Number(data.voucher_sales.count) === 1 ? '' : 's'} sold</span>
-              <span style={{ fontWeight: 700, color: '#16a34a' }}>{fmtMoney(data.voucher_sales.total)}</span>
-            </div>
-            {Array.isArray(data.voucher_sales.by_payment_method) && data.voucher_sales.by_payment_method.length > 0 && (
-              <div style={{ paddingTop: 4, borderTop: '1px solid #f3f4f6' }}>
-                {data.voucher_sales.by_payment_method.map((m) => (
-                  <div key={m.payment_method} className="row" style={{ justifyContent: 'space-between', padding: '3px 0', fontSize: 12, color: 'var(--muted)' }}>
-                    <span>{m.payment_method}</span>
-                    <span>{m.n} · {fmtMoney(m.revenue)}</span>
-                  </div>
-                ))}
-              </div>
-            )}
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 4 }} className="muted">
+            🎁 {data.voucher_sales.count} voucher{Number(data.voucher_sales.count) === 1 ? '' : 's'} sold today ({fmtMoney(data.voucher_sales.total)}) — included in the card/cash totals above.
           </div>
         )}
 

@@ -119,12 +119,20 @@ export default function ReportsSection() {
         Number(t.total).toFixed(2),
       ]);
     });
+    const pb = therapistData.payment_breakdown || { money_taken: therapistData.by_payment_method || [], already_paid: [] };
     rows.push([]);
-    rows.push(['Payment method breakdown']);
-    rows.push(['Method', 'Bills', 'Revenue £']);
-    (therapistData.by_payment_method || []).forEach((m) => {
-      rows.push([(METHOD_STYLE[m.payment_method] || METHOD_STYLE.unknown).label, m.n, Number(m.revenue).toFixed(2)]);
+    rows.push(['By payment method — money taken (= revenue)', 'Bills', 'Amount £']);
+    pb.money_taken.forEach((m) => {
+      const note = Number(m.voucher_portion) > 0 ? ` (incl. ${Number(m.voucher_portion).toFixed(2)} voucher sales)` : '';
+      rows.push([(METHOD_STYLE[m.payment_method] || METHOD_STYLE.unknown).label.replace(/^\S+\s/, '') + note, m.n, Number(m.revenue).toFixed(2)]);
     });
+    if (pb.already_paid && pb.already_paid.length) {
+      rows.push([]);
+      rows.push(['Covered by an earlier payment (NOT in revenue)', 'Bills', 'Amount £']);
+      pb.already_paid.forEach((m) => {
+        rows.push([(AP_LABEL[m.payment_method] || m.payment_method).replace(/^\S+\s/, ''), m.n, Number(m.amount).toFixed(2)]);
+      });
+    }
     downloadCsv(`reports_${from}_to_${to}.csv`, rows);
   }
 
