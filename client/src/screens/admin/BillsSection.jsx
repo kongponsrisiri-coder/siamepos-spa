@@ -237,24 +237,41 @@ export default function BillsSection() {
               ))}
             </tbody>
             <tfoot>
-              <tr style={{ borderTop: '2px solid var(--border)', background: '#fafaf9' }}>
-                <td colSpan={3} style={{ padding: '8px 10px', fontWeight: 700, fontSize: 13 }}>Gross ({bills.length} bills)</td>
-                <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontWeight: 600 }}>{fmtMoney(total - tipTotal)}</td>
-                <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontWeight: 600, color: 'var(--success)' }}>{fmtMoney(tipTotal)}</td>
-                <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontWeight: 700, fontSize: 15 }}>{fmtMoney(total)}</td>
+              {/* HEADLINE — money actually taken at the till (the figure to
+                  reconcile against cash + card machine). Excludes voucher
+                  redemptions, 'external'/already-paid, and online-deposit
+                  portions — that money came in earlier. Matches Trading/Z revenue. */}
+              <tr style={{ borderTop: '2px solid var(--border)', background: '#f0fdf4' }}>
+                <td colSpan={3} style={{ padding: '10px', fontWeight: 800, fontSize: 14, color: '#166534' }}>
+                  Taken at till ({bills.length} bills)
+                  {Math.abs(takenTotal - total) > 0.005 && (
+                    <span style={{ fontWeight: 400, color: 'var(--muted)', fontSize: 12 }}> · excl. vouchers / already-paid</span>
+                  )}
+                </td>
+                <td /><td />
+                <td style={{ padding: '10px', fontFamily: 'monospace', fontWeight: 800, fontSize: 16, color: '#166534' }}>{fmtMoney(takenTotal)}</td>
                 <td colSpan={isUnlocked ? 2 : 1} />
               </tr>
-              {/* Money actually taken at the till — excludes voucher / already-paid
-                  / online-deposit portions (they came in earlier). Matches the
-                  Trading/Z revenue. Shown when it differs from the gross total. */}
+              {/* Gross service value — includes amounts already paid by voucher /
+                  online. Shown muted, for reference, only when it differs. */}
               {Math.abs(takenTotal - total) > 0.005 && (
-                <tr style={{ background: '#f0fdf4' }}>
-                  <td colSpan={3} style={{ padding: '8px 10px', fontWeight: 700, fontSize: 13, color: '#166534' }}>
-                    Taken at till <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(excl. vouchers / already-paid)</span>
+                <tr style={{ background: '#fafaf9' }}>
+                  <td colSpan={3} style={{ padding: '8px 10px', fontSize: 12, color: 'var(--muted)' }}>
+                    Gross bill value <span>(incl. vouchers / already-paid)</span>
                   </td>
-                  <td /><td />
-                  <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontWeight: 700, fontSize: 15, color: '#166534' }}>{fmtMoney(takenTotal)}</td>
+                  <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)' }}>{fmtMoney(total - tipTotal)}</td>
+                  <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)' }}>{fmtMoney(tipTotal)}</td>
+                  <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: 'var(--muted)' }}>{fmtMoney(total)}</td>
                   <td colSpan={isUnlocked ? 2 : 1} />
+                </tr>
+              )}
+              {/* When nothing was voucher/already-paid, Taken == Gross, so also show
+                  the tip line for the plain case. */}
+              {Math.abs(takenTotal - total) <= 0.005 && tipTotal > 0 && (
+                <tr style={{ background: '#fafaf9' }}>
+                  <td colSpan={3} style={{ padding: '8px 10px', fontSize: 12, color: 'var(--muted)' }}>of which tips</td>
+                  <td /><td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: 12, color: 'var(--success)' }}>{fmtMoney(tipTotal)}</td>
+                  <td /><td colSpan={isUnlocked ? 2 : 1} />
                 </tr>
               )}
             </tfoot>
