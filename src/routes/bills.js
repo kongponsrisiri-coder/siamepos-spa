@@ -240,12 +240,18 @@ router.put('/:id/tip', async (req, res) => {
 router.post('/:id/pay', async (req, res) => {
   const id = Number(req.params.id);
   const { method, split_payments } = req.body || {};
-  // SPA-EXT-VOUCHER — an external (pre-SiamEPOS) voucher code recorded against
-  // this payment. Stored for audit; no SiamEPOS voucher is redeemed.
+  // A free-text external reference recorded against this payment — a pre-SiamEPOS
+  // voucher code, an online-payment ref, or whatever reference the shop uses.
+  // Stored for audit; no SiamEPOS voucher is redeemed. (`external_voucher_code`
+  // is the column, kept for back-compat, but it holds any external reference.)
   const externalVoucherCode = (req.body && req.body.external_voucher_code)
-    ? String(req.body.external_voucher_code).trim().slice(0, 64) || null
+    ? String(req.body.external_voucher_code).trim().slice(0, 200) || null
     : null;
-  if (!['cash', 'card', 'split', 'voucher', 'treatwell'].includes(method)) {
+  // 'external' = the customer already paid outside SiamEPOS (a voucher sold or an
+  // online/card payment taken BEFORE this system was installed). We just close
+  // the bill and record the reference — no money moves through us, so it's
+  // excluded from revenue and allowed offline (no Stripe/voucher lookup needed).
+  if (!['cash', 'card', 'split', 'voucher', 'treatwell', 'external'].includes(method)) {
     return res.status(400).json({ error: 'invalid method' });
   }
 
@@ -431,7 +437,7 @@ router.put('/:id/discount', requireRole('admin', 'manager', 'reception'), async 
 router.put('/:id/method', requireRole('admin', 'manager'), async (req, res) => {
   const id = Number(req.params.id);
   const { method, split_payments } = req.body || {};
-  if (!['cash', 'card', 'split', 'voucher', 'treatwell'].includes(method)) {
+  if (!['cash', 'card', 'split', 'voucher', 'treatwell', 'external'].includes(method)) {
     return res.status(400).json({ error: 'invalid method' });
   }
   try {

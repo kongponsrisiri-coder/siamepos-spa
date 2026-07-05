@@ -29,6 +29,11 @@ export default function CheckoutScreen() {
   const [legacyAmount, setLegacyAmount]   = useState('');
   const [showTreatwell, setShowTreatwell] = useState(false);
   const [treatwellAmount, setTreatwellAmount] = useState('');
+  // "Already paid / external" — customer paid outside SiamEPOS (a pre-install
+  // voucher, or an online/card payment taken before this system). Records a
+  // free-text reference and closes the bill without moving money through us.
+  const [showExternal, setShowExternal] = useState(false);
+  const [externalRef, setExternalRef]   = useState('');
   // SPA-BILL-ITEMS — add-a-line state (retail product / add-on / extra)
   const [showAddItem, setShowAddItem] = useState(false);
   const [newItem, setNewItem] = useState({ kind: 'retail', name: '', price: '', qty: 1 });
@@ -264,6 +269,17 @@ export default function CheckoutScreen() {
     }
   }
 
+  // "Already paid / external" — close the bill as settled outside SiamEPOS,
+  // recording the reference the operator types. Works offline; excluded from
+  // revenue (the money didn't come through us).
+  async function payExternal() {
+    const ref = externalRef.trim();
+    if (!ref) { setError('Please enter a reference (voucher code, online payment ref, or note)'); return; }
+    if (!confirm(`Close this bill as ALREADY PAID (external)?\nReference: ${ref}\nNo money is taken at the till.`)) return;
+    setError('');
+    pay('external', { external_voucher_code: ref });
+  }
+
   if (error && !appt) return <div className="card" style={{ color: 'var(--danger)' }}>{error}</div>;
   if (!appt || !bill) return <div className="muted">Loading…</div>;
 
@@ -466,7 +482,29 @@ export default function CheckoutScreen() {
                   onClick={() => setShowSplit(true)} disabled={busy}
                   style={{ flex: 1, padding: 14, minWidth: 80, background: '#ede9fe', color: '#4c1d95', border: '1px solid #7c3aed', fontWeight: 600 }}
                 >⇄ Split</button>
+                <button
+                  onClick={() => setShowExternal(v => !v)} disabled={busy}
+                  title="Customer already paid outside SiamEPOS — a voucher sold or an online/card payment taken before this system. Records a reference and closes the bill; nothing is taken at the till."
+                  style={{ flex: 1, padding: 14, minWidth: 100, background: showExternal ? '#475569' : '#e2e8f0', color: showExternal ? 'white' : '#334155', border: '1px solid #64748b', fontWeight: 600 }}
+                >🧾 Already paid</button>
               </div>
+              {showExternal && (
+                <div className="col" style={{ marginTop: 10, background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: 12 }}>
+                  <div style={{ fontWeight: 600, color: '#334155' }}>Already paid outside SiamEPOS</div>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    For a voucher sold before this system, or an online/card payment already taken. Enter the code or reference; nothing is charged at the till.
+                  </div>
+                  <input
+                    value={externalRef}
+                    onChange={(e) => setExternalRef(e.target.value)}
+                    placeholder="Voucher code / online ref / note"
+                    style={{ marginTop: 4 }}
+                  />
+                  <button className="primary" onClick={payExternal} disabled={busy} style={{ marginTop: 8 }}>
+                    {busy ? 'Saving…' : `Mark ${fmtMoney(balance)} as already paid & close`}
+                  </button>
+                </div>
+              )}
               {appt.source === 'treatwell' && !showTreatwell && (() => {
                 // If Treatwell's portion is already recorded (as a full payment or
                 // as a partial discount), don't prompt the operator to tap again —
@@ -601,10 +639,13 @@ export default function CheckoutScreen() {
                 {voucherLookup && (() => {
                   const v = voucherLookup.voucher;
                   const isSessions = v.voucher_type === 'sessions';
-                  // Treatment match warning for session vouchers — only block
-                  // if the voucher is tied to a specific treatment AND it
-                  // doesn't match this appointment's treatment.
-                  const treatmentMismatch = isSessions && v.treatment_id && Number(v.treatment_id) !== Number(appt.treatment_id);
+                  // Session vouchers redeem by DURATION, not exact treatment:
+                  // a 60-min bundle works on any 60-min treatment. Only block
+                  // when the voucher is tied to a treatment AND the durations
+                  // differ (matches the server-side redeem rule).
+                  const treatmentMismatch = isSessions && v.treatment_id
+                    && v.treatment_duration != null && appt.duration_minutes != null
+                    && Number(v.treatment_duration) !== Number(appt.duration_minutes);
                   return (
                   <div style={{ marginTop: 10 }} className="col">
                     <div style={{ background: '#1e3a6e', color: 'white', borderRadius: 8, padding: '12px 16px' }}>
@@ -635,7 +676,7 @@ export default function CheckoutScreen() {
                     </div>
                     {treatmentMismatch && (
                       <div style={{ fontSize: 13, color: '#991b1b', background: '#fee2e2', padding: '8px 12px', borderRadius: 8, marginTop: 8 }}>
-                        ❌ This voucher is valid for <strong>{v.treatment_name}</strong> only — this appointment is a different treatment.
+                        ❌ This voucher is for a <strong>{v.treatment_duration}-min</strong> treatment ({v.treatment_name}) — this appointment is {appt.duration_minutes} min, so the durations don't match.
                       </div>
                     )}
                     {/* Monetary voucher — editable amount. Default is

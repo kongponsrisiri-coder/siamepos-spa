@@ -72,7 +72,11 @@ router.get('/lookup', async (req, res) => {
   if (!code) return res.status(400).json({ error: 'code required' });
   try {
     const { rows } = await pool.query(
-      `SELECT v.*, c.name AS client_name, t.name AS treatment_name
+      // treatment_duration lets the till accept a session voucher against ANY
+      // treatment of the SAME duration (a 60-min bundle → any 60-min treatment),
+      // matching the server-side redeem rule instead of an exact-treatment lock.
+      `SELECT v.*, c.name AS client_name, t.name AS treatment_name,
+              t.duration_minutes AS treatment_duration
        FROM vouchers v
        LEFT JOIN clients   c ON c.id = v.client_id
        LEFT JOIN treatments t ON t.id = v.treatment_id

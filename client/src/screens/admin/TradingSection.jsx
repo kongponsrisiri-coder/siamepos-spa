@@ -109,6 +109,32 @@ export default function TradingSection() {
         <StatCard label="Cancelled"    value={data.appointments.cancelled}            color={COLORS.cancelled} />
       </div>
 
+      {/* ── Revenue breakdown ──────────────────────────────────────
+          Revenue is money actually taken today: till + voucher sales +
+          online prepayments. Shown only when there's more than the till
+          so the headline number is transparent. */}
+      {data.revenue_breakdown && (Number(data.revenue_breakdown.voucher_sales) > 0 || Number(data.revenue_breakdown.prepayments) > 0) && (
+        <div className="card col">
+          <h3 style={{ margin: 0 }}>How today's revenue is made up</h3>
+          <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0' }}>
+            <span>Till (cash · card · Treatwell)</span><span>{fmtMoney(data.revenue_breakdown.till)}</span>
+          </div>
+          {Number(data.revenue_breakdown.voucher_sales) > 0 && (
+            <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0' }}>
+              <span>🎁 Voucher sales</span><span>{fmtMoney(data.revenue_breakdown.voucher_sales)}</span>
+            </div>
+          )}
+          {Number(data.revenue_breakdown.prepayments) > 0 && (
+            <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0' }}>
+              <span>🌐 Online prepayments</span><span>{fmtMoney(data.revenue_breakdown.prepayments)}</span>
+            </div>
+          )}
+          <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 2, fontWeight: 700 }}>
+            <span>Total revenue</span><span style={{ color: '#C9A84C' }}>{fmtMoney(data.totals.revenue)}</span>
+          </div>
+        </div>
+      )}
+
       {/* ── Top treatments ─────────────────────────────────────── */}
       <div className="card col">
         <h3>Top treatments</h3>
@@ -205,7 +231,7 @@ export default function TradingSection() {
         <div className="card col">
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
             <h3 style={{ margin: 0 }}>🎁 Voucher sales</h3>
-            <span className="muted" style={{ fontSize: 12 }}>Deferred revenue — money in, service to come</span>
+            <span className="muted" style={{ fontSize: 12 }}>Included in today's revenue</span>
           </div>
           <div className="row" style={{ justifyContent: 'space-between', padding: '6px 0' }}>
             <span><strong>{data.voucher_sales.count}</strong> voucher{data.voucher_sales.count === 1 ? '' : 's'} sold today</span>
