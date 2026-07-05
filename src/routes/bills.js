@@ -43,8 +43,13 @@ function buildReceiptHtml({ bill, client, settings }) {
       <td style="padding:6px 0;text-align:right;">${gbp(it.line_total)}</td>
     </tr>`).join('');
 
+  // "Already paid" = money settled earlier (pre-install voucher / online), held
+  // in its own column and deducted from the bill total. Shown as its own line
+  // so the receipt reads: Treatment £69 · Already paid −£29 · Total paid £40.
+  const alreadyPaid = Number(bill.already_paid || 0);
   const totalsRows = [
     discount > 0 ? `<tr><td style="padding:3px 0;color:#475569;">Discount</td><td style="padding:3px 0;text-align:right;color:#475569;">&minus;${gbp(discount)}</td></tr>` : '',
+    alreadyPaid > 0 ? `<tr><td style="padding:3px 0;color:#475569;">Already paid</td><td style="padding:3px 0;text-align:right;color:#475569;">&minus;${gbp(alreadyPaid)}</td></tr>` : '',
     isVat ? `<tr><td style="padding:3px 0;color:#475569;">Net</td><td style="padding:3px 0;text-align:right;color:#475569;">${gbp(net)}</td></tr>` : '',
     isVat ? `<tr><td style="padding:3px 0;color:#475569;">VAT (${rate}%)</td><td style="padding:3px 0;text-align:right;color:#475569;">${gbp(vat)}</td></tr>` : '',
     tip > 0 ? `<tr><td style="padding:3px 0;color:#475569;">Tip (no VAT)</td><td style="padding:3px 0;text-align:right;color:#475569;">${gbp(tip)}</td></tr>` : '',
@@ -103,10 +108,10 @@ async function recomputeBillTotals(db, billId) {
     `UPDATE bills b SET
        subtotal = COALESCE((SELECT SUM(line_total) FROM bill_items WHERE bill_id = b.id), 0),
        total    = CASE WHEN COALESCE((SELECT SUM(line_total) FROM bill_items WHERE bill_id = b.id), 0)
-                            - COALESCE(b.discount, 0) + COALESCE(b.tip, 0) < 0
+                            - COALESCE(b.discount, 0) + COALESCE(b.tip, 0) - COALESCE(b.already_paid, 0) < 0
                        THEN 0
                        ELSE COALESCE((SELECT SUM(line_total) FROM bill_items WHERE bill_id = b.id), 0)
-                            - COALESCE(b.discount, 0) + COALESCE(b.tip, 0)
+                            - COALESCE(b.discount, 0) + COALESCE(b.tip, 0) - COALESCE(b.already_paid, 0)
                   END
      WHERE b.id = $1 RETURNING *`,
     [billId],
@@ -208,7 +213,7 @@ router.put('/:id/tip', async (req, res) => {
     // fact would silently desync the recorded payment from the totals that
     // feed Reports / Z-report. Lock it.
     const { rows } = await pool.query(
-      `UPDATE bills SET tip = $2, total = subtotal - COALESCE(discount, 0) + $2
+      `UPDATE bills SET tip = $2, total = subtotal - COALESCE(discount, 0) + $2 - COALESCE(already_paid, 0)
        WHERE id = $1 AND payment_status != 'paid' RETURNING *`,
       [id, tipNum],
     );
@@ -319,31 +324,70 @@ router.post('/:id/pay', async (req, res) => {
   // paid £25 deposit + £30 cash.
   try {
     const billRow = await pool.query(
-      `SELECT b.total, b.appointment_id, COALESCE(a.deposit_amount, 0) AS deposit_amount
+      `SELECT b.total, b.subtotal, COALESCE(b.discount, 0) AS discount,
+              COALESCE(b.tip, 0) AS tip, b.discount_reason, b.appointment_id,
+              COALESCE(a.deposit_amount, 0) AS deposit_amount
        FROM bills b JOIN appointments a ON a.id = b.appointment_id
        WHERE b.id = $1`,
       [id],
     );
     if (!billRow.rows[0]) return res.status(404).json({ error: 'not found' });
     const depositAmount = Number(billRow.rows[0].deposit_amount || 0);
-    const billTotal = Number(billRow.rows[0].total);
+    const billTotal   = Number(billRow.rows[0].total);
+
+    // ── Already-paid credit (SPA-PAY-EXT) ────────────────────────────
+    // 'external' money = the customer paid BEFORE today (a pre-install
+    // voucher, or an online/card payment taken before SiamEPOS). That money
+    // must NOT inflate any report total — it was banked on the day it came in,
+    // not today. So rather than storing it as a payment (which would keep
+    // bill.total at the gross price), we record it in its own `already_paid`
+    // column and drop it off the bill total: total = subtotal − discount + tip
+    // − already_paid. Because every report sums bills.total, the already-paid
+    // money leaves every total automatically, while `discount` stays a separate
+    // figure. The reference stays on the bill for the receipt/audit trail.
+    // Handles whole-bill 'external' and 'external' lines inside a split
+    // (e.g. £69 = £40 card + £29 already-paid voucher).
+    let externalCredit  = 0;
     let effectiveMethod = method;
-    if (depositAmount > 0 && method !== 'split') {
-      const balance = +(billTotal - depositAmount).toFixed(2);
+    let effectiveSplit  = splitJson;          // rewritten to real-money-only below
+    if (method === 'external') {
+      externalCredit  = billTotal;            // whole balance already paid
+      effectiveMethod = 'external';
+      effectiveSplit  = null;
+    } else if (method === 'split') {
+      const parsed    = JSON.parse(splitJson || '[]');
+      const extLines  = parsed.filter((p) => p.method === 'external');
+      const realLines = parsed.filter((p) => p.method !== 'external');
+      externalCredit  = +extLines.reduce((s, p) => s + Number(p.amount), 0).toFixed(2);
+      if (externalCredit > 0) {
+        if (realLines.length === 0)      { effectiveMethod = 'external';         effectiveSplit = null; }
+        else if (realLines.length === 1) { effectiveMethod = realLines[0].method; effectiveSplit = null; }
+        else                             { effectiveMethod = 'split';            effectiveSplit = JSON.stringify(realLines); }
+      }
+    }
+    // externalCredit ≤ billTotal, so the new total can never go negative.
+    const alreadyPaid = +Math.min(Math.max(0, externalCredit), billTotal).toFixed(2);
+    let   newTotal    = +Math.max(0, billTotal - alreadyPaid).toFixed(2);
+
+    // SPA-PAY-001 — auto-credit any online deposit (composes with the credit
+    // above; the deposit reduces whatever is still collectible today).
+    if (depositAmount > 0 && effectiveMethod !== 'split' && effectiveMethod !== 'external') {
+      const innerMethod = effectiveMethod;
+      const balance = +(newTotal - depositAmount).toFixed(2);
       effectiveMethod = 'split';
-      splitJson = JSON.stringify(
+      effectiveSplit = JSON.stringify(
         balance > 0
           ? [
-              { method: 'deposit', amount: depositAmount },
-              { method,           amount: balance },
+              { method: 'deposit',    amount: depositAmount },
+              { method: innerMethod,  amount: balance },
             ]
-          : [{ method: 'deposit', amount: billTotal }],
+          : [{ method: 'deposit', amount: newTotal }],
       );
-    } else if (depositAmount > 0 && method === 'split') {
+    } else if (depositAmount > 0 && effectiveMethod === 'split') {
       // Sum was already validated above against billTotal − depositAmount.
       // Just prepend the deposit row so it appears in the split breakdown.
-      const cleanRows = JSON.parse(splitJson || '[]');
-      splitJson = JSON.stringify([
+      const cleanRows = JSON.parse(effectiveSplit || '[]');
+      effectiveSplit = JSON.stringify([
         { method: 'deposit', amount: depositAmount },
         ...cleanRows,
       ]);
@@ -354,12 +398,14 @@ router.post('/:id/pay', async (req, res) => {
          payment_method = $2,
          split_payments = $3::jsonb,
          external_voucher_code = COALESCE($4, external_voucher_code),
+         already_paid   = $5,
+         total          = $6,
          payment_status = 'paid',
          closed_at      = now()
        WHERE id = $1
          AND payment_status != 'paid'
        RETURNING *`,
-      [id, effectiveMethod, splitJson, externalVoucherCode],
+      [id, effectiveMethod, effectiveSplit, externalVoucherCode, alreadyPaid, newTotal],
     );
     // rows[0] is null either because the bill was not found OR because it
     // was already paid. Distinguish with a second read so the error message
@@ -417,7 +463,7 @@ router.put('/:id/discount', requireRole('admin', 'manager', 'reception'), async 
       `UPDATE bills
           SET discount = $2,
               discount_reason = $3,
-              total = subtotal - $2 + COALESCE(tip, 0)
+              total = subtotal - $2 + COALESCE(tip, 0) - COALESCE(already_paid, 0)
         WHERE id = $1 RETURNING *`,
       [id, clamped, reason || null],
     );
@@ -438,22 +484,33 @@ router.put('/:id/discount', requireRole('admin', 'manager', 'reception'), async 
 router.put('/:id/method', requireRole('admin', 'manager'), async (req, res) => {
   const id = Number(req.params.id);
   const { method, split_payments } = req.body || {};
+  const externalVoucherCode = (req.body && req.body.external_voucher_code)
+    ? String(req.body.external_voucher_code).trim().slice(0, 200) || null
+    : null;
   if (!['cash', 'card', 'split', 'voucher', 'treatwell', 'external'].includes(method)) {
     return res.status(400).json({ error: 'invalid method' });
   }
   try {
     const billRow = await pool.query(
-      `SELECT b.id, b.total, b.appointment_id, COALESCE(a.deposit_amount, 0) AS deposit_amount
+      `SELECT b.id, b.total, b.subtotal, COALESCE(b.discount, 0) AS discount,
+              COALESCE(b.tip, 0) AS tip, COALESCE(b.already_paid, 0) AS already_paid,
+              b.appointment_id, COALESCE(a.deposit_amount, 0) AS deposit_amount
        FROM bills b JOIN appointments a ON a.id = b.appointment_id
        WHERE b.id = $1`,
       [id],
     );
     if (!billRow.rows[0]) return res.status(404).json({ error: 'not found' });
-    const billTotal = Number(billRow.rows[0].total);
     const depositAmount = Number(billRow.rows[0].deposit_amount || 0);
+    // The GROSS bill value, independent of any already-paid credit already on
+    // the row — so re-amending is idempotent (we always validate the split
+    // against the full price, not a previously-reduced total).
+    const grossTotal = +(Number(billRow.rows[0].subtotal || 0)
+      - Number(billRow.rows[0].discount || 0)
+      + Number(billRow.rows[0].tip || 0)).toFixed(2);
 
     let splitJson = null;
     let effectiveMethod = method;
+    let alreadyPaid = 0;                       // recomputed from the new payment
 
     if (method === 'split') {
       if (!Array.isArray(split_payments) || split_payments.length === 0) {
@@ -468,35 +525,49 @@ router.put('/:id/method', requireRole('admin', 'manager'), async (req, res) => {
         if (!isFinite(a) || a <= 0)  return res.status(400).json({ error: `split_payments: amount must be > 0` });
         clean.push({ method: m, amount: +a.toFixed(2) });
       }
-      const expected = +(billTotal - depositAmount).toFixed(2);
+      const expected = +(grossTotal - depositAmount).toFixed(2);
       const sum = +clean.reduce((s, p) => s + p.amount, 0).toFixed(2);
       if (Math.abs(sum - expected) > 0.01) {
         return res.status(400).json({
           error: depositAmount > 0
             ? `split_payments sum £${sum.toFixed(2)} should equal balance £${expected.toFixed(2)} (deposit £${depositAmount.toFixed(2)} auto-credited)`
-            : `split_payments sum £${sum.toFixed(2)} does not match bill total £${billTotal.toFixed(2)}`,
+            : `split_payments sum £${sum.toFixed(2)} does not match bill total £${grossTotal.toFixed(2)}`,
         });
       }
-      const finalRows = depositAmount > 0
-        ? [{ method: 'deposit', amount: depositAmount }, ...clean]
-        : clean;
-      splitJson = JSON.stringify(finalRows);
+      // 'external' lines are already-paid credit, not money taken — strip them
+      // out of the recorded payment and off the total (same as POST /pay).
+      const extLines  = clean.filter((p) => p.method === 'external');
+      const realLines = clean.filter((p) => p.method !== 'external');
+      alreadyPaid = +extLines.reduce((s, p) => s + p.amount, 0).toFixed(2);
+      const paidRows = depositAmount > 0
+        ? [{ method: 'deposit', amount: depositAmount }, ...realLines]
+        : realLines;
+      if (realLines.length === 0 && depositAmount === 0) { effectiveMethod = 'external'; splitJson = null; }
+      else if (paidRows.length === 1)                    { effectiveMethod = paidRows[0].method; splitJson = null; }
+      else                                               { effectiveMethod = 'split'; splitJson = JSON.stringify(paidRows); }
+    } else if (method === 'external') {
+      alreadyPaid = grossTotal;                // whole bill already paid earlier
+      effectiveMethod = 'external';
+      splitJson = null;
     } else if (depositAmount > 0) {
       // Non-split method on a deposit-paid appointment — auto-credit
       // the same way POST /pay does.
-      const balance = +(billTotal - depositAmount).toFixed(2);
+      const balance = +(grossTotal - depositAmount).toFixed(2);
       effectiveMethod = 'split';
       splitJson = JSON.stringify(
         balance > 0
           ? [{ method: 'deposit', amount: depositAmount }, { method, amount: balance }]
-          : [{ method: 'deposit', amount: billTotal }],
+          : [{ method: 'deposit', amount: grossTotal }],
       );
     }
 
+    const newTotal = +Math.max(0, grossTotal - alreadyPaid).toFixed(2);
     const { rows } = await pool.query(
-      `UPDATE bills SET payment_method = $2, split_payments = $3::jsonb
+      `UPDATE bills SET payment_method = $2, split_payments = $3::jsonb,
+                        already_paid = $4, total = $5,
+                        external_voucher_code = COALESCE($6, external_voucher_code)
        WHERE id = $1 RETURNING *`,
-      [id, effectiveMethod, splitJson],
+      [id, effectiveMethod, splitJson, alreadyPaid, newTotal, externalVoucherCode],
     );
     res.json({ bill: rows[0] });
   } catch (err) {

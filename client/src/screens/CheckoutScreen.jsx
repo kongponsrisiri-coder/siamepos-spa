@@ -993,9 +993,21 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
   ];
   const methodStyle = (id) => METHODS.find(m => m.id === id) || METHODS[0];
 
-  const allocated = +rows.reduce((s, r) => s + (Number(r.amount) || 0), 0).toFixed(2);
-  const remaining = +(total - allocated).toFixed(2);
-  const balanced  = Math.abs(remaining) < 0.005;
+  // "Already paid" (external) rows don't take money at the till — they record
+  // that part of the bill was settled earlier (pre-install voucher / online).
+  // They AUTO-COVER whatever the real payments don't, so the operator only
+  // enters the real money and the shortfall becomes the already-paid amount
+  // (£0 taken today, excluded from every report total).
+  const moneyAllocated  = +rows.filter(r => r.method !== 'external')
+    .reduce((s, r) => s + (Number(r.amount) || 0), 0).toFixed(2);
+  const hasExternal     = rows.some(r => r.method === 'external');
+  const shortfall       = +(total - moneyAllocated).toFixed(2);   // not covered by real money
+  const externalCovered = +Math.max(0, shortfall).toFixed(2);     // absorbed by "already paid"
+  const over            = moneyAllocated > total + 0.005;
+  const remaining       = shortfall;                              // header display
+  // Closable when real money exactly settles the bill, OR a shortfall is
+  // explicitly absorbed by an "already paid" line.
+  const balanced        = !over && (Math.abs(shortfall) < 0.005 || (hasExternal && shortfall > 0));
 
   // All voucher rows must be validated (code looked up) before we can confirm
   const voucherRows = rows.filter(r => r.method === 'voucher');
@@ -1047,8 +1059,12 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
 
   async function confirm() {
     setError('');
+    if (over) {
+      setError(`Real payments total £${moneyAllocated.toFixed(2)} — more than the £${total.toFixed(2)} bill.`);
+      return;
+    }
     if (!balanced) {
-      setError(`Allocated £${allocated.toFixed(2)} — must equal £${total.toFixed(2)}.`);
+      setError(`£${shortfall.toFixed(2)} still unallocated — add a payment or an "Already paid" line.`);
       return;
     }
     if (!allVouchersReady) {
@@ -1059,16 +1075,22 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
       setError(`Voucher amount exceeds available balance.`);
       return;
     }
-    // Every "Already paid" line needs a reference for the audit trail.
-    const externalRows = rows.filter(r => r.method === 'external' && Number(r.amount) > 0);
-    if (externalRows.some(r => !(r.externalRef || '').trim())) {
-      setError('Enter a reference for each "Already paid" line.');
+    // The "already paid" line(s) carry the reference. Require one when they
+    // actually cover part of the bill (the audit trail for money we didn't take).
+    const externalRefs = rows.filter(r => r.method === 'external')
+      .map(r => (r.externalRef || '').trim()).filter(Boolean);
+    if (externalCovered > 0 && externalRefs.length === 0) {
+      setError('Enter a reference for the "Already paid" amount.');
       return;
     }
-    const externalRef = externalRows.map(r => (r.externalRef || '').trim()).filter(Boolean).join('; ') || null;
+    const externalRef = externalRefs.join('; ') || null;
+    // Real money the till takes today, plus a single "already paid" line for
+    // the shortfall (the backend turns that into an Already-paid credit so it
+    // drops out of every report total).
     const clean = rows
-      .filter(r => Number(r.amount) > 0)
+      .filter(r => r.method !== 'external' && Number(r.amount) > 0)
       .map(r => ({ method: r.method, amount: +Number(r.amount).toFixed(2) }));
+    if (externalCovered > 0) clean.push({ method: 'external', amount: externalCovered });
     if (clean.length === 0) {
       setError('Add at least one payment.');
       return;
@@ -1108,10 +1130,10 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
-                  {balanced ? 'Balanced ✓' : remaining > 0 ? 'Remaining' : 'Over by'}
+                  {balanced ? (externalCovered > 0 ? 'Already paid' : 'Balanced ✓') : over ? 'Over by' : 'Remaining'}
                 </div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: balanced ? '#86efac' : remaining > 0 ? 'white' : '#fca5a5' }}>
-                  £{Math.abs(remaining).toFixed(2)}
+                <div style={{ fontSize: 22, fontWeight: 700, color: balanced ? '#86efac' : over ? '#fca5a5' : 'white' }}>
+                  £{(balanced && externalCovered > 0 ? externalCovered : Math.abs(remaining)).toFixed(2)}
                 </div>
               </div>
             </div>
@@ -1149,22 +1171,32 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
                   >
                     {METHODS.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
                   </select>
-                  <span style={{ fontWeight: 600, color: 'var(--muted)' }}>£</span>
-                  <input
-                    type="number" step="0.01" min="0"
-                    value={r.amount}
-                    onChange={e => setRow(i, { amount: e.target.value })}
-                    onFocus={e => e.target.select()}
-                    style={{ flex: '1 1 90px', minWidth: 90, fontSize: 16, fontWeight: 600, textAlign: 'right' }}
-                    placeholder="0.00"
-                    disabled={isVoucher && !r.voucher}
-                  />
-                  <button
-                    onClick={() => autofillRemaining(i)}
-                    title="Fill with the remaining amount"
-                    style={{ padding: '8px 10px', fontSize: 12, minHeight: 40 }}
-                    disabled={isVoucher && !r.voucher}
-                  >Use rest</button>
+                  {isExternal ? (
+                    // No amount box — an "already paid" line auto-covers whatever
+                    // the real payments leave unpaid, and takes £0 at the till.
+                    <div style={{ flex: '1 1 90px', minWidth: 90, textAlign: 'right', fontWeight: 700, color: ms.text }}>
+                      {externalCovered > 0 ? `covers £${externalCovered.toFixed(2)}` : '£0.00'}
+                    </div>
+                  ) : (
+                    <>
+                      <span style={{ fontWeight: 600, color: 'var(--muted)' }}>£</span>
+                      <input
+                        type="number" step="0.01" min="0"
+                        value={r.amount}
+                        onChange={e => setRow(i, { amount: e.target.value })}
+                        onFocus={e => e.target.select()}
+                        style={{ flex: '1 1 90px', minWidth: 90, fontSize: 16, fontWeight: 600, textAlign: 'right' }}
+                        placeholder="0.00"
+                        disabled={isVoucher && !r.voucher}
+                      />
+                      <button
+                        onClick={() => autofillRemaining(i)}
+                        title="Fill with the remaining amount"
+                        style={{ padding: '8px 10px', fontSize: 12, minHeight: 40 }}
+                        disabled={isVoucher && !r.voucher}
+                      >Use rest</button>
+                    </>
+                  )}
                   {rows.length > 1 && (
                     <button onClick={() => removeRow(i)} style={{ padding: '8px 10px', fontSize: 12, minHeight: 40 }} aria-label="Remove row">✕</button>
                   )}
@@ -1179,7 +1211,7 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
                       placeholder="Reference (voucher code / online ref)"
                       style={{ width: '100%', fontSize: 16 }}
                     />
-                    <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>Already paid outside SiamEPOS — not counted in today's revenue.</div>
+                    <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>Covers the rest of the bill — already paid outside SiamEPOS. £0 taken today, and it drops out of every report total. The reference is kept on the bill.</div>
                   </div>
                 )}
 
@@ -1246,7 +1278,7 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
             disabled={busy || !balanced}
             style={{ flex: 1, maxWidth: 260, background: balanced ? '#C9A84C' : undefined, color: balanced ? '#1e3a6e' : undefined, fontWeight: 700 }}
           >
-            {busy ? 'Processing…' : balanced ? `Take £${total.toFixed(2)} & close bill` : 'Balance the amounts'}
+            {busy ? 'Processing…' : balanced ? `Take £${moneyAllocated.toFixed(2)} & close bill` : over ? 'Reduce the amounts' : 'Balance the amounts'}
           </button>
         </div>
       </div>

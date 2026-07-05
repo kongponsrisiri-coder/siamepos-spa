@@ -411,6 +411,13 @@ async function initSchema() {
     ALTER TABLE bills ADD COLUMN IF NOT EXISTS discount        NUMERIC(10,2) NOT NULL DEFAULT 0;
     ALTER TABLE bills ADD COLUMN IF NOT EXISTS discount_reason TEXT;
 
+    -- SPA-PAY-EXT — money the customer paid BEFORE today (a pre-install voucher
+    -- or an online/card payment taken before SiamEPOS). It is NOT revenue today,
+    -- so it is held here and deducted from the bill total
+    -- (total = subtotal − discount + tip − already_paid). Every report sums
+    -- bills.total, so already-paid money drops out of every total automatically.
+    ALTER TABLE bills ADD COLUMN IF NOT EXISTS already_paid    NUMERIC(10,2) NOT NULL DEFAULT 0;
+
     -- SPA-BILL-ITEMS — line items on a bill so a single checkout can carry
     -- the treatment PLUS retail products (oils, candles), add-ons /
     -- upgrades (+15 min, hot stone), or extra services. The treatment line
