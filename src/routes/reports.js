@@ -179,14 +179,29 @@ router.get('/trading', async (req, res) => {
       [date],
     );
 
+    // ── Cash-basis revenue (SPA-REVENUE-CASH) ────────────────────────────
+    // Revenue = money actually taken today, counted ONCE at the moment it
+    // arrives: till cash/card/Treatwell + voucher SALES + online prepayments.
+    // Voucher REDEMPTIONS, the online-DEPOSIT tender at bill-close, and
+    // 'external' already-paid settlements are excluded — they were counted at
+    // their real money-in moment (voucher sale day / online-payment day / before
+    // install), so counting the bill again would double-count.
+    const MONEY_IN = new Set(['cash', 'card', 'treatwell']);
+    const moneyInRows = byMethod.rows.filter((r) => MONEY_IN.has(r.payment_method));
+    const billMoneyIn = moneyInRows.reduce((s, r) => s + Number(r.revenue || 0), 0);
+    const voucherSaleTotal = Number(voucherSales.rows[0].total || 0);
+    const prepayTotal = Number(onlineDeposits.rows[0].total_taken || 0);
+    const revenue = +(billMoneyIn + voucherSaleTotal + prepayTotal).toFixed(2);
+
     res.json({
       date,
       identity: await loadIdentity(),
-      totals: totals.rows[0],
+      totals: { ...totals.rows[0], revenue },
+      revenue_breakdown: { till: +billMoneyIn.toFixed(2), voucher_sales: voucherSaleTotal, prepayments: prepayTotal },
       appointments: appts.rows[0],
       top_treatments: top.rows,
       by_kind: byKind.rows,
-      by_payment_method: byMethod.rows,
+      by_payment_method: moneyInRows,
       by_source: bySource.rows,
       voucher_sales: {
         count:  voucherSales.rows[0].count,
@@ -345,9 +360,18 @@ router.get('/z-report', async (req, res) => {
       `SELECT key, value FROM settings WHERE key IN ('spa_name','spa_email','spa_address','spa_phone')`,
     );
     const identity = Object.fromEntries(ident.rows.map((r) => [r.key, r.value]));
+    // Cash-basis money-taken (mirrors /trading): till cash/card/Treatwell +
+    // voucher SALES + online prepayments. `total`/`subtotal`/`vat` above stay on
+    // the accrual (services-delivered) basis for the VAT record.
+    const MONEY_IN = new Set(['cash', 'card', 'treatwell']);
+    const billMoneyIn = byMethod.rows.filter((r) => MONEY_IN.has(r.payment_method)).reduce((s, r) => s + Number(r.revenue || 0), 0);
+    const voucherSaleTotal = Number(voucherSales.rows[0].total || 0);
+    const prepayTotal = Number(onlineDeposits.rows[0].total_taken || 0);
+    const revenue = +(billMoneyIn + voucherSaleTotal + prepayTotal).toFixed(2);
     res.json({
       date,
-      totals: totals.rows[0],
+      totals: { ...totals.rows[0], revenue },
+      revenue_breakdown: { till: +billMoneyIn.toFixed(2), voucher_sales: voucherSaleTotal, prepayments: prepayTotal },
       by_kind: byKindVat,
       vat,
       by_payment_method: byMethod.rows,
