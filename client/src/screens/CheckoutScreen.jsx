@@ -717,6 +717,9 @@ export default function CheckoutScreen() {
             <div>
               <strong style={{ color: 'var(--success)' }}>Paid</strong>
               <div className="muted">{bill.payment_method} · {new Date(bill.closed_at).toLocaleString('en-GB')}</div>
+              {bill.external_voucher_code && (
+                <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>🧾 Ref: <strong>{bill.external_voucher_code}</strong></div>
+              )}
             </div>
             {/* SPA-BILL-ITEMS — staff refund (admin/manager PIN gated server-side) */}
             <button onClick={refundBill} disabled={busy}

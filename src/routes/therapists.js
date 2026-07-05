@@ -270,6 +270,76 @@ router.put('/:id/overrides', requireRole('admin', 'manager'), async (req, res) =
   }
 });
 
+// Every YYYY-MM-DD from `from` to `to` inclusive (UTC to avoid TZ drift).
+function eachDate(from, to) {
+  const out = [];
+  const end = new Date(to + 'T00:00:00Z');
+  for (let d = new Date(from + 'T00:00:00Z'); d <= end; d.setUTCDate(d.getUTCDate() + 1)) {
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// PUT /api/therapists/:id/overrides/range  — set the SAME override across a date
+// range in one go (holidays). body: { from, to, is_working?, start_time?, end_time?, note? }
+// Defaults is_working=false (a day-off block). Must be defined BEFORE the
+// /:date routes so 'range' isn't matched as a date param.
+router.put('/:id/overrides/range', requireRole('admin', 'manager'), async (req, res) => {
+  const id = Number(req.params.id);
+  const { from, to, is_working, start_time, end_time, note } = req.body || {};
+  if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '')) {
+    return res.status(400).json({ error: 'from and to (YYYY-MM-DD) required' });
+  }
+  if (to < from) return res.status(400).json({ error: 'to must be on or after from' });
+  const dates = eachDate(from, to);
+  if (dates.length > 366) return res.status(400).json({ error: 'range too large (max 366 days)' });
+  const working = is_working ?? false;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const d of dates) {
+      await client.query(
+        `INSERT INTO therapist_rota_overrides (therapist_id, date, is_working, start_time, end_time, note)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (therapist_id, date) DO UPDATE SET
+           is_working = EXCLUDED.is_working, start_time = EXCLUDED.start_time,
+           end_time = EXCLUDED.end_time, note = EXCLUDED.note`,
+        [id, d, working, working ? (start_time || null) : null, working ? (end_time || null) : null, note || null],
+      );
+    }
+    await client.query('COMMIT');
+    req.app.get('io')?.emit('rota_updated', { therapist_id: id, kind: 'override_range', from, to });
+    res.json({ ok: true, count: dates.length, from, to });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[therapists] overrides range PUT', err);
+    res.status(500).json({ error: 'server error' });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/therapists/:id/overrides/range?from=&to=  — clear overrides across a range.
+router.delete('/:id/overrides/range', requireRole('admin', 'manager'), async (req, res) => {
+  const id = Number(req.params.id);
+  const { from, to } = req.query;
+  if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '')) {
+    return res.status(400).json({ error: 'from and to (YYYY-MM-DD) required' });
+  }
+  try {
+    const r = await pool.query(
+      'DELETE FROM therapist_rota_overrides WHERE therapist_id = $1 AND date BETWEEN $2 AND $3',
+      [id, from, to],
+    );
+    req.app.get('io')?.emit('rota_updated', { therapist_id: id, kind: 'override_range_deleted', from, to });
+    res.json({ ok: true, deleted: r.rowCount });
+  } catch (err) {
+    console.error('[therapists] overrides range DELETE', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 // DELETE /api/therapists/:id/overrides/:date  — restore weekly rota for that date
 router.delete('/:id/overrides/:date', requireRole('admin', 'manager'), async (req, res) => {
   const id   = Number(req.params.id);

@@ -75,6 +75,7 @@ function buildReceiptHtml({ bill, client, settings }) {
       ${totalsRows}
       <tr><td style="padding:8px 0 0;font-size:16px;font-weight:800;color:#0D1B3E;">Total paid</td><td style="padding:8px 0 0;text-align:right;font-size:16px;font-weight:800;color:#0D1B3E;">${gbp(total)}</td></tr>
       <tr><td style="padding:2px 0;color:#475569;">Method</td><td style="padding:2px 0;text-align:right;color:#475569;">${method}</td></tr>
+      ${bill.external_voucher_code ? `<tr><td style="padding:2px 0;color:#475569;">Ref</td><td style="padding:2px 0;text-align:right;color:#475569;">${esc(bill.external_voucher_code)}</td></tr>` : ''}
     </table>
     <div style="text-align:center;font-size:12px;color:#94a3b8;margin-top:22px;">
       ${isVat ? '' : 'Not VAT registered.<br/>'}Thank you for visiting ${esc(settings.spa_name || name)}.

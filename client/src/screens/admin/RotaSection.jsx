@@ -225,6 +225,66 @@ function OverrideModal({ therapist, date, existing, onSave, onDelete, onClose })
 }
 
 // ── Override calendar ─────────────────────────────────────────────────────────
+// Block a therapist off across a whole date range in one action (holidays),
+// instead of clicking each day. Sets is_working=false for every day from→to.
+function HolidayRangePanel({ therapists, onRefresh }) {
+  const [tid, setTid]   = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo]     = useState('');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function block() {
+    if (!tid) return alert('Pick a therapist');
+    if (!from || !to) return alert('Pick both a start and end date');
+    if (to < from) return alert('The end date must be on or after the start date');
+    setBusy(true);
+    try {
+      const r = await api.put(`/therapists/${tid}/overrides/range`, { from, to, is_working: false, note: note || null });
+      onRefresh();
+      alert(`Blocked ${r.count} day(s) off.`);
+      setNote('');
+    } catch (e) { alert(e.message || 'Could not block the range'); }
+    finally { setBusy(false); }
+  }
+  async function clearRange() {
+    if (!tid || !from || !to) return alert('Pick a therapist and both dates');
+    if (!confirm('Clear all overrides for this therapist in this date range (restore the normal weekly rota)?')) return;
+    setBusy(true);
+    try { await api.del(`/therapists/${tid}/overrides/range?from=${from}&to=${to}`); onRefresh(); }
+    catch (e) { alert(e.message || 'Could not clear the range'); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className="card col" style={{ marginBottom: 16, background: '#fef2f2', border: '1px solid #fecaca' }}>
+      <div style={{ fontWeight: 700 }}>🏖 Block days off (holiday)</div>
+      <div className="muted" style={{ fontSize: 12 }}>
+        Mark a therapist off across a whole date range at once — they won't be bookable on any day in the range.
+      </div>
+      <div className="row" style={{ gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 160 }}>
+          <label>Therapist</label>
+          <select value={tid} onChange={(e) => setTid(e.target.value)}>
+            <option value="">Choose…</option>
+            {therapists.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+        <div><label>From</label><input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>
+        <div><label>To</label><input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} /></div>
+        <div style={{ flex: 1, minWidth: 140 }}>
+          <label>Note (optional)</label>
+          <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Annual leave" />
+        </div>
+      </div>
+      <div className="row">
+        <button className="primary" onClick={block} disabled={busy}>{busy ? 'Working…' : '🚫 Block days off'}</button>
+        <button onClick={clearRange} disabled={busy}>Clear this range</button>
+      </div>
+    </div>
+  );
+}
+
 function OverridesTab({ data, month, setMonth, onRefresh }) {
   const [modal, setModal] = useState(null);
   const [y, m] = month.split('-').map(Number);
@@ -241,6 +301,8 @@ function OverridesTab({ data, month, setMonth, onRefresh }) {
         <span style={{ fontWeight: 600, minWidth: 160, textAlign: 'center' }}>{monthLabel(month)}</span>
         <button onClick={() => setMonth(nextMonth(month))} style={{ padding: '6px 12px' }}>›</button>
       </div>
+
+      <HolidayRangePanel therapists={data.therapists} onRefresh={onRefresh} />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 16 }}>
         {data.therapists.map(t => {
