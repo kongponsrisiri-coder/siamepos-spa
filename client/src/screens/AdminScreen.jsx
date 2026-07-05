@@ -10,6 +10,7 @@ import StaffSection           from './admin/StaffSection.jsx';
 import RoomSection            from './admin/RoomSection.jsx';
 import BookingSettingsSection from './admin/BookingSettingsSection.jsx';
 import EmbedCodesSection      from './admin/EmbedCodesSection.jsx';
+import ColorCodesSection      from './admin/ColorCodesSection.jsx';
 import SettingsSection        from './admin/SettingsSection.jsx';
 import RotaSection            from './admin/RotaSection.jsx';
 import BillsSection           from './admin/BillsSection.jsx';
@@ -53,6 +54,7 @@ const GROUPS = [
     { k: 'booking',    label: 'Booking' },
     { k: 'online',     label: 'Online Booking' },
     { k: 'embed',      label: 'Embed Codes' },
+    { k: 'colors',     label: 'Colour Codes' },
     { k: 'settings',   label: 'Settings' },
   ] },
 ];
@@ -111,6 +113,7 @@ const SECTIONS = {
   booking:    BookingSettingsSection,
   online:     OnlineBookingSection,
   embed:      EmbedCodesSection,
+  colors:     ColorCodesSection,
   settings:   SettingsSection,
 };
 

@@ -94,16 +94,40 @@ const PAYMENT_STYLE = {
   treatwell: { bg: '#cffafe', border: '#0891b2', text: '#155e75' },  // cyan — matches the Treatwell block
   split:     { bg: '#fae8ff', border: '#c026d3', text: '#86198f' },  // magenta
 };
-function apptStyle(a) {
-  if (a.status === 'cancelled') return SOURCE_STYLE.cancelled;
-  if (a.status === 'no_show')   return SOURCE_STYLE.no_show;
+// SPA-COLOR-CODES — the timetable's default colours above are the fallback; a
+// spa can override any category's colour in Admin → Colour Codes. Overrides are
+// stored in settings.timetable_colors as { category: '#hex' } and loaded into
+// CUSTOM_COLORS below. When a category is customised we derive the block style
+// (light tint bg + coloured border/text) from the single chosen colour.
+const DEFAULT_STYLE = { ...SOURCE_STYLE, ...PAYMENT_STYLE };
+let CUSTOM_COLORS = {};                 // { category: '#hex' } — set by loadTimetableColors
+export function setTimetableColors(map) { CUSTOM_COLORS = map || {}; }
+
+function hexToRgba(hex, a) {
+  const h = String(hex || '').replace('#', '');
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const n = parseInt(full, 16);
+  if (!Number.isFinite(n)) return `rgba(100,116,139,${a})`;
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+function styleFromColor(hex) { return { bg: hexToRgba(hex, 0.15), border: hex, text: hex }; }
+
+// The colour CATEGORY for an appointment (shared with the legend + config table).
+function apptCategory(a) {
+  if (a.status === 'cancelled') return 'cancelled';
+  if (a.status === 'no_show')   return 'no_show';
   if (a.status === 'completed' && a.payment_method) {
-    return PAYMENT_STYLE[a.payment_method] || PAYMENT_STYLE.split;
+    return PAYMENT_STYLE[a.payment_method] ? a.payment_method : 'split';
   }
-  if (a.source === 'treatwell') {
-    return SOURCE_STYLE[a.treatwell_payment_type === 'full' ? 'treatwell_full' : 'treatwell_partial'];
-  }
-  return SOURCE_STYLE[a.source] || SOURCE_STYLE.walkin;
+  if (a.source === 'treatwell') return a.treatwell_payment_type === 'full' ? 'treatwell_full' : 'treatwell_partial';
+  if (a.source === 'phone')  return 'phone';
+  if (a.source === 'online') return 'online';
+  return 'walkin';
+}
+function apptStyle(a) {
+  const cat = apptCategory(a);
+  if (CUSTOM_COLORS[cat]) return styleFromColor(CUSTOM_COLORS[cat]);
+  return DEFAULT_STYLE[cat] || SOURCE_STYLE.walkin;
 }
 const COL_COLORS = ['#0D1B3E','#1A2F6B','#071028','#0f2456','#162e5c','#0e2260'];
 
@@ -787,6 +811,19 @@ export default function AppointmentScreen() {
   const [columnOrder, setColumnOrder]     = useState(null);
   const [turnOrder,    setTurnOrder]      = useState([]);   // SPA-TURN-ORDER — backend-saved order
   const [showTurnModal, setShowTurnModal] = useState(false);
+  const [, setColorsVer] = useState(0); // bumped after custom timetable colours load
+
+  // SPA-COLOR-CODES — load the spa's custom timetable colours once, then
+  // re-render so apptStyle picks them up (falls back to defaults if unset).
+  useEffect(() => {
+    let alive = true;
+    api.get('/settings').then((r) => {
+      if (!alive) return;
+      const raw = r.settings && r.settings.timetable_colors;
+      if (raw) { try { setTimetableColors(JSON.parse(raw)); setColorsVer((v) => v + 1); } catch { /* keep defaults */ } }
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   // Responsive breakpoint — drives column widths + action sheet vs action bar
   const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
