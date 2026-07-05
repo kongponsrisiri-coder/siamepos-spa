@@ -602,6 +602,7 @@ async function initSchema() {
       split_payments            TEXT,
       discount                  REAL NOT NULL DEFAULT 0,
       discount_reason           TEXT,
+      already_paid              REAL NOT NULL DEFAULT 0,
       refunded_at               TEXT,
       refund_amount             REAL,
       refund_reason             TEXT,
@@ -965,6 +966,7 @@ function runMigrations() {
   addColumnIfMissing('bills', 'split_payments',  'TEXT');
   addColumnIfMissing('bills', 'discount',        'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing('bills', 'discount_reason', 'TEXT');
+  addColumnIfMissing('bills', 'already_paid',    'REAL NOT NULL DEFAULT 0');
   addColumnIfMissing('bills', 'refunded_at',     'TEXT');
   addColumnIfMissing('bills', 'refund_amount',   'REAL');
   addColumnIfMissing('bills', 'refund_reason',   'TEXT');

@@ -1,6 +1,6 @@
 {
   "name": "siamepos-spa-electron",
-  "version": "0.2.29",
+  "version": "0.2.30",
   "description": "SiamEPOS Spa desktop shell \u2014 Thai massage & spa management till",
   "main": "main.js",
   "private": true,
