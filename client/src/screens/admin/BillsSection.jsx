@@ -95,6 +95,20 @@ export default function BillsSection() {
 
   const total    = bills.reduce((s, b) => s + Number(b.total || 0), 0);
   const tipTotal = bills.reduce((s, b) => s + Number(b.tip   || 0), 0);
+  // Money actually taken at the till — mirrors the revenue report: only the
+  // cash/card/Treatwell portions count. Voucher redemptions, 'external' (already
+  // paid), and online deposits are excluded (that money came in earlier).
+  const TILL_METHODS = new Set(['cash', 'card', 'treatwell']);
+  const billTaken = (b) => {
+    if (b.payment_status === 'refunded') return 0;
+    let sp = b.split_payments;
+    if (typeof sp === 'string') { try { sp = JSON.parse(sp); } catch { sp = null; } }
+    if (b.payment_method === 'split' && Array.isArray(sp)) {
+      return sp.filter((p) => TILL_METHODS.has(p.method)).reduce((s, p) => s + Number(p.amount || 0), 0);
+    }
+    return TILL_METHODS.has(b.payment_method) ? Number(b.total || 0) : 0;
+  };
+  const takenTotal = bills.reduce((s, b) => s + billTaken(b), 0);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -224,12 +238,25 @@ export default function BillsSection() {
             </tbody>
             <tfoot>
               <tr style={{ borderTop: '2px solid var(--border)', background: '#fafaf9' }}>
-                <td colSpan={3} style={{ padding: '8px 10px', fontWeight: 700, fontSize: 13 }}>Total ({bills.length} bills)</td>
+                <td colSpan={3} style={{ padding: '8px 10px', fontWeight: 700, fontSize: 13 }}>Gross ({bills.length} bills)</td>
                 <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontWeight: 600 }}>{fmtMoney(total - tipTotal)}</td>
                 <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontWeight: 600, color: 'var(--success)' }}>{fmtMoney(tipTotal)}</td>
                 <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontWeight: 700, fontSize: 15 }}>{fmtMoney(total)}</td>
                 <td colSpan={isUnlocked ? 2 : 1} />
               </tr>
+              {/* Money actually taken at the till — excludes voucher / already-paid
+                  / online-deposit portions (they came in earlier). Matches the
+                  Trading/Z revenue. Shown when it differs from the gross total. */}
+              {Math.abs(takenTotal - total) > 0.005 && (
+                <tr style={{ background: '#f0fdf4' }}>
+                  <td colSpan={3} style={{ padding: '8px 10px', fontWeight: 700, fontSize: 13, color: '#166534' }}>
+                    Taken at till <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(excl. vouchers / already-paid)</span>
+                  </td>
+                  <td /><td />
+                  <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontWeight: 700, fontSize: 15, color: '#166534' }}>{fmtMoney(takenTotal)}</td>
+                  <td colSpan={isUnlocked ? 2 : 1} />
+                </tr>
+              )}
             </tfoot>
           </table>
         </div>
