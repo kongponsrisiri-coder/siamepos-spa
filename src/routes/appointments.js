@@ -115,7 +115,8 @@ router.get('/', async (req, res) => {
               c.name AS client_name, c.phone AS client_phone,
               th.name AS therapist_name,
               r.name AS room_name,
-              b.payment_method, b.payment_status AS bill_status, b.total AS bill_total
+              b.payment_method, b.payment_status AS bill_status, b.total AS bill_total,
+              b.external_voucher_code
        FROM appointments a
        LEFT JOIN treatments t  ON t.id  = a.treatment_id
        LEFT JOIN clients    c  ON c.id  = a.client_id

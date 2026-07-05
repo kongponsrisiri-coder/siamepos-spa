@@ -190,6 +190,23 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout }) {
               background: pmColor(appt.payment_method), color: 'white',
               fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
             }}>{pmLabel(appt.payment_method)}</span>
+            {appt.external_voucher_code && (
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>· ref <strong style={{ color: '#0D1B3E' }}>{appt.external_voucher_code}</strong></span>
+            )}
+          </div>
+        )}
+
+        {/* Payment reference / remark even when there's no method badge */}
+        {!appt.payment_method && appt.external_voucher_code && (
+          <div style={{ marginBottom: 12, fontSize: 13, color: '#374151' }}>
+            🧾 Ref: <strong>{appt.external_voucher_code}</strong>
+          </div>
+        )}
+
+        {/* Booking note */}
+        {appt.notes && (
+          <div style={{ marginBottom: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, color: '#374151' }}>
+            📝 {appt.notes}
           </div>
         )}
 

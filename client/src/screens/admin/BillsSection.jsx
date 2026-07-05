@@ -200,6 +200,11 @@ export default function BillsSection() {
                         ))}
                       </div>
                     )}
+                    {b.external_voucher_code && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
+                        🧾 ref: <strong style={{ color: 'var(--text)' }}>{b.external_voucher_code}</strong>
+                      </div>
+                    )}
                   </td>
                   {/* SEPOS-SPA-RECEIPT-001 — issue a (VAT) receipt, printable + emailable */}
                   <td style={{ padding: '10px' }}>
