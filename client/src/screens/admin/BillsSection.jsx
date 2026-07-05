@@ -159,13 +159,18 @@ export default function BillsSection() {
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           {[
             { label: 'Bills',   value: bills.length },
-            { label: 'Revenue', value: fmtMoney(total) },
+            // "Revenue" = money actually taken at the till (matches Trading/Z);
+            // voucher / already-paid / deposit portions are excluded. Gross bill
+            // value shown as a sub-line when it differs.
+            { label: 'Revenue', value: fmtMoney(takenTotal),
+              sub: Math.abs(takenTotal - total) > 0.005 ? `gross ${fmtMoney(total)}` : null },
             { label: 'Tips',    value: fmtMoney(tipTotal) },
             { label: 'Period',  value: `${fmtDate(from)} – ${fmtDate(to)}` },
           ].map(s => (
             <div key={s.label} className="card" style={{ flex: 1, minWidth: 120, textAlign: 'center' }}>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>{s.label}</div>
               <div style={{ fontSize: 20, fontWeight: 700 }}>{s.value}</div>
+              {s.sub && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{s.sub}</div>}
             </div>
           ))}
         </div>
