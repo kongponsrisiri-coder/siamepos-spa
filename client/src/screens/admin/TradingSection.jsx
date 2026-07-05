@@ -41,6 +41,10 @@ function StatCard({ label, value, color }) {
   );
 }
 
+// Payment-method labels for the two-group breakdown.
+const PM_LABEL = { card: '💳 Card', cash: '💵 Cash', treatwell: '🌐 Treatwell', online: '🌐 Online prepayment', split: '⇄ Split', voucher: '🎁 Voucher' };
+const AP_LABEL = { voucher: '🎁 Voucher redeemed', external: '🧾 Already paid (external)', deposit: '🌐 Deposit (prepaid online)' };
+
 // Brand-CI colour palette for each metric
 const COLORS = {
   revenue:      '#C9A84C',   /* gold */
@@ -109,32 +113,6 @@ export default function TradingSection() {
         <StatCard label="Cancelled"    value={data.appointments.cancelled}            color={COLORS.cancelled} />
       </div>
 
-      {/* ── Revenue breakdown ──────────────────────────────────────
-          Revenue is money actually taken today: till + voucher sales +
-          online prepayments. Shown only when there's more than the till
-          so the headline number is transparent. */}
-      {data.revenue_breakdown && (Number(data.revenue_breakdown.voucher_sales) > 0 || Number(data.revenue_breakdown.prepayments) > 0) && (
-        <div className="card col">
-          <h3 style={{ margin: 0 }}>How today's revenue is made up</h3>
-          <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0' }}>
-            <span>Till (cash · card · Treatwell)</span><span>{fmtMoney(data.revenue_breakdown.till)}</span>
-          </div>
-          {Number(data.revenue_breakdown.voucher_sales) > 0 && (
-            <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0' }}>
-              <span>🎁 Voucher sales</span><span>{fmtMoney(data.revenue_breakdown.voucher_sales)}</span>
-            </div>
-          )}
-          {Number(data.revenue_breakdown.prepayments) > 0 && (
-            <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0' }}>
-              <span>🌐 Online prepayments</span><span>{fmtMoney(data.revenue_breakdown.prepayments)}</span>
-            </div>
-          )}
-          <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 2, fontWeight: 700 }}>
-            <span>Total revenue</span><span style={{ color: '#C9A84C' }}>{fmtMoney(data.totals.revenue)}</span>
-          </div>
-        </div>
-      )}
-
       {/* ── Top treatments ─────────────────────────────────────── */}
       <div className="card col">
         <h3>Top treatments</h3>
@@ -162,20 +140,57 @@ export default function TradingSection() {
         )}
       </div>
 
-      {/* ── By payment method ──────────────────────────────────── */}
-      <div className="card col">
-        <h3>By payment method</h3>
-        {data.by_payment_method.length === 0 ? (
-          <div className="muted">—</div>
-        ) : (
-          data.by_payment_method.map((m) => (
-            <div key={m.payment_method} className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
-              <span>{m.payment_method || '—'}</span>
-              <span style={{ fontWeight: 600 }}>{m.n} · {fmtMoney(m.revenue)}</span>
+      {/* ── By payment method — money taken today (= revenue) ──── */}
+      {(() => {
+        const pb = data.payment_breakdown || { money_taken: data.by_payment_method || [], already_paid: [] };
+        return (
+          <>
+            <div className="card col">
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <h3 style={{ margin: 0 }}>By payment method</h3>
+                <span className="muted" style={{ fontSize: 12 }}>Money taken today</span>
+              </div>
+              {pb.money_taken.length === 0 ? <div className="muted">—</div> : (
+                <>
+                  {pb.money_taken.map((m) => (
+                    <div key={m.payment_method} style={{ padding: '4px 0' }}>
+                      <div className="row" style={{ justifyContent: 'space-between' }}>
+                        <span>{PM_LABEL[m.payment_method] || m.payment_method}</span>
+                        <span style={{ fontWeight: 600 }}>{m.n} · {fmtMoney(m.revenue)}</span>
+                      </div>
+                      {Number(m.voucher_portion) > 0 && (
+                        <div className="muted" style={{ fontSize: 11 }}>incl. {fmtMoney(m.voucher_portion)} voucher sales</div>
+                      )}
+                    </div>
+                  ))}
+                  <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 2, fontWeight: 700 }}>
+                    <span>Total revenue</span><span style={{ color: '#C9A84C' }}>{fmtMoney(data.totals.revenue)}</span>
+                  </div>
+                </>
+              )}
             </div>
-          ))
-        )}
-      </div>
+
+            {/* ── Covered by an earlier payment (not counted again today) ── */}
+            {pb.already_paid && pb.already_paid.length > 0 && (
+              <div className="card col">
+                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <h3 style={{ margin: 0 }}>Covered by an earlier payment</h3>
+                  <span className="muted" style={{ fontSize: 12 }}>Not counted in today's revenue</span>
+                </div>
+                {pb.already_paid.map((m) => (
+                  <div key={m.payment_method} className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
+                    <span>{AP_LABEL[m.payment_method] || m.payment_method}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--muted)' }}>{m.n} · {fmtMoney(m.amount)}</span>
+                  </div>
+                ))}
+                <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                  This money already came in — when the voucher was sold, paid online, or before SiamEPOS — so it isn't added to today's revenue again.
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* ── Online deposits (SPA-PAY-001) ──────────────────────────
           Money landed in the spa's Stripe account when customers booked
@@ -222,31 +237,11 @@ export default function TradingSection() {
         </div>
       )}
 
-      {/* ── Voucher sales (deferred revenue) ───────────────────────
-          Tracked separately from bill revenue: vouchers are money
-          received but not yet earned (service hasn't been delivered).
-          Helps the owner reconcile the till at end of day without
-          double-counting voucher cash as earned revenue. */}
+      {/* Voucher sales are now folded into the card/cash lines above (with an
+          "incl. voucher sales" note), so we just show the count for context. */}
       {data.voucher_sales && data.voucher_sales.count > 0 && (
-        <div className="card col">
-          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <h3 style={{ margin: 0 }}>🎁 Voucher sales</h3>
-            <span className="muted" style={{ fontSize: 12 }}>Included in today's revenue</span>
-          </div>
-          <div className="row" style={{ justifyContent: 'space-between', padding: '6px 0' }}>
-            <span><strong>{data.voucher_sales.count}</strong> voucher{data.voucher_sales.count === 1 ? '' : 's'} sold today</span>
-            <span style={{ fontWeight: 700, color: '#C9A84C' }}>{fmtMoney(data.voucher_sales.total)}</span>
-          </div>
-          {data.voucher_sales.by_payment_method?.length > 0 && (
-            <div style={{ paddingTop: 6, borderTop: '1px solid var(--border)' }}>
-              {data.voucher_sales.by_payment_method.map((m) => (
-                <div key={m.payment_method} className="row" style={{ justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
-                  <span className="muted">{m.payment_method}</span>
-                  <span>{m.n} · {fmtMoney(m.revenue)}</span>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="muted" style={{ fontSize: 12 }}>
+          🎁 {data.voucher_sales.count} voucher{data.voucher_sales.count === 1 ? '' : 's'} sold today ({fmtMoney(data.voucher_sales.total)}) — included in the card/cash totals above.
         </div>
       )}
     </div>

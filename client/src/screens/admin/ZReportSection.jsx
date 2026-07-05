@@ -3,6 +3,8 @@ import { api } from '../../api.js';
 
 function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
 const KIND_LABEL = { treatment: '💆 Treatments', retail: '🛍 Products', addon: '➕ Add-ons' };
+const PM_LABEL = { card: '💳 Card', cash: '💵 Cash', treatwell: '🌐 Treatwell', online: '🌐 Online prepayment', split: '⇄ Split', voucher: '🎁 Voucher' };
+const AP_LABEL = { voucher: '🎁 Voucher redeemed', external: '🧾 Already paid (external)', deposit: '🌐 Deposit (prepaid online)' };
 // Local-time YYYY-MM-DD — toISOString returns UTC, which rolls over to
 // "tomorrow" between 23:00 and 00:00 local for any TZ ahead of UTC.
 function todayISO() {
@@ -209,16 +211,45 @@ export default function ZReportSection() {
           <span>Total ({data.totals.bills} bills)</span><span>{fmtMoney(data.totals.total)}</span>
         </div>
 
-        <div>
-          <strong>By payment method</strong>
-          {data.by_payment_method.length === 0 ? <div className="muted">—</div> :
-            data.by_payment_method.map((m) => (
-              <div key={m.payment_method} className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
-                <span>{m.payment_method === 'deposit' ? '🌐 deposit (online)' : (m.payment_method || '—')}</span>
-                <span>{m.n} · {fmtMoney(m.revenue)}</span>
+        {(() => {
+          const pb = data.payment_breakdown || { money_taken: data.by_payment_method || [], already_paid: [] };
+          return (
+            <>
+              <div>
+                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <strong>By payment method</strong>
+                  <span className="muted" style={{ fontSize: 12 }}>Money taken</span>
+                </div>
+                {pb.money_taken.length === 0 ? <div className="muted">—</div> :
+                  pb.money_taken.map((m) => (
+                    <div key={m.payment_method} style={{ padding: '4px 0' }}>
+                      <div className="row" style={{ justifyContent: 'space-between' }}>
+                        <span>{PM_LABEL[m.payment_method] || m.payment_method}</span>
+                        <span>{m.n} · {fmtMoney(m.revenue)}</span>
+                      </div>
+                      {Number(m.voucher_portion) > 0 && (
+                        <div className="muted" style={{ fontSize: 11 }}>incl. {fmtMoney(m.voucher_portion)} voucher sales</div>
+                      )}
+                    </div>
+                  ))}
               </div>
-            ))}
-        </div>
+              {pb.already_paid && pb.already_paid.length > 0 && (
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 4 }}>
+                  <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+                    <strong>Covered by an earlier payment</strong>
+                    <span className="muted" style={{ fontSize: 12 }}>Not in today's revenue</span>
+                  </div>
+                  {pb.already_paid.map((m) => (
+                    <div key={m.payment_method} className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
+                      <span>{AP_LABEL[m.payment_method] || m.payment_method}</span>
+                      <span style={{ color: 'var(--muted)' }}>{m.n} · {fmtMoney(m.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          );
+        })()}
 
         {/* SPA-BILL-ITEMS — revenue split by line-item type (treatment vs
             retail products vs add-ons) so the owner sees how much came from

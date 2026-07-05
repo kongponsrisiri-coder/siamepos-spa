@@ -68,6 +68,42 @@ async function billsByMethod(baseWhere, params) {
   return { rows };
 }
 
+// SPA-REVENUE-CLARITY — split a day's/range's payments into two clear groups so
+// the "by payment method" view is easy to understand and reconciles to revenue:
+//   • money_taken  — real money in today (= Revenue): till cash/card/Treatwell +
+//                    voucher SALES folded into the method they were bought with +
+//                    online prepayments.
+//   • already_paid — bills covered by money that came in EARLIER, so not counted
+//                    again today: voucher redemptions, 'external' (already paid),
+//                    and the online-deposit portion at bill close.
+const MONEY_IN_METHODS = new Set(['cash', 'card', 'treatwell']);
+const ALREADY_PAID_METHODS = new Set(['voucher', 'external', 'deposit']);
+function buildPaymentBreakdown(byMethodRows, voucherSalesRows, prepay) {
+  const agg = {};
+  const ensure = (m) => (agg[m] || (agg[m] = { payment_method: m, n: 0, revenue: 0, voucher_portion: 0 }));
+  for (const r of byMethodRows) {
+    if (MONEY_IN_METHODS.has(r.payment_method)) {
+      const a = ensure(r.payment_method); a.n += Number(r.n || 0); a.revenue += Number(r.revenue || 0);
+    }
+  }
+  for (const r of (voucherSalesRows || [])) {                 // voucher sale → its buy method
+    const a = ensure(r.payment_method || 'card');
+    a.n += Number(r.n || 0); a.revenue += Number(r.revenue || 0); a.voucher_portion += Number(r.revenue || 0);
+  }
+  if (prepay && Number(prepay.total) > 0) {                   // online prepayments
+    const a = ensure('online'); a.n += Number(prepay.count || 0); a.revenue += Number(prepay.total || 0);
+  }
+  const money_taken = Object.values(agg)
+    .map((r) => ({ ...r, revenue: +r.revenue.toFixed(2), voucher_portion: +r.voucher_portion.toFixed(2) }))
+    .sort((a, b) => b.revenue - a.revenue);
+  const already_paid = byMethodRows
+    .filter((r) => ALREADY_PAID_METHODS.has(r.payment_method))
+    .map((r) => ({ payment_method: r.payment_method, n: Number(r.n || 0), amount: +Number(r.revenue || 0).toFixed(2) }))
+    .sort((a, b) => b.amount - a.amount);
+  const revenue = +money_taken.reduce((s, r) => s + r.revenue, 0).toFixed(2);
+  return { money_taken, already_paid, revenue };
+}
+
 router.get('/trading', async (req, res) => {
   const date = req.query.date || today();
   try {
@@ -179,36 +215,29 @@ router.get('/trading', async (req, res) => {
       [date],
     );
 
-    // ── Cash-basis revenue (SPA-REVENUE-CASH) ────────────────────────────
-    // Revenue = money actually taken today, counted ONCE at the moment it
-    // arrives: till cash/card/Treatwell + voucher SALES + online prepayments.
-    // Voucher REDEMPTIONS, the online-DEPOSIT tender at bill-close, and
-    // 'external' already-paid settlements are excluded — they were counted at
-    // their real money-in moment (voucher sale day / online-payment day / before
-    // install), so counting the bill again would double-count.
-    const MONEY_IN = new Set(['cash', 'card', 'treatwell']);
-    const moneyInRows = byMethod.rows.filter((r) => MONEY_IN.has(r.payment_method));
-    const billMoneyIn = moneyInRows.reduce((s, r) => s + Number(r.revenue || 0), 0);
-    const voucherSaleTotal = Number(voucherSales.rows[0].total || 0);
-    const prepayTotal = Number(onlineDeposits.rows[0].total_taken || 0);
-    const revenue = +(billMoneyIn + voucherSaleTotal + prepayTotal).toFixed(2);
+    // Cash-basis revenue + the clear two-group payment breakdown.
+    const od = onlineDeposits.rows[0];
+    const prepayCount = Number(od.count_pending) + Number(od.count_consumed) + Number(od.count_forfeit);
+    const pb = buildPaymentBreakdown(byMethod.rows, voucherSalesByMethod.rows, { total: Number(od.total_taken || 0), count: prepayCount });
+    const billMoneyIn = byMethod.rows.filter((r) => MONEY_IN_METHODS.has(r.payment_method)).reduce((s, r) => s + Number(r.revenue || 0), 0);
 
     res.json({
       date,
       identity: await loadIdentity(),
-      totals: { ...totals.rows[0], revenue },
-      revenue_breakdown: { till: +billMoneyIn.toFixed(2), voucher_sales: voucherSaleTotal, prepayments: prepayTotal },
+      totals: { ...totals.rows[0], revenue: pb.revenue },
+      revenue_breakdown: { till: +billMoneyIn.toFixed(2), voucher_sales: Number(voucherSales.rows[0].total || 0), prepayments: Number(od.total_taken || 0) },
+      payment_breakdown: { money_taken: pb.money_taken, already_paid: pb.already_paid },
       appointments: appts.rows[0],
       top_treatments: top.rows,
       by_kind: byKind.rows,
-      by_payment_method: moneyInRows,
+      by_payment_method: pb.money_taken,   // kept for back-compat; = money_taken
       by_source: bySource.rows,
       voucher_sales: {
         count:  voucherSales.rows[0].count,
         total:  voucherSales.rows[0].total,
         by_payment_method: voucherSalesByMethod.rows,
       },
-      online_deposits: onlineDeposits.rows[0],
+      online_deposits: od,
     });
   } catch (err) {
     console.error('[reports] trading', err);
@@ -255,8 +284,34 @@ router.get('/therapist', async (req, res) => {
          AND ($2::date IS NULL OR closed_at::date <= $2::date)`,
       [from || null, to || null],
     );
+    // Voucher sales + online prepayments over the range, for the clear breakdown.
+    const vSales = await pool.query(
+      `SELECT COALESCE(payment_method, 'card') AS payment_method, COUNT(*)::int AS n,
+              COALESCE(SUM(initial_value), 0)::numeric AS revenue
+       FROM vouchers
+       WHERE ($1::date IS NULL OR purchased_at::date >= $1::date)
+         AND ($2::date IS NULL OR purchased_at::date <= $2::date)
+       GROUP BY COALESCE(payment_method, 'card')`,
+      [from || null, to || null],
+    );
+    const dep = await pool.query(
+      `SELECT (COUNT(*) FILTER (WHERE payment_status IN ('deposit_paid','fully_paid','forfeit')))::int AS count,
+              COALESCE(SUM(deposit_amount) FILTER (WHERE payment_status IN ('deposit_paid','fully_paid','forfeit')), 0)::numeric AS total
+       FROM appointments
+       WHERE source = 'online'
+         AND ($1::date IS NULL OR created_at::date >= $1::date)
+         AND ($2::date IS NULL OR created_at::date <= $2::date)`,
+      [from || null, to || null],
+    );
+    const pb = buildPaymentBreakdown(byMethod, vSales.rows, { total: Number(dep.rows[0].total || 0), count: Number(dep.rows[0].count || 0) });
 
-    res.json({ identity: await loadIdentity(), therapists, by_payment_method: byMethod });
+    res.json({
+      identity: await loadIdentity(),
+      therapists,
+      by_payment_method: pb.money_taken,   // back-compat; = money_taken
+      payment_breakdown: { money_taken: pb.money_taken, already_paid: pb.already_paid },
+      revenue: pb.revenue,
+    });
   } catch (err) {
     console.error('[reports] therapist', err);
     res.status(500).json({ error: 'server error' });
@@ -363,19 +418,19 @@ router.get('/z-report', async (req, res) => {
     // Cash-basis money-taken (mirrors /trading): till cash/card/Treatwell +
     // voucher SALES + online prepayments. `total`/`subtotal`/`vat` above stay on
     // the accrual (services-delivered) basis for the VAT record.
-    const MONEY_IN = new Set(['cash', 'card', 'treatwell']);
-    const billMoneyIn = byMethod.rows.filter((r) => MONEY_IN.has(r.payment_method)).reduce((s, r) => s + Number(r.revenue || 0), 0);
-    const voucherSaleTotal = Number(voucherSales.rows[0].total || 0);
-    const prepayTotal = Number(onlineDeposits.rows[0].total_taken || 0);
-    const revenue = +(billMoneyIn + voucherSaleTotal + prepayTotal).toFixed(2);
+    const zod = onlineDeposits.rows[0];
+    const zPrepayCount = Number(zod.count_pending) + Number(zod.count_consumed) + Number(zod.count_forfeit);
+    const pb = buildPaymentBreakdown(byMethod.rows, voucherSalesByMethod.rows, { total: Number(zod.total_taken || 0), count: zPrepayCount });
+    const billMoneyIn = byMethod.rows.filter((r) => MONEY_IN_METHODS.has(r.payment_method)).reduce((s, r) => s + Number(r.revenue || 0), 0);
     res.json({
       date,
-      totals: { ...totals.rows[0], revenue },
-      revenue_breakdown: { till: +billMoneyIn.toFixed(2), voucher_sales: voucherSaleTotal, prepayments: prepayTotal },
+      totals: { ...totals.rows[0], revenue: pb.revenue },
+      revenue_breakdown: { till: +billMoneyIn.toFixed(2), voucher_sales: Number(voucherSales.rows[0].total || 0), prepayments: Number(zod.total_taken || 0) },
+      payment_breakdown: { money_taken: pb.money_taken, already_paid: pb.already_paid },
       by_kind: byKindVat,
       vat,
-      by_payment_method: byMethod.rows,
-      online_deposits: onlineDeposits.rows[0],
+      by_payment_method: pb.money_taken,   // back-compat; = money_taken
+      online_deposits: zod,
       voucher_sales: {
         count: voucherSales.rows[0].count,
         total: voucherSales.rows[0].total,

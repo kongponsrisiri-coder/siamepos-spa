@@ -43,11 +43,14 @@ const METHOD_STYLE = {
   cash:      { color: '#9a3412', label: '💵 Cash' },
   card:      { color: '#9d174d', label: '💳 Card' },
   voucher:   { color: '#14532d', label: '🎁 Voucher' },
-  deposit:   { color: '#1e3a6e', label: '🌐 Deposit (online)' },
+  deposit:   { color: '#1e3a6e', label: '🌐 Deposit (prepaid online)' },
   treatwell: { color: '#854d0e', label: '🌐 Treatwell' },
   split:     { color: '#4c1d95', label: '⇄ Split' },
+  online:    { color: '#0891b2', label: '🌐 Online prepayment' },
+  external:  { color: '#334155', label: '🧾 Already paid (external)' },
   unknown:   { color: '#6b7280', label: '— Unknown' },
 };
+const AP_LABEL = { voucher: '🎁 Voucher redeemed', external: '🧾 Already paid (external)', deposit: '🌐 Deposit (prepaid online)' };
 
 function csvCell(v) {
   if (v === null || v === undefined) return '';
@@ -187,7 +190,7 @@ export default function ReportsSection() {
       <div className="card col">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
           <h3 style={{ margin: 0 }}>Payment methods — {from === to ? from : `${from} → ${to}`}</h3>
-          <span className="muted" style={{ fontSize: 12 }}>Split bills broken out into underlying methods</span>
+          <span className="muted" style={{ fontSize: 12 }}>Money taken (incl. voucher sales) = revenue</span>
         </div>
         {!therapistData?.by_payment_method?.length ? (
           <div className="muted">No closed bills in this range.</div>
@@ -217,6 +220,25 @@ export default function ReportsSection() {
           </div>
         )}
       </div>
+
+      {/* Covered by an earlier payment — voucher redemptions / external / deposits */}
+      {therapistData?.payment_breakdown?.already_paid?.length > 0 && (
+        <div className="card col">
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <h3 style={{ margin: 0 }}>Covered by an earlier payment</h3>
+            <span className="muted" style={{ fontSize: 12 }}>Not counted in revenue — already paid</span>
+          </div>
+          {therapistData.payment_breakdown.already_paid.map((m) => (
+            <div key={m.payment_method} className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
+              <span>{AP_LABEL[m.payment_method] || m.payment_method}</span>
+              <span style={{ color: 'var(--muted)', fontWeight: 600 }}>{m.n} · {fmtMoney(m.amount)}</span>
+            </div>
+          ))}
+          <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+            This money came in earlier (voucher sold, paid online, or before SiamEPOS), so it isn't added to revenue again.
+          </div>
+        </div>
+      )}
 
       {/* Booking source — Treatwell vs direct */}
       <div className="card">
