@@ -440,8 +440,11 @@ export default function CheckoutScreen() {
 
             <div>
               <label>Payment method</label>
-              <div className="row" style={{ flexWrap: 'wrap' }}>
-                {/* Order: Cash · Card · Voucher · Treatwell · Split */}
+              {/* Uniform grid so the six methods form neat rows on a phone
+                  instead of a ragged flex-wrap. auto-fit → 3 per row at ~375px,
+                  more on a wide screen. */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 8 }}>
+                {/* Order: Cash · Card · Voucher · Treatwell · Split · Already paid */}
                 <button
                   onClick={() => payConfirm('cash', 'CASH')} disabled={busy}
                   style={{ flex: 1, padding: 14, minWidth: 80, background: '#ffedd5', color: '#9a3412', border: '1px solid #f97316', fontWeight: 600 }}
@@ -744,9 +747,10 @@ export default function CheckoutScreen() {
           billId={bill.id}
           appointmentId={appointmentId}
           onClose={() => setShowSplit(false)}
-          onConfirm={async (split_payments, voucherRedemptions) => {
+          onConfirm={async (split_payments, voucherRedemptions, externalRef) => {
             // 1) Redeem each voucher first (cross-route — keeps bills.js
-            //    free of voucher logic). 2) Then mark the bill split-paid.
+            //    free of voucher logic). 2) Then mark the bill split-paid,
+            //    passing any "already paid" reference for the audit trail.
             for (const vr of voucherRedemptions) {
               await api.post(`/vouchers/${vr.voucher_id}/redeem`, {
                 amount: vr.amount,
@@ -754,7 +758,7 @@ export default function CheckoutScreen() {
                 notes: `Split payment for appointment #${appointmentId}`,
               });
             }
-            await pay('split', { split_payments });
+            await pay('split', { split_payments, ...(externalRef ? { external_voucher_code: externalRef } : {}) });
           }}
         />
       )}
@@ -980,9 +984,12 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
   const [error, setError] = useState('');
 
   const METHODS = [
-    { id: 'cash',    label: 'Cash',    bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
-    { id: 'card',    label: 'Card',    bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
-    { id: 'voucher', label: '🎁 Voucher', bg: '#dcfce7', border: '#16a34a', text: '#14532d' },
+    { id: 'cash',     label: 'Cash',    bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
+    { id: 'card',     label: 'Card',    bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
+    { id: 'voucher',  label: '🎁 Voucher', bg: '#dcfce7', border: '#16a34a', text: '#14532d' },
+    // Already paid outside SiamEPOS (pre-install voucher / online). Excluded from
+    // revenue — the money came in when the voucher was sold / paid online.
+    { id: 'external', label: '🧾 Already paid', bg: '#e2e8f0', border: '#64748b', text: '#334155' },
   ];
   const methodStyle = (id) => METHODS.find(m => m.id === id) || METHODS[0];
 
@@ -1052,6 +1059,13 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
       setError(`Voucher amount exceeds available balance.`);
       return;
     }
+    // Every "Already paid" line needs a reference for the audit trail.
+    const externalRows = rows.filter(r => r.method === 'external' && Number(r.amount) > 0);
+    if (externalRows.some(r => !(r.externalRef || '').trim())) {
+      setError('Enter a reference for each "Already paid" line.');
+      return;
+    }
+    const externalRef = externalRows.map(r => (r.externalRef || '').trim()).filter(Boolean).join('; ') || null;
     const clean = rows
       .filter(r => Number(r.amount) > 0)
       .map(r => ({ method: r.method, amount: +Number(r.amount).toFixed(2) }));
@@ -1065,7 +1079,7 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
       .filter(r => r.method === 'voucher' && r.voucher && Number(r.amount) > 0)
       .map(r => ({ voucher_id: r.voucher.id, amount: +Number(r.amount).toFixed(2) }));
     setBusy(true);
-    try { await onConfirm(clean, voucherRedemptions); }
+    try { await onConfirm(clean, voucherRedemptions, externalRef); }
     catch (e) { setError(e.message || 'Split payment failed'); setBusy(false); }
   }
 
@@ -1110,20 +1124,24 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
           {rows.map((r, i) => {
             const ms = methodStyle(r.method);
             const isVoucher = r.method === 'voucher';
+            const isExternal = r.method === 'external';
+            const isBoxed = isVoucher || isExternal;
             return (
               <div key={i} style={{
-                padding: isVoucher ? '10px 12px' : 0,
-                background: isVoucher ? ms.bg : 'transparent',
-                border: isVoucher ? `1px solid ${ms.border}` : 'none',
-                borderRadius: isVoucher ? 8 : 0,
+                padding: isBoxed ? '10px 12px' : 0,
+                background: isBoxed ? ms.bg : 'transparent',
+                border: isBoxed ? `1px solid ${ms.border}` : 'none',
+                borderRadius: isBoxed ? 8 : 0,
               }}>
-                <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+                {/* flexWrap so on a phone the amount/buttons drop to a 2nd line
+                    instead of crushing the method select. */}
+                <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                   <select
                     value={r.method}
-                    onChange={e => setRow(i, { method: e.target.value, voucherCode: '', voucher: null, voucherError: '' })}
+                    onChange={e => setRow(i, { method: e.target.value, voucherCode: '', voucher: null, voucherError: '', externalRef: '' })}
                     style={{
-                      width: 130,
-                      background: isVoucher ? 'white' : ms.bg,
+                      flex: '1 1 120px', minWidth: 120,
+                      background: isBoxed ? 'white' : ms.bg,
                       color: ms.text,
                       border: `2px solid ${ms.border}`,
                       fontWeight: 700,
@@ -1137,20 +1155,33 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
                     value={r.amount}
                     onChange={e => setRow(i, { amount: e.target.value })}
                     onFocus={e => e.target.select()}
-                    style={{ flex: 1, fontSize: 16, fontWeight: 600, textAlign: 'right' }}
+                    style={{ flex: '1 1 90px', minWidth: 90, fontSize: 16, fontWeight: 600, textAlign: 'right' }}
                     placeholder="0.00"
                     disabled={isVoucher && !r.voucher}
                   />
                   <button
                     onClick={() => autofillRemaining(i)}
                     title="Fill with the remaining amount"
-                    style={{ padding: '6px 10px', fontSize: 12 }}
+                    style={{ padding: '8px 10px', fontSize: 12, minHeight: 40 }}
                     disabled={isVoucher && !r.voucher}
                   >Use rest</button>
                   {rows.length > 1 && (
-                    <button onClick={() => removeRow(i)} style={{ padding: '6px 10px', fontSize: 12 }} aria-label="Remove row">✕</button>
+                    <button onClick={() => removeRow(i)} style={{ padding: '8px 10px', fontSize: 12, minHeight: 40 }} aria-label="Remove row">✕</button>
                   )}
                 </div>
+
+                {/* External / already-paid row — free-text reference */}
+                {isExternal && (
+                  <div style={{ marginTop: 8 }}>
+                    <input
+                      value={r.externalRef || ''}
+                      onChange={e => setRow(i, { externalRef: e.target.value })}
+                      placeholder="Reference (voucher code / online ref)"
+                      style={{ width: '100%', fontSize: 16 }}
+                    />
+                    <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>Already paid outside SiamEPOS — not counted in today's revenue.</div>
+                  </div>
+                )}
 
                 {/* Voucher row — code lookup + balance display */}
                 {isVoucher && (

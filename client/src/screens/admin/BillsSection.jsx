@@ -126,13 +126,13 @@ export default function BillsSection() {
 
       {/* Date filter */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-        <div>
+        <div style={{ flex: '1 1 130px', minWidth: 120 }}>
           <label style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 3 }}>From</label>
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ width: 150 }} />
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ width: '100%' }} />
         </div>
-        <div>
+        <div style={{ flex: '1 1 130px', minWidth: 120 }}>
           <label style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 3 }}>To</label>
-          <input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ width: 150 }} />
+          <input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ width: '100%' }} />
         </div>
         <button className="primary" onClick={load} disabled={loading} style={{ marginTop: 18 }}>
           {loading ? 'Loading…' : 'Search'}

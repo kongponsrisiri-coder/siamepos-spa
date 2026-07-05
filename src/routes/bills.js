@@ -277,7 +277,7 @@ router.post('/:id/pay', async (req, res) => {
     if (!Array.isArray(split_payments) || split_payments.length === 0) {
       return res.status(400).json({ error: 'split_payments required when method=split' });
     }
-    const ALLOWED = ['cash', 'card', 'voucher'];
+    const ALLOWED = ['cash', 'card', 'voucher', 'external'];
     const clean = [];
     for (const p of split_payments) {
       const m = String(p.method || '').toLowerCase();
@@ -459,7 +459,7 @@ router.put('/:id/method', requireRole('admin', 'manager'), async (req, res) => {
       if (!Array.isArray(split_payments) || split_payments.length === 0) {
         return res.status(400).json({ error: 'split_payments required when method=split' });
       }
-      const ALLOWED = ['cash', 'card', 'voucher'];
+      const ALLOWED = ['cash', 'card', 'voucher', 'external'];
       const clean = [];
       for (const p of split_payments) {
         const m = String(p.method || '').toLowerCase();
