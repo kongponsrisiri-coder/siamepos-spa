@@ -131,7 +131,7 @@ export default function BillsSection() {
             onClick={handleHeadingTap}
             style={{ margin: 0, cursor: 'default', userSelect: 'none' }}
           >Bills</h2>
-          <div className="sub">Paid bill history · tap heading 5× to unlock manager delete</div>
+          <div className="sub"></div>
         </div>
 
         {/* Countdown pill — only visible when unlocked */}
