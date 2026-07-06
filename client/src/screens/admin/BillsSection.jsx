@@ -2,7 +2,7 @@
 // Delete is hidden behind a 5-tap gesture on the heading + manager PIN.
 // Deleting a bill resets the linked appointment back to 'booked'.
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { api, loginPin } from '../../api.js';
 
 // Local-time YYYY-MM-DD — toISOString returns UTC, which rolls over to
@@ -21,8 +21,19 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-const METHOD_LABEL = { cash: '💵 Cash', card: '💳 Card', split: '🔀 Split', voucher: '🎁 Voucher', treatwell: '🌐 Treatwell' };
+const METHOD_LABEL = { cash: '💵 Cash', card: '💳 Card', split: '🔀 Split', voucher: '🎁 Voucher', treatwell: '🌐 Treatwell', external: '🧾 Already paid' };
+const PM_EMOJI = { deposit: '🌐', voucher: '🎁', cash: '💵', card: '💳', external: '🧾', treatwell: '🌐', online: '🌐' };
+const PM_NAME  = { deposit: 'Deposit (prepaid online)', voucher: 'Voucher', cash: 'Cash', card: 'Card', external: 'Already paid', treatwell: 'Treatwell' };
 const UNLOCK_MS = 5 * 60 * 1000; // 5 minutes
+
+// split_payments arrives as a real array on the cloud (JSONB) but as a JSON
+// STRING on the local/desktop till (SQLite TEXT). Parse both so the breakdown
+// always renders.
+function parseSplit(b) {
+  let sp = b.split_payments;
+  if (typeof sp === 'string') { try { sp = JSON.parse(sp); } catch { sp = null; } }
+  return Array.isArray(sp) && sp.length > 0 ? sp : null;
+}
 
 export default function BillsSection() {
   const [from, setFrom]       = useState(todayISO());
@@ -32,6 +43,7 @@ export default function BillsSection() {
   const [deleting, setDeleting] = useState(null);
   const [confirm, setConfirm]   = useState(null);
   const [receipt, setReceipt]   = useState(null); // bill row for the receipt modal
+  const [expanded, setExpanded] = useState(null); // bill id whose payment breakdown is open
 
   // ── Hidden 5-tap unlock ──────────────────────────────────────────────────
   // Tap the "🧾 Bill Records" heading 5 times within 3 s to open the
@@ -101,9 +113,8 @@ export default function BillsSection() {
   const TILL_METHODS = new Set(['cash', 'card', 'treatwell']);
   const billTaken = (b) => {
     if (b.payment_status === 'refunded') return 0;
-    let sp = b.split_payments;
-    if (typeof sp === 'string') { try { sp = JSON.parse(sp); } catch { sp = null; } }
-    if (b.payment_method === 'split' && Array.isArray(sp)) {
+    const sp = parseSplit(b);
+    if (b.payment_method === 'split' && sp) {
       return sp.filter((p) => TILL_METHODS.has(p.method)).reduce((s, p) => s + Number(p.amount || 0), 0);
     }
     return TILL_METHODS.has(b.payment_method) ? Number(b.total || 0) : 0;
@@ -195,8 +206,18 @@ export default function BillsSection() {
               </tr>
             </thead>
             <tbody>
-              {bills.map(b => (
-                <tr key={b.id} style={{ borderBottom: '1px solid var(--border)' }}>
+              {bills.map(b => {
+                const sp = parseSplit(b);
+                const alreadyPaid = Number(b.already_paid || 0);
+                const isSplitLike = b.payment_method === 'split' || alreadyPaid > 0;
+                const isOpen = expanded === b.id;
+                const nCols = 8 + (isUnlocked ? 1 : 0);
+                return (
+                <Fragment key={b.id}>
+                <tr
+                  onClick={() => setExpanded(isOpen ? null : b.id)}
+                  style={{ borderBottom: isOpen ? 'none' : '1px solid var(--border)', cursor: 'pointer', background: isOpen ? '#f8fafc' : undefined }}
+                >
                   <td style={{ padding: '10px', whiteSpace: 'nowrap', fontSize: 13 }}>{fmtDateTime(b.closed_at)}</td>
                   <td style={{ padding: '10px', fontWeight: 500 }}>{b.client_name || <span className="muted">Walk-in</span>}</td>
                   <td style={{ padding: '10px', color: 'var(--muted)', fontSize: 13 }}>{b.treatment_name || '—'}</td>
@@ -204,20 +225,9 @@ export default function BillsSection() {
                   <td style={{ padding: '10px', fontFamily: 'monospace', color: b.tip > 0 ? 'var(--success)' : 'var(--muted)' }}>{fmtMoney(b.tip)}</td>
                   <td style={{ padding: '10px', fontFamily: 'monospace', fontWeight: 700 }}>{fmtMoney(b.total)}</td>
                   <td style={{ padding: '10px', fontSize: 13 }}>
-                    {METHOD_LABEL[b.payment_method] || b.payment_method || '—'}
-                    {/* SPA-PAY-001 — break the split into its underlying
-                        rows so an auditor can see exactly how the bill
-                        was paid (deposit + cash, voucher + card, etc.) */}
-                    {b.payment_method === 'split' && Array.isArray(b.split_payments) && b.split_payments.length > 0 && (
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>
-                        {b.split_payments.map((p, i) => (
-                          <div key={i}>
-                            {p.method === 'deposit' ? '🌐' : p.method === 'voucher' ? '🎁' : p.method === 'cash' ? '💵' : p.method === 'card' ? '💳' : '·'}
-                            {' '}
-                            {p.method} £{Number(p.amount).toFixed(2)}
-                          </div>
-                        ))}
-                      </div>
+                    <span>{METHOD_LABEL[b.payment_method] || b.payment_method || '—'}</span>
+                    {isSplitLike && (
+                      <span style={{ fontSize: 11, color: 'var(--brand, #C9A84C)', marginLeft: 6 }}>{isOpen ? '▲' : '▼ how it split'}</span>
                     )}
                     {b.external_voucher_code && (
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
@@ -227,19 +237,32 @@ export default function BillsSection() {
                   </td>
                   {/* SEPOS-SPA-RECEIPT-001 — issue a (VAT) receipt, printable + emailable */}
                   <td style={{ padding: '10px' }}>
-                    <button onClick={() => setReceipt(b)} style={{ fontSize: 12, padding: '4px 10px' }}>🧾 Receipt</button>
+                    <button onClick={(e) => { e.stopPropagation(); setReceipt(b); }} style={{ fontSize: 12, padding: '4px 10px' }}>🧾 Receipt</button>
                   </td>
                   {/* 🗑 only visible when manager has unlocked */}
                   {isUnlocked && (
                     <td style={{ padding: '10px' }}>
                       <button
-                        onClick={() => setConfirm(b)}
+                        onClick={(e) => { e.stopPropagation(); setConfirm(b); }}
                         style={{ fontSize: 12, padding: '4px 10px', color: 'var(--danger)', borderColor: 'var(--danger)' }}
                       >🗑</button>
                     </td>
                   )}
                 </tr>
-              ))}
+                {/* ── Click-to-expand payment breakdown ─────────────────
+                    Shows exactly how the bill was settled: each real payment
+                    at the till, plus any "already paid" (voucher/online, taken
+                    earlier — £0 today) with its reference. */}
+                {isOpen && (
+                  <tr style={{ borderBottom: '1px solid var(--border)', background: '#f8fafc' }}>
+                    <td colSpan={nCols} style={{ padding: '4px 10px 14px 30px' }}>
+                      <PaymentBreakdown b={b} sp={sp} alreadyPaid={alreadyPaid} />
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
+                );
+              })}
             </tbody>
             <tfoot>
               {/* HEADLINE — money actually taken at the till (the figure to
@@ -318,6 +341,54 @@ export default function BillsSection() {
 
       {/* SEPOS-SPA-RECEIPT-001 — receipt preview / print / email */}
       {receipt && <ReceiptModal bill={receipt} onClose={() => setReceipt(null)} />}
+    </div>
+  );
+}
+
+// ── Click-to-expand payment breakdown ────────────────────────────────────────
+// Shows exactly how a bill was settled: each real payment taken at the till,
+// then any "already paid" money (a pre-install voucher / online payment taken
+// earlier). Already-paid is shown as £0.00 on the report — the operator may
+// have recorded any amount, but it never counts as money taken today.
+function PaymentBreakdown({ b, sp, alreadyPaid }) {
+  // Real payment lines: the split rows, or the single method + total.
+  const rows = sp
+    ? sp.map(p => ({ method: p.method, amount: Number(p.amount || 0) }))
+    : (b.payment_method && b.payment_method !== 'external'
+        ? [{ method: b.payment_method, amount: Number(b.total || 0) }]
+        : []);
+  const real = rows.filter(r => r.method !== 'external');
+  // New bills carry the already-paid amount in its own column; older bills
+  // had an 'external' line inside the split — support both.
+  const extInSplit = rows.filter(r => r.method === 'external').reduce((s, r) => s + r.amount, 0);
+  const recorded   = +(Number(alreadyPaid || 0) + extInSplit).toFixed(2);
+  const takenSum   = +real.reduce((s, r) => s + r.amount, 0).toFixed(2);
+
+  const line = (emoji, label, value, opts = {}) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '3px 0' }}>
+      <span style={{ color: opts.mutedLabel ? 'var(--muted)' : 'inherit' }}>{emoji} {label}</span>
+      <span style={{ fontFamily: 'monospace', fontWeight: opts.bold ? 800 : 600, color: opts.color || 'inherit', whiteSpace: 'nowrap' }}>{value}</span>
+    </div>
+  );
+
+  return (
+    <div style={{ fontSize: 13, maxWidth: 480 }}>
+      <div style={{ fontWeight: 700, color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>
+        How it was paid
+      </div>
+      {real.length === 0 && recorded > 0 && line('🧾', 'Nothing taken at the till', '£0.00', { mutedLabel: true })}
+      {real.map((r, i) => (
+        <div key={i}>{line(PM_EMOJI[r.method] || '·', PM_NAME[r.method] || r.method, '£' + r.amount.toFixed(2))}</div>
+      ))}
+      {recorded > 0 && line(
+        '🧾',
+        `Already paid — recorded £${recorded.toFixed(2)}${b.external_voucher_code ? `, ref ${b.external_voucher_code}` : ''}`,
+        '£0.00',
+        { bold: true, color: '#166534' },
+      )}
+      <div style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 4 }}>
+        {line('', 'Counts on the report', '£' + takenSum.toFixed(2), { bold: true, color: '#166534' })}
+      </div>
     </div>
   );
 }
