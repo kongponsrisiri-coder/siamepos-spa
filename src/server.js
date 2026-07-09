@@ -83,7 +83,7 @@ app.get('/api/health', async (_req, res) => {
     );
     tills = rows;
   } catch (e) { /* devices table may not exist on an old DB — report no tills */ }
-  res.json({ ok: true, service: 'siamepos-spa', time: new Date().toISOString(), tills });
+  res.json({ ok: true, service: 'siamepos-spa', build: 'settings-sync-43c9321', time: new Date().toISOString(), tills });
 });
 
 // Public booking widget — served from the backend so any external site can
