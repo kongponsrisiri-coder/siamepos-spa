@@ -83,7 +83,10 @@ app.get('/api/health', async (_req, res) => {
     );
     tills = rows;
   } catch (e) { /* devices table may not exist on an old DB — report no tills */ }
-  res.json({ ok: true, service: 'siamepos-spa', build: 'settings-sync-43c9321', time: new Date().toISOString(), tills });
+  // `build` = the git sha Railway deployed (empty on CLI `railway up` deploys).
+  // Lets us verify which code is actually serving without guessing.
+  const build = (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7) || 'cli-deploy';
+  res.json({ ok: true, service: 'siamepos-spa', build, time: new Date().toISOString(), tills });
 });
 
 // Public booking widget — served from the backend so any external site can
