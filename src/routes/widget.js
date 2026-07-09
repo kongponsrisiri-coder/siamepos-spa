@@ -72,6 +72,9 @@ router.get('/branding', async (_req, res) => {
          ('spa_name','brand_logo','brand_primary','brand_accent','brand_logo_size')`,
     );
     const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    // Never cache branding — the login must reflect a name/logo/colour change the
+    // instant it's saved (no stale ETag/304 from the browser or Electron cache).
+    res.set('Cache-Control', 'no-store');
     res.json({
       spa_name:        s.spa_name        || process.env.SPA_NAME || 'SiamEPOS Spa',
       brand_logo:      s.brand_logo      || '',
