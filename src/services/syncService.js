@@ -278,6 +278,23 @@ async function writeSyncState(key, value) {
 // ───────────────────────────────────────────────────────────────────────────
 
 // /config → cloud-authoritative catalog tables, all keyed by their own PK.
+// SPA-SETTINGS-SYNC — keys with an un-pushed local settings change. pullConfig
+// must NOT overwrite these with the cloud's older value until our push lands
+// (the pending-guard, mirroring the restaurant EPOS).
+async function pendingSettingKeys() {
+  if (!offlineQueue.isLocal) return new Set();
+  try {
+    const r = await pool.query(
+      `SELECT payload FROM sync_queue WHERE status = 'pending' AND op = 'update_setting'`
+    );
+    const keys = new Set();
+    for (const row of r.rows) {
+      try { const p = JSON.parse(row.payload); if (p && p.key) keys.add(p.key); } catch { /* skip */ }
+    }
+    return keys;
+  } catch { return new Set(); }
+}
+
 async function pullConfig() {
   try {
     const data = await getJSON('/api/sync/config', { headers: syncHeaders() });
@@ -290,8 +307,12 @@ async function pullConfig() {
     total += await upsertRows('therapist_availability', 'id', data.therapist_availability || []);
     total += await upsertRows('therapist_rota_overrides', 'id', data.therapist_rota_overrides || []);
     total += await upsertRows('rooms', 'id', data.rooms || []);
-    // settings: array of { key, value } rows, PK = key.
-    total += await upsertRows('settings', 'key', data.settings || []);
+    // settings: array of { key, value } rows, PK = key. Skip keys with an
+    // un-pushed local change so the cloud-wins pull can't revert a save the
+    // operator just made on this till (SPA-SETTINGS-SYNC pending-guard).
+    const skipKeys = await pendingSettingKeys();
+    const cloudSettings = (data.settings || []).filter((r) => !skipKeys.has(r.key));
+    total += await upsertRows('settings', 'key', cloudSettings);
     if (total > 0) console.log(`[sync] pull config: ${total} rows`);
   } catch (err) {
     console.warn('[sync] pull config failed:', err.message);
@@ -671,6 +692,38 @@ async function syncOnce() {
 }
 let _lastPushWarn = 0;
 
+// SPA-SETTINGS-SYNC — push queued settings changes to the cloud master,
+// INDEPENDENT of the general B3 drain (so a stuck appointment/bill op can't
+// block a settings change). Runs before the pull each tick, so the cloud has
+// the change before pullConfig runs. Cloud PUT /api/settings is sync-secret-
+// gated; a failure leaves the row pending (retry next tick) and the pending-
+// guard keeps the local value in the meantime.
+async function drainSettings() {
+  const queue = await offlineQueue.pending();
+  for (const entry of queue) {
+    if (entry.action_type !== 'update_setting') continue;
+    const { key, value } = entry.payload || {};
+    if (!key) { await offlineQueue.markSynced(entry.id); continue; } // drop malformed
+    try {
+      const r = await fetch(CLOUD_API_URL + '/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...syncHeaders() },
+        body: JSON.stringify({ key, value }),
+        signal: AbortSignal.timeout(PULL_TIMEOUT_MS),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      await offlineQueue.markSynced(entry.id);
+    } catch (err) {
+      const now = Date.now();
+      if (!_lastSettingsWarn || now - _lastSettingsWarn > 60_000) {
+        console.warn(`[sync] settings push retry (#${entry.id} ${key}): ${err.message}`);
+        _lastSettingsWarn = now;
+      }
+    }
+  }
+}
+let _lastSettingsWarn = 0;
+
 // ───────────────────────────────────────────────────────────────────────────
 // Status helpers + tick loop.
 // ───────────────────────────────────────────────────────────────────────────
@@ -721,6 +774,14 @@ async function tick() {
       await syncOnce();
     } catch (err) {
       console.warn('[sync] syncOnce error (swallowed):', err.message);
+    }
+    // Push queued settings changes up BEFORE pulling, so the cloud already has
+    // them when pullConfig runs (SPA-SETTINGS-SYNC). Independent of syncOnce so
+    // a stuck B3 op can't block it.
+    try {
+      await drainSettings();
+    } catch (err) {
+      console.warn('[sync] drainSettings error (swallowed):', err.message);
     }
     await pullFromCloud();
 

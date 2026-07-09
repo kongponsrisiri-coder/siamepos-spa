@@ -2,14 +2,13 @@ const express = require('express');
 const crypto = require('crypto');
 const { pool } = require('../db/dbAdapter');
 const { requireRole } = require('../middleware/auth');
+const offlineQueue = require('../services/offlineQueue');
 
 const router = express.Router();
 
-const DB_MODE       = (process.env.DB_MODE || 'cloud').toLowerCase();
-const CLOUD_API_URL = process.env.CLOUD_API_URL || '';
-const SYNC_SECRET   = process.env.SYNC_SECRET || '';
+const SYNC_SECRET = process.env.SYNC_SECRET || '';
 
-// Constant-time compare of the x-sync-secret header (mirrors routes/sync.js).
+// Constant-time compare of the x-sync-secret header (identical to routes/sync.js).
 function secretOk(req) {
   const provided = req.get('x-sync-secret') || '';
   if (!SYNC_SECRET || !provided) return false;
@@ -19,26 +18,11 @@ function secretOk(req) {
 
 // SPA-BRAND-001 — settings can be written by an admin/manager (web / JWT) OR
 // with the shared sync secret. The sync-secret path is what lets a desktop till
-// (local DB) push its own settings change up to the cloud master — same trust
-// model as the SYNC_SECRET-gated pull feed, and how the restaurant EPOS does it.
+// push its own settings change up to the cloud master — same trust model as the
+// SYNC_SECRET-gated pull feed, and how the restaurant EPOS does it.
 function settingsAuth(req, res, next) {
   if (secretOk(req)) return next();
   return requireRole('admin', 'manager')(req, res, next);
-}
-
-// SPA-BRAND-001 — the desktop till runs a LOCAL DB (DB_MODE=local) whose settings
-// the cloud-wins pull would otherwise overwrite. So when a till saves a setting,
-// propagate it to the cloud master immediately (best-effort, fire-and-forget) so
-// it sticks everywhere. No-op on the cloud server itself (DB_MODE=cloud), which
-// prevents any loop.
-function pushSettingToCloud(key, value) {
-  if (DB_MODE !== 'local' || !CLOUD_API_URL || !SYNC_SECRET) return;
-  fetch(CLOUD_API_URL.replace(/\/+$/, '') + '/api/settings', {
-    method: 'PUT',
-    headers: { 'content-type': 'application/json', 'x-sync-secret': SYNC_SECRET },
-    body: JSON.stringify({ key, value }),
-  }).then((r) => { if (!r.ok) console.warn('[settings] cloud push', key, '→', r.status); })
-    .catch((e) => console.warn('[settings] cloud push failed:', key, e.message));
 }
 
 // GET /api/settings — returns all settings as { key: value }
@@ -64,7 +48,12 @@ router.put('/', settingsAuth, async (req, res) => {
        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
       [key, stored],
     );
-    pushSettingToCloud(key, stored); // local till → cloud master (no-op on the cloud)
+    // SPA-SETTINGS-SYNC — on a desktop till (DB_MODE=local) queue a push to the
+    // cloud master so the change syncs and isn't reverted by the cloud-wins
+    // pull. syncService.drainSettings() pushes it and pullConfig guards the
+    // pull against the pending key (mirrors the restaurant EPOS's
+    // update_kv_settings). No-op in cloud mode.
+    await offlineQueue.enqueue('update_setting', { key, value: stored });
     res.json({ ok: true });
   } catch (err) {
     console.error('[settings] put', err);
