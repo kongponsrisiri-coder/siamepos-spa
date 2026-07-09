@@ -22,7 +22,12 @@ function secretOk(req) {
 // SYNC_SECRET-gated pull feed, and how the restaurant EPOS does it.
 function settingsAuth(req, res, next) {
   if (secretOk(req)) return next();
-  return requireRole('admin', 'manager')(req, res, next);
+  // JWT path: requireAuth verifies the token AND populates req.staff, which
+  // requireRole reads — so requireAuth MUST run first. (The old mount-level
+  // requireAuth used to do this; running requireRole alone 401s every valid
+  // token because req.staff is undefined, which the client reads as a dead
+  // session and bounces to the login screen.)
+  return requireAuth(req, res, () => requireRole('admin', 'manager')(req, res, next));
 }
 
 // GET /api/settings — returns all settings as { key: value }.
