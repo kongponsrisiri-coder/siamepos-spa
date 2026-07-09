@@ -118,7 +118,7 @@ export default function VouchersSection() {
                   )}
                   {/* Balance bar */}
                   <div style={{ width: 80, height: 4, background: '#e5e7eb', borderRadius: 2, marginTop: 4, marginLeft: 'auto' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', background: v.status === 'active' ? '#C9A84C' : '#9ca3af', borderRadius: 2 }} />
+                    <div style={{ width: `${pct}%`, height: '100%', background: v.status === 'active' ? 'var(--gold)' : '#9ca3af', borderRadius: 2 }} />
                   </div>
                 </div>
               </div>
@@ -231,7 +231,7 @@ function CreateVoucherModal({ onClose, onSaved }) {
             <div style={{ fontWeight: 700, fontSize: 18 }}>Voucher Created!</div>
             <div style={{ background: '#1e3a6e', color: 'white', borderRadius: 12, padding: '20px 28px' }}>
               <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.65)', marginBottom: 4 }}>Voucher Code</div>
-              <div style={{ fontFamily: 'monospace', fontSize: 28, fontWeight: 700, letterSpacing: 3, color: '#C9A84C' }}>{created.code}</div>
+              <div style={{ fontFamily: 'monospace', fontSize: 28, fontWeight: 700, letterSpacing: 3, color: 'var(--gold)' }}>{created.code}</div>
               {created.voucher_type === 'sessions' ? (
                 <>
                   <div style={{ fontSize: 20, fontWeight: 700, marginTop: 10 }}>
@@ -471,7 +471,7 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
               </div>
               {v.voucher_type === 'sessions' ? (
                 <>
-                  <div style={{ fontSize: 28, fontWeight: 700, color: '#C9A84C' }}>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--gold)' }}>
                     {Number(v.sessions_remaining || 0)} / {Number(v.total_sessions || 0)}
                   </div>
                   <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>
@@ -480,7 +480,7 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
                 </>
               ) : (
                 <>
-                  <div style={{ fontSize: 28, fontWeight: 700, color: '#C9A84C' }}>{fmtMoney(v.remaining_value)}</div>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: 'var(--gold)' }}>{fmtMoney(v.remaining_value)}</div>
                   <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>of {fmtMoney(v.initial_value)} original</div>
                 </>
               )}

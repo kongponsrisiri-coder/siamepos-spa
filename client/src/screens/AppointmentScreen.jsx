@@ -129,7 +129,7 @@ function apptStyle(a) {
   if (CUSTOM_COLORS[cat]) return styleFromColor(CUSTOM_COLORS[cat]);
   return DEFAULT_STYLE[cat] || SOURCE_STYLE.walkin;
 }
-const COL_COLORS = ['#0D1B3E','#1A2F6B','#071028','#0f2456','#162e5c','#0e2260'];
+const COL_COLORS = ['var(--navy)','#1A2F6B','#071028','#0f2456','#162e5c','#0e2260'];
 
 function toLocalMins(iso) { const d = new Date(iso); return d.getHours() * 60 + d.getMinutes(); }
 
@@ -172,7 +172,7 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout }) {
         </div>
 
         {/* Client name */}
-        <div style={{ fontSize: 22, fontWeight: 800, color: '#0D1B3E', marginBottom: 4, lineHeight: 1.2 }}>
+        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--navy)', marginBottom: 4, lineHeight: 1.2 }}>
           {appt.client_name || 'Walk-in'}
         </div>
 
@@ -215,7 +215,7 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout }) {
               fontSize: 12, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
             }}>{pmLabel(appt.payment_method)}</span>
             {appt.external_voucher_code && (
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>· ref <strong style={{ color: '#0D1B3E' }}>{appt.external_voucher_code}</strong></span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>· ref <strong style={{ color: 'var(--navy)' }}>{appt.external_voucher_code}</strong></span>
             )}
           </div>
         )}
@@ -251,7 +251,7 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout }) {
               </button>
               <button
                 onClick={() => { onCheckout(appt); onClose(); }}
-                style={{ flex: 1, minWidth: 80, minHeight: 52, borderRadius: 12, background: '#0D1B3E', color: 'white', border: 'none', fontWeight: 700, fontSize: 14 }}>
+                style={{ flex: 1, minWidth: 80, minHeight: 52, borderRadius: 12, background: 'var(--navy)', color: 'white', border: 'none', fontWeight: 700, fontSize: 14 }}>
                 🧾 Pay
               </button>
               <button
@@ -270,7 +270,7 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout }) {
           {appt.status === 'in_progress' && (
             <button
               onClick={() => { onCheckout(appt); onClose(); }}
-              style={{ flex: 2, minHeight: 52, borderRadius: 12, background: '#C9A84C', color: '#0D1B3E', border: 'none', fontWeight: 800, fontSize: 17 }}>
+              style={{ flex: 2, minHeight: 52, borderRadius: 12, background: 'var(--gold)', color: 'var(--navy)', border: 'none', fontWeight: 800, fontSize: 17 }}>
               🧾 Checkout
             </button>
           )}
@@ -428,7 +428,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
         {/* ── Sticky header ── */}
         <div ref={headerRef} style={{
           display: 'flex', position: 'sticky', top: 0, zIndex: 20,
-          background: '#0D1B3E', boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+          background: 'var(--navy)', boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
         }}>
           <div style={{ width: LBL_W_USE, flexShrink: 0 }} />
           {columns.map((col, ci) => {
@@ -455,7 +455,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   width: COL_W_USE, flexShrink: 0,
                   padding: isMobile ? '7px 4px' : '8px 8px',
                   textAlign: 'center',
-                  borderLeft: isDragTarget ? '2px solid #C9A84C' : '1px solid rgba(255,255,255,0.18)',
+                  borderLeft: isDragTarget ? '2px solid var(--gold)' : '1px solid rgba(255,255,255,0.18)',
                   opacity: col.isOff ? 0.55 : dragSrc === ci ? 0.4 : 1,
                   cursor: isMobile ? 'default' : 'grab',
                   background: isDragTarget ? 'rgba(201,168,76,0.2)' : 'transparent',
@@ -477,7 +477,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                     override so the receptionist knows it's special for
                     today, not the normal shift. */}
                 {!col.isOff && col.workStart && col.workEnd && (
-                  <div style={{ fontSize: 10, marginTop: 2, color: col.isOverride ? '#C9A84C' : 'rgba(255,255,255,0.55)', fontWeight: col.isOverride ? 700 : 400 }}>
+                  <div style={{ fontSize: 10, marginTop: 2, color: col.isOverride ? 'var(--gold)' : 'rgba(255,255,255,0.55)', fontWeight: col.isOverride ? 700 : 400 }}>
                     {col.isOverride ? '★ ' : ''}{col.workStart}–{col.workEnd}
                   </div>
                 )}
@@ -642,7 +642,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                         cursor: !isMobile && swappable ? 'grab' : 'pointer',
                         background: isSel ? COL_COLORS[ci % COL_COLORS.length] : s.bg,
                         border: isDropTarget
-                          ? '3px dashed #C9A84C'
+                          ? '3px dashed var(--gold)'
                           : `2px solid ${isSel ? COL_COLORS[ci % COL_COLORS.length] : s.border}`,
                         padding: '3px 5px', overflow: 'hidden',
                         boxShadow: isSel ? '0 4px 14px rgba(0,0,0,0.22)' : '0 1px 3px rgba(0,0,0,0.07)',
@@ -1154,14 +1154,14 @@ export default function AppointmentScreen() {
 
             {/* Desktop action bar (inline, below timeline) */}
             {selected && !isMobile && (
-              <div style={{ background: '#0D1B3E', color: 'white', padding: '11px 16px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
+              <div style={{ background: 'var(--navy)', color: 'white', padding: '11px 16px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{selected.client_name || 'Walk-in'} — {selected.treatment_name}</div>
-                  <div style={{ fontSize: 12, color: '#C9A84C' }}>
+                  <div style={{ fontSize: 12, color: 'var(--gold)' }}>
                     {fmtTime(selected.starts_at)} – {fmtTime(selected.ends_at)}
                     {selected.therapist_name && ` · ${selected.therapist_name}`}
                     {selected.room_name && ` · ${selected.room_name}`}
-                    <span style={{ marginLeft: 8, background: 'rgba(201,168,76,0.2)', borderRadius: 4, padding: '1px 8px', textTransform: 'capitalize', color: '#C9A84C' }}>
+                    <span style={{ marginLeft: 8, background: 'rgba(201,168,76,0.2)', borderRadius: 4, padding: '1px 8px', textTransform: 'capitalize', color: 'var(--gold)' }}>
                       {selected.status.replace('_', ' ')}
                     </span>
                   </div>
@@ -1182,7 +1182,7 @@ export default function AppointmentScreen() {
                     </>
                   )}
                   {selected.status === 'in_progress' && (
-                    <button style={{ background: '#C9A84C', color: '#0D1B3E', border: 'none', borderRadius: 7, padding: '7px 18px', fontWeight: 700, cursor: 'pointer' }}
+                    <button style={{ background: 'var(--gold)', color: 'var(--navy)', border: 'none', borderRadius: 7, padding: '7px 18px', fontWeight: 700, cursor: 'pointer' }}
                       onClick={() => startCheckout(selected)}>🧾 Checkout</button>
                   )}
                   <button onClick={() => setSelected(null)} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.3)', color: 'white', borderRadius: 7, padding: '7px 12px', cursor: 'pointer' }}>✕</button>
@@ -1384,7 +1384,7 @@ function TurnOrderModal({ date, therapists, currentOrder, onClose, onSaved }) {
                   cursor: 'grab',
                 }}
               >
-                <span style={{ color: '#C9A84C', fontWeight: 800, fontSize: 16, minWidth: 24, textAlign: 'right' }}>{i + 1}.</span>
+                <span style={{ color: 'var(--gold)', fontWeight: 800, fontSize: 16, minWidth: 24, textAlign: 'right' }}>{i + 1}.</span>
                 <span style={{ color: 'var(--muted)', fontSize: 14 }}>⠿</span>
                 <span style={{ flex: 1, fontWeight: 600 }}>{t.name}</span>
                 <button onClick={() => moveUp(i)}   disabled={i === 0}                   style={{ padding: '3px 9px', fontSize: 12 }}>↑</button>

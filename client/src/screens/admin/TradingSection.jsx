@@ -47,9 +47,9 @@ const AP_LABEL = { voucher: '🎁 Voucher redeemed', external: '🧾 Already pai
 
 // Brand-CI colour palette for each metric
 const COLORS = {
-  revenue:      '#C9A84C',   /* gold */
+  revenue:      'var(--gold)',   /* gold */
   tips:         '#0891b2',   /* teal */
-  bills:        '#0D1B3E',   /* brand navy */
+  bills:        'var(--navy)',   /* brand navy */
   appointments: '#7c3aed',   /* violet */
   noshows:      '#f59e0b',   /* amber */
   cancelled:    '#ef4444',   /* red */
@@ -164,7 +164,7 @@ export default function TradingSection() {
                     </div>
                   ))}
                   <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 2, fontWeight: 700 }}>
-                    <span>Total revenue</span><span style={{ color: '#C9A84C' }}>{fmtMoney(data.totals.revenue)}</span>
+                    <span>Total revenue</span><span style={{ color: 'var(--gold)' }}>{fmtMoney(data.totals.revenue)}</span>
                   </div>
                 </>
               )}
@@ -206,7 +206,7 @@ export default function TradingSection() {
           </div>
           <div className="row" style={{ justifyContent: 'space-between', padding: '6px 0' }}>
             <span>Taken today</span>
-            <span style={{ fontWeight: 700, color: '#C9A84C', fontSize: 18 }}>{fmtMoney(data.online_deposits.total_taken)}</span>
+            <span style={{ fontWeight: 700, color: 'var(--gold)', fontSize: 18 }}>{fmtMoney(data.online_deposits.total_taken)}</span>
           </div>
           {Number(data.online_deposits.total_refunded) > 0 && (
             <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>

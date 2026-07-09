@@ -115,7 +115,7 @@ function BrandingCard({ settings, save, busy }) {
             : <span style={{ color: '#fff', opacity: 0.5, fontSize: 11 }}>no logo</span>}
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <label style={{ padding: '8px 16px', borderRadius: 8, background: '#0D1B3E', color: '#fff', fontSize: 13, fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>
+          <label style={{ padding: '8px 16px', borderRadius: 8, background: 'var(--navy)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>
             📁 Choose logo
             <input type="file" accept="image/*" onChange={onLogo} disabled={busy} style={{ display: 'none' }} />
           </label>
@@ -128,7 +128,7 @@ function BrandingCard({ settings, save, busy }) {
         {[['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['xl', 'Extra Large']].map(([val, label]) => (
           <button key={val} onClick={() => save('brand_logo_size', val)} disabled={busy} style={{
             padding: '7px 15px', borderRadius: 8, border: '2px solid', fontSize: 13, fontWeight: 700, cursor: 'pointer',
-            borderColor: logoSize === val ? '#0D1B3E' : '#ddd', background: logoSize === val ? '#0D1B3E' : '#fff', color: logoSize === val ? '#fff' : '#555',
+            borderColor: logoSize === val ? 'var(--navy)' : '#ddd', background: logoSize === val ? 'var(--navy)' : '#fff', color: logoSize === val ? '#fff' : '#555',
           }}>{label}</button>
         ))}
       </div>
@@ -138,7 +138,7 @@ function BrandingCard({ settings, save, busy }) {
         {BRAND_PRESETS.map((p) => {
           const active = primary.toLowerCase() === p.primary.toLowerCase() && accent.toLowerCase() === p.accent.toLowerCase();
           return (
-            <button key={p.name} title={p.name} onClick={() => pickPreset(p)} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 9px', borderRadius: 8, border: `2px solid ${active ? '#0D1B3E' : '#e5e5e5'}`, background: '#fff', cursor: 'pointer' }}>
+            <button key={p.name} title={p.name} onClick={() => pickPreset(p)} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 9px', borderRadius: 8, border: `2px solid ${active ? 'var(--navy)' : '#e5e5e5'}`, background: '#fff', cursor: 'pointer' }}>
               <span style={{ width: 15, height: 15, borderRadius: 4, background: p.primary }} />
               <span style={{ width: 15, height: 15, borderRadius: 4, background: p.accent }} />
             </button>

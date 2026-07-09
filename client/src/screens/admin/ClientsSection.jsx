@@ -292,7 +292,7 @@ export default function ClientsSection() {
                         ) : (
                           <button
                             onClick={() => toggleConsent(c, true)}
-                            style={{ background: '#1e3a6e', color: '#C9A84C', padding: '3px 9px', borderRadius: 6, fontSize: 10, fontWeight: 700, border: 'none', cursor: 'pointer' }}
+                            style={{ background: '#1e3a6e', color: 'var(--gold)', padding: '3px 9px', borderRadius: 6, fontSize: 10, fontWeight: 700, border: 'none', cursor: 'pointer' }}
                             title="Only opt in when you have legitimate consent (verbal, signed, etc.)"
                           >+ Opt in</button>
                         )}

@@ -329,7 +329,7 @@ export default function ZReportSection() {
             <strong>🌐 Online deposits (Stripe)</strong>
             <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
               <span>Taken today</span>
-              <span style={{ fontWeight: 700, color: '#C9A84C' }}>{fmtMoney(data.online_deposits.total_taken)}</span>
+              <span style={{ fontWeight: 700, color: 'var(--gold)' }}>{fmtMoney(data.online_deposits.total_taken)}</span>
             </div>
             {Number(data.online_deposits.total_refunded) > 0 && (
               <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>

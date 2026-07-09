@@ -361,7 +361,7 @@ function PaymentLinkBlock({ appointment }) {
           💳 <strong>{isPending ? 'Deposit link sent — awaiting payment' : 'Deposit not collected'}</strong>
         </span>
         {!link && (
-          <button onClick={generate} disabled={busy} style={{ background: '#C9A84C', color: '#1e3a6e', fontWeight: 700, padding: '6px 12px', fontSize: 12, border: 'none', borderRadius: 6 }}>
+          <button onClick={generate} disabled={busy} style={{ background: 'var(--gold)', color: '#1e3a6e', fontWeight: 700, padding: '6px 12px', fontSize: 12, border: 'none', borderRadius: 6 }}>
             {busy ? 'Generating…' : isPending ? '🔄 New link' : '💳 Request deposit by link'}
           </button>
         )}
@@ -1108,8 +1108,8 @@ export default function NewAppointmentModal({
 
           {/* ── Therapist requested ── */}
           {therapistId && (
-            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', padding: '6px 10px', background: therapistRequested ? 'rgba(201,168,76,0.12)' : '#f9fafb', borderRadius: 8, border: `1px solid ${therapistRequested ? '#C9A84C' : 'var(--border)'}` }}>
-              <input type="checkbox" style={{ width: 'auto', accentColor: '#C9A84C' }} checked={therapistRequested} onChange={e => setTherapistRequested(e.target.checked)} />
+            <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', padding: '6px 10px', background: therapistRequested ? 'rgba(201,168,76,0.12)' : '#f9fafb', borderRadius: 8, border: `1px solid ${therapistRequested ? 'var(--gold)' : 'var(--border)'}` }}>
+              <input type="checkbox" style={{ width: 'auto', accentColor: 'var(--gold)' }} checked={therapistRequested} onChange={e => setTherapistRequested(e.target.checked)} />
               <span style={{ fontSize: 13 }}>⭐ Client specifically requested this therapist</span>
             </label>
           )}

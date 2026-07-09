@@ -560,7 +560,7 @@ export default function CheckoutScreen() {
 
             {/* Voucher redemption panel */}
             {showVoucher && (
-              <div style={{ background: '#fffbeb', border: '1px solid #C9A84C', borderRadius: 10, padding: 14 }} className="col">
+              <div style={{ background: '#fffbeb', border: '1px solid var(--gold)', borderRadius: 10, padding: 14 }} className="col">
                 <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8, color: '#1e3a6e' }}>🎁 Redeem Gift Voucher</div>
                 {/* Legacy-voucher escape hatch — supports partial
                     amounts too. Toggle to a small panel where the
@@ -654,7 +654,7 @@ export default function CheckoutScreen() {
                     <div style={{ background: '#1e3a6e', color: 'white', borderRadius: 8, padding: '12px 16px' }}>
                       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
-                          <div style={{ fontFamily: 'monospace', fontWeight: 700, color: '#C9A84C', letterSpacing: 1 }}>{v.code}</div>
+                          <div style={{ fontFamily: 'monospace', fontWeight: 700, color: 'var(--gold)', letterSpacing: 1 }}>{v.code}</div>
                           {v.purchased_for && <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', marginTop: 2 }}>For {v.purchased_for}</div>}
                           {isSessions && (
                             <div style={{ fontSize: 11, marginTop: 4, background: '#fef3c7', color: '#854d0e', padding: '1px 8px', borderRadius: 10, display: 'inline-block', fontWeight: 600 }}>
@@ -665,12 +665,12 @@ export default function CheckoutScreen() {
                         <div style={{ textAlign: 'right' }}>
                           {isSessions ? (
                             <>
-                              <div style={{ fontSize: 20, fontWeight: 700, color: '#C9A84C' }}>{Number(v.sessions_remaining || 0)} / {Number(v.total_sessions || 0)}</div>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--gold)' }}>{Number(v.sessions_remaining || 0)} / {Number(v.total_sessions || 0)}</div>
                               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>sessions left</div>
                             </>
                           ) : (
                             <>
-                              <div style={{ fontSize: 20, fontWeight: 700, color: '#C9A84C' }}>£{Number(v.remaining_value).toFixed(2)}</div>
+                              <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--gold)' }}>£{Number(v.remaining_value).toFixed(2)}</div>
                               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>available</div>
                             </>
                           )}
@@ -1114,7 +1114,7 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
             <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
               <div>
                 <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Bill total</div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: '#C9A84C' }}>£{total.toFixed(2)}</div>
+                <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--gold)' }}>£{total.toFixed(2)}</div>
               </div>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.1em', textTransform: 'uppercase' }}>
@@ -1254,7 +1254,7 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
             className="primary"
             onClick={confirm}
             disabled={busy || !balanced}
-            style={{ flex: 1, maxWidth: 260, background: balanced ? '#C9A84C' : undefined, color: balanced ? '#1e3a6e' : undefined, fontWeight: 700 }}
+            style={{ flex: 1, maxWidth: 260, background: balanced ? 'var(--gold)' : undefined, color: balanced ? '#1e3a6e' : undefined, fontWeight: 700 }}
           >
             {busy ? 'Processing…' : balanced ? `Take £${tillTaken.toFixed(2)} & close bill` : 'Balance the amounts'}
           </button>

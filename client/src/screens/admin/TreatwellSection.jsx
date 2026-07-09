@@ -6,8 +6,8 @@ import { api } from '../../api.js';
 // tab surfaces only the ones that need a human: low-confidence parses, unknown
 // refs, or errors — so nothing is ever silently dropped.
 
-const NAVY = '#0D1B3E';
-const GOLD = '#C9A84C';
+const NAVY = 'var(--navy)';
+const GOLD = 'var(--gold)';
 
 const ACTION_LABEL = { create: 'New', reschedule: 'Reschedule', cancel: 'Cancel' };
 const STATUS_COLOR = {

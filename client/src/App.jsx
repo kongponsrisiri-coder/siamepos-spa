@@ -13,26 +13,26 @@ import ClientSearchScreen  from './screens/ClientSearchScreen.jsx';
 import ClientProfileScreen from './screens/ClientProfileScreen.jsx';
 import AdminScreen         from './screens/AdminScreen.jsx';
 
-// Brand CI: #0D1B3E navy · #C9A84C gold · Cormorant Garamond headings
+// Brand CI: var(--navy) navy · var(--gold) gold · Cormorant Garamond headings
 
 const LogoBrand = () => (
   <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
     <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"
       style={{ width: 28, height: 28, flexShrink: 0 }} aria-hidden="true">
-      <circle cx="50" cy="50" r="45" fill="none" stroke="#C9A84C" strokeWidth="1.8"/>
-      <circle cx="50" cy="50" r="39" fill="none" stroke="#C9A84C" strokeWidth="0.6" opacity="0.28"/>
+      <circle cx="50" cy="50" r="45" fill="none" stroke="var(--gold)" strokeWidth="1.8"/>
+      <circle cx="50" cy="50" r="39" fill="none" stroke="var(--gold)" strokeWidth="0.6" opacity="0.28"/>
       <g transform="translate(50,50)">
-        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C"/>
-        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.82" transform="rotate(72)"/>
-        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.62" transform="rotate(144)"/>
-        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.62" transform="rotate(216)"/>
-        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.82" transform="rotate(288)"/>
-        <circle cx="0" cy="0" r="9" fill="#0D1B3E"/>
-        <circle cx="0" cy="0" r="5" fill="#C9A84C"/>
+        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="var(--gold)"/>
+        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="var(--gold)" opacity="0.82" transform="rotate(72)"/>
+        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="var(--gold)" opacity="0.62" transform="rotate(144)"/>
+        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="var(--gold)" opacity="0.62" transform="rotate(216)"/>
+        <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="var(--gold)" opacity="0.82" transform="rotate(288)"/>
+        <circle cx="0" cy="0" r="9" fill="var(--navy)"/>
+        <circle cx="0" cy="0" r="5" fill="var(--gold)"/>
       </g>
     </svg>
     <span style={{ fontFamily: "'Cormorant Garamond', Georgia, serif", fontSize: 20, fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1 }}>
-      <span style={{ color: 'white' }}>Siam</span><span style={{ color: '#C9A84C' }}>EPOS</span>
+      <span style={{ color: 'white' }}>Siam</span><span style={{ color: 'var(--gold)' }}>EPOS</span>
       <span style={{ color: 'rgba(201,168,76,0.65)', fontSize: 11, fontWeight: 600, marginLeft: 5,
         letterSpacing: '0.1em', fontFamily: 'system-ui, -apple-system, sans-serif', textTransform: 'uppercase',
         verticalAlign: 'middle' }}>Spa</span>
@@ -52,13 +52,13 @@ function NavLink({ to, children }) {
   const active = pathname === to || (to !== '/' && pathname.startsWith(to));
   return (
     <Link to={to} style={{
-      color: active ? '#0D1B3E' : 'white',
+      color: active ? 'var(--navy)' : 'white',
       textDecoration: 'none',
       fontWeight: active ? 700 : 500,
       fontSize: 14,
       padding: '6px 14px',
       borderRadius: 6,
-      background: active ? '#C9A84C' : 'transparent',
+      background: active ? 'var(--gold)' : 'transparent',
       border: active ? 'none' : '1px solid rgba(255,255,255,0.22)',
       transition: 'color 0.15s, background 0.15s',
       letterSpacing: '0.01em',
@@ -166,7 +166,7 @@ function TopNav() {
 
   return (
     <header style={{
-      background: '#0D1B3E',
+      background: 'var(--navy)',
       borderBottom: '1px solid rgba(201,168,76,0.18)',
       padding: '0 16px',
       height: 52,
@@ -198,7 +198,7 @@ function TopNav() {
           title={bellTitle}
           style={{
             background: notifPerm === 'granted' ? 'rgba(201,168,76,0.18)' : 'rgba(255,255,255,0.08)',
-            border: `1px solid ${notifPerm === 'granted' ? '#C9A84C' : 'rgba(255,255,255,0.25)'}`,
+            border: `1px solid ${notifPerm === 'granted' ? 'var(--gold)' : 'rgba(255,255,255,0.25)'}`,
             color: notifPerm === 'denied' ? 'rgba(255,255,255,0.5)' : 'white',
             borderRadius: 6,
             padding: '6px 10px',
@@ -211,7 +211,7 @@ function TopNav() {
         >{bellLabel}</button>
         <span className="desktop-only" style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: 500, whiteSpace: 'nowrap' }}>
           {staff?.name}
-          <span style={{ color: '#C9A84C', marginLeft: 6, fontSize: 11, textTransform: 'capitalize', fontWeight: 600 }}>
+          <span style={{ color: 'var(--gold)', marginLeft: 6, fontSize: 11, textTransform: 'capitalize', fontWeight: 600 }}>
             {staff?.role}
           </span>
         </span>
@@ -264,7 +264,7 @@ function BottomNav() {
 
 // Inline SVG icons for bottom nav
 function CalendarIcon({ active }) {
-  const c = active ? '#C9A84C' : 'rgba(255,255,255,0.55)';
+  const c = active ? 'var(--gold)' : 'rgba(255,255,255,0.55)';
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
@@ -272,7 +272,7 @@ function CalendarIcon({ active }) {
   );
 }
 function PersonIcon({ active }) {
-  const c = active ? '#C9A84C' : 'rgba(255,255,255,0.55)';
+  const c = active ? 'var(--gold)' : 'rgba(255,255,255,0.55)';
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
@@ -280,7 +280,7 @@ function PersonIcon({ active }) {
   );
 }
 function GearIcon({ active }) {
-  const c = active ? '#C9A84C' : 'rgba(255,255,255,0.55)';
+  const c = active ? 'var(--gold)' : 'rgba(255,255,255,0.55)';
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>

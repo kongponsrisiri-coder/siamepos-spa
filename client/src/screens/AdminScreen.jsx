@@ -22,7 +22,7 @@ import OnlineBookingSection   from './admin/OnlineBookingSection.jsx';
 import TreatwellSection        from './admin/TreatwellSection.jsx';
 
 // ── Sandy: AdminScreen — left sidebar, SiamEPOS Spa brand CI ──────
-// Slate Navy #0D1B3E sidebar · Thai Gold #C9A84C active state
+// Slate Navy var(--navy) sidebar · Thai Gold var(--gold) active state
 // Grouped navigation mirrors SiamEPOS admin pattern
 
 // SEPOS-SPA-BUGHUNT — collapsible sidebar groups (drop-lists) so the long nav
@@ -70,10 +70,10 @@ function NavItem({ item, active, onClick }) {
       data-active={active}
       onClick={onClick}
       style={{
-        background: active ? '#C9A84C' : 'transparent',
+        background: active ? 'var(--gold)' : 'transparent',
         border: 'none',
         borderLeft: active ? '4px solid #E8C96A' : '4px solid transparent',
-        color: active ? '#0D1B3E' : 'white',
+        color: active ? 'var(--navy)' : 'white',
         padding: '10px 20px',
         paddingLeft: 16,
         textAlign: 'left',
@@ -177,7 +177,7 @@ export default function AdminScreen() {
       <aside className="admin-sidebar" style={{
         width: 200,
         minWidth: 200,
-        background: '#0D1B3E',
+        background: 'var(--navy)',
         display: 'flex',
         flexDirection: 'column',
         paddingTop: 20,
@@ -187,7 +187,7 @@ export default function AdminScreen() {
         boxShadow: '2px 0 12px rgba(14,28,55,0.22)',
       }}>
         <div className="admin-panel-label" style={{
-          color: '#C9A84C',
+          color: 'var(--gold)',
           fontWeight: 700,
           fontSize: 10,
           padding: '0 20px 14px',

@@ -55,7 +55,7 @@ function PreviewModal({ subject, body, onClose }) {
         </div>
         <div style={{ background: '#faf7f2', padding: 24 }}>
           <div style={{ background: 'white', borderRadius: 12, maxWidth: 600, margin: '0 auto', boxShadow: '0 2px 8px rgba(20,38,74,0.08)' }}>
-            <div style={{ background: '#1e3a6e', color: '#C9A84C', padding: '28px 30px', fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 700, borderRadius: '12px 12px 0 0' }}>
+            <div style={{ background: '#1e3a6e', color: 'var(--gold)', padding: '28px 30px', fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 700, borderRadius: '12px 12px 0 0' }}>
               Your Spa Name
             </div>
             <div style={{ padding: 32, lineHeight: 1.65, fontSize: 15, color: '#1c1c1c' }} dangerouslySetInnerHTML={{ __html: personalised }} />

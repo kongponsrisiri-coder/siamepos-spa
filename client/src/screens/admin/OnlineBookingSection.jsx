@@ -229,7 +229,7 @@ export default function OnlineBookingSection() {
       {/* ── Stats strip ───────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
         <StatTile label="Upcoming online" value={bookings.filter((b) => new Date(b.starts_at) >= new Date() && b.status !== 'cancelled').length} color="#1e3a6e" />
-        <StatTile label="Deposits held" value={fmtMoney(totalDeposit)} color="#C9A84C" />
+        <StatTile label="Deposits held" value={fmtMoney(totalDeposit)} color="var(--gold)" />
         <StatTile label="Cancelled" value={bookings.filter((b) => b.status === 'cancelled').length} color="#991b1b" />
       </div>
 

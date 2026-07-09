@@ -227,7 +227,7 @@ export default function BillsSection() {
                   <td style={{ padding: '10px', fontSize: 13 }}>
                     <span>{METHOD_LABEL[b.payment_method] || b.payment_method || '—'}</span>
                     {isSplitLike && (
-                      <span style={{ fontSize: 11, color: 'var(--brand, #C9A84C)', marginLeft: 6 }}>{isOpen ? '▲' : '▼ how it split'}</span>
+                      <span style={{ fontSize: 11, color: 'var(--brand, var(--gold))', marginLeft: 6 }}>{isOpen ? '▲' : '▼ how it split'}</span>
                     )}
                     {b.external_voucher_code && (
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>

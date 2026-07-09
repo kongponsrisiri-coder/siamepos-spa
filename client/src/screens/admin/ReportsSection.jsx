@@ -313,7 +313,7 @@ export default function ReportsSection() {
                       <td style={{ padding: '10px 6px', fontWeight: 600 }}>{t.name || <span className="muted">— (unassigned)</span>}</td>
                       <td style={{ padding: '10px 6px', textAlign: 'right' }}>{t.bills}</td>
                       <td style={{ padding: '10px 6px', textAlign: 'right', fontWeight: 600 }}>{fmtMins(t.minutes_worked)}</td>
-                      <td style={{ padding: '10px 6px', textAlign: 'right', color: t.minutes_requested > 0 ? '#C9A84C' : 'var(--muted)', fontWeight: t.minutes_requested > 0 ? 700 : 400 }}>
+                      <td style={{ padding: '10px 6px', textAlign: 'right', color: t.minutes_requested > 0 ? 'var(--gold)' : 'var(--muted)', fontWeight: t.minutes_requested > 0 ? 700 : 400 }}>
                         {fmtMins(t.minutes_requested)}
                       </td>
                       <td style={{ padding: '10px 6px', textAlign: 'right', color: 'var(--muted)' }}>

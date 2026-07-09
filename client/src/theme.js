@@ -38,12 +38,36 @@ export const LOGO_PX = {
   xl:     { desktop: 330, mobile: 116 },
 };
 
-// Apply a spa's brand colours to the whole app (sets the CSS vars). Bad /
-// missing values fall back to the defaults, so a broken colour can never blank
-// the UI. Call once branding loads (and after a branding save).
+// Hex helpers — derive hover/pressed shades from the brand colours.
+function toRgb(hex) {
+  const h = String(hex || '').replace('#', '');
+  const n = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  return [parseInt(n.slice(0, 2), 16), parseInt(n.slice(2, 4), 16), parseInt(n.slice(4, 6), 16)];
+}
+const clamp = (c) => Math.max(0, Math.min(255, Math.round(c)));
+const toHex = (rgb) => '#' + rgb.map((c) => clamp(c).toString(16).padStart(2, '0')).join('');
+// pct > 0 lightens toward white, < 0 darkens toward black.
+function shade(hex, pct) {
+  const [r, g, b] = toRgb(hex);
+  const f = (c) => (pct >= 0 ? c + (255 - c) * (pct / 100) : c * (1 + pct / 100));
+  return toHex([f(r), f(g), f(b)]);
+}
+function rgba(hex, a) { const [r, g, b] = toRgb(hex); return `rgba(${r},${g},${b},${a})`; }
+
+// Apply a spa's brand colours to the WHOLE app. Sets both the EPOS-style
+// --brand-* vars (used by the new login) AND the spa's own design-system vars
+// (--navy / --gold + their hover/pressed shades, defined in styles.css :root
+// and referenced across every screen). So a spa's theme repaints every screen,
+// not just the login. Bad / missing values fall back to the defaults, so a
+// broken colour can never blank the UI. Call once branding loads (+ after save).
 export function applyBrandTheme(branding) {
   if (typeof document === 'undefined' || !document.documentElement) return;
   const root = document.documentElement;
-  root.style.setProperty('--brand-primary', isHex(branding && branding.brand_primary) ? branding.brand_primary.trim() : DEFAULT_PRIMARY);
-  root.style.setProperty('--brand-accent',  isHex(branding && branding.brand_accent)  ? branding.brand_accent.trim()  : DEFAULT_ACCENT);
+  const p = isHex(branding && branding.brand_primary) ? branding.brand_primary.trim() : DEFAULT_PRIMARY;
+  const a = isHex(branding && branding.brand_accent)  ? branding.brand_accent.trim()  : DEFAULT_ACCENT;
+  const set = (k, v) => root.style.setProperty(k, v);
+  set('--brand-primary', p); set('--brand-accent', a);
+  // Spa design-system vars — override so class-styled screens theme too.
+  set('--navy', p); set('--navy-2', shade(p, 20)); set('--navy-dark', shade(p, -45)); set('--navy-muted', rgba(p, 0.07));
+  set('--gold', a); set('--gold-2', shade(a, 16)); set('--gold-light', shade(a, 90));
 }
