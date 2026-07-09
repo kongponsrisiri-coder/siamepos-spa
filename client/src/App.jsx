@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, Link, useNavigate, useLocation } from 'react-router-dom';
-import { getStaff, getToken, clearAuth, getLicenseState } from './api.js';
+import { api, getStaff, getToken, clearAuth, getLicenseState } from './api.js';
 import { socket } from './socket.js';
+import { applyBrandTheme } from './theme.js'; // SPA-BRAND-001
 
 import LoginScreen         from './screens/LoginScreen.jsx';
 import OwnerLoginScreen    from './screens/OwnerLoginScreen.jsx';
@@ -316,6 +317,10 @@ export default function App() {
   // till is locked. Fails open everywhere else (cloud/web, or until the signing
   // key is deployed), so it never blocks a paying till or the web app.
   const [licenseLock, setLicenseLock] = useState(null);
+  // SPA-BRAND-001 — apply the spa's brand colours app-wide on load (public
+  // endpoint, no auth). LoginScreen also does this; this covers a direct load
+  // into an already-authed route + refreshes.
+  useEffect(() => { api.get('/widget/branding').then(applyBrandTheme).catch(() => {}); }, []);
   useEffect(() => {
     let alive = true;
     const poll = async () => {

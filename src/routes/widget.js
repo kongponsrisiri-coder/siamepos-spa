@@ -62,6 +62,29 @@ router.get('/treatments', async (_req, res) => {
   }
 });
 
+// GET /api/widget/branding — PUBLIC. The login screen + booking widget read the
+// spa's white-label branding (name, logo, colours, logo size) here BEFORE auth,
+// because /api/settings is auth-gated. Only safe, display-only keys are exposed.
+router.get('/branding', async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT key, value FROM settings WHERE key IN
+         ('spa_name','brand_logo','brand_primary','brand_accent','brand_logo_size')`,
+    );
+    const s = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    res.json({
+      spa_name:        s.spa_name        || process.env.SPA_NAME || 'SiamEPOS Spa',
+      brand_logo:      s.brand_logo      || '',
+      brand_primary:   s.brand_primary   || '#0D1B3E',
+      brand_accent:    s.brand_accent    || '#C9A84C',
+      brand_logo_size: s.brand_logo_size || 'large',
+    });
+  } catch (err) {
+    console.error('[widget] branding', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 // GET /api/widget/therapists — public list (active only).
 //   ?date=YYYY-MM-DD — restrict to therapists ACTUALLY ON SHIFT that
 //                      date (weekly_rota + per-date overrides). Used by

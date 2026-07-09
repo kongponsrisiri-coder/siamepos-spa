@@ -1,12 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, setAuth } from '../api.js';
+import { NAVY, GOLD, LOGO_PX, applyBrandTheme } from '../theme.js';
 
-// SEPOS-SPA-BUGHUNT — name-then-PIN login (matches the restaurant EPOS):
-// tap your name → enter your PIN. Login then bcrypt-checks a SINGLE staff row
-// instead of every row, which kills the login DoS the stress test found.
+// SPA-BRAND-001 — white-label login, ported from the restaurant EPOS. Split
+// panel: a customizable brand panel (spa logo + name + colours + adjustable
+// logo size, all from the public /api/widget/branding endpoint) beside a light
+// "paper" panel with the name-then-PIN staff picker. Colours come through the
+// CSS vars set by applyBrandTheme, so a spa's theme repaints the whole app.
 
+const SERIF = "Georgia, 'Times New Roman', serif";
+const SANS  = 'system-ui, -apple-system, sans-serif';
+const PAPER = '#F4F1EA', INK = '#1a1a2e', MUTED = '#7C766A';
+const GOLD_TINT = '#F1E6C7', GOLD_ON_LIGHT = '#8a6d1e';
 const PAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
+
+const initials = (name) => String(name || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+const isManager = (role) => role === 'admin' || role === 'manager';
+
+// Default lotus mark (shown when the spa hasn't uploaded a logo).
+function Lotus({ size = 120 }) {
+  return (
+    <svg viewBox="0 0 100 100" style={{ width: size, height: size, display: 'block' }} aria-hidden="true">
+      <circle cx="50" cy="50" r="45" fill="none" stroke={GOLD} strokeWidth="1.8" />
+      <circle cx="50" cy="50" r="39" fill="none" stroke={GOLD} strokeWidth="0.6" opacity="0.28" />
+      <g transform="translate(50,50)">
+        {[0, 72, 144, 216, 288].map((deg, i) => (
+          <path key={deg} d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z"
+            fill={GOLD} opacity={(i === 0 || i === 4) ? 1 : (i === 1 || i === 3) ? 0.82 : 0.62} transform={`rotate(${deg})`} />
+        ))}
+        <circle cx="0" cy="0" r="9" fill={NAVY} /><circle cx="0" cy="0" r="5" fill={GOLD} />
+      </g>
+    </svg>
+  );
+}
+
+// Uploaded brand logo if set, else the lotus. Same contract as the EPOS.
+function BrandMark({ size = 120, logo }) {
+  if (logo) return <img src={logo} alt="" style={{ height: size, maxWidth: Math.min(size * 2.4, 440), objectFit: 'contain', display: 'block' }} />;
+  return <Lotus size={size} />;
+}
 
 export default function LoginScreen() {
   const [staff, setStaff] = useState([]);
@@ -14,25 +47,34 @@ export default function LoginScreen() {
   const [pin, setPin]     = useState('');
   const [busy, setBusy]   = useState(false);
   const [error, setError] = useState('');
+  const [brand, setBrand] = useState({ spa_name: '', brand_logo: '', brand_logo_size: 'large' });
+  const [now, setNow]     = useState(() => new Date());
+  const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
   const navigate = useNavigate();
 
   useEffect(() => {
     api.get('/auth/staff').then((r) => setStaff(r.staff || [])).catch(() => setStaff([]));
+    api.get('/widget/branding').then((b) => { setBrand(b || {}); applyBrandTheme(b); }).catch(() => {});
+  }, []);
+  useEffect(() => { const id = setInterval(() => setNow(new Date()), 1000); return () => clearInterval(id); }, []);
+  useEffect(() => {
+    const fn = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', fn);
+    return () => window.removeEventListener('resize', fn);
   }, []);
 
   function pickStaff(s) { setSel(s); setPin(''); setError(''); }
-
+  function back()       { setSel(null); setPin(''); setError(''); }
   function press(k) {
     setError('');
-    if (!sel) { setError('Tap your name first'); return; }
+    if (!sel) return;
     if (k === '⌫') { setPin((p) => p.slice(0, -1)); return; }
-    if (k === '' ) return;
+    if (k === '')  return;
     if (pin.length >= 8) return;
     setPin((p) => p + k);
   }
-
   async function submit() {
-    if (!sel || !pin) return;
+    if (!sel || !pin || busy) return;
     setBusy(true); setError('');
     try {
       const { token, staff: who } = await api.post('/auth/login', { staff_id: sel.id, pin });
@@ -43,120 +85,124 @@ export default function LoginScreen() {
       setPin('');
     } finally { setBusy(false); }
   }
-
   function onKeyDown(e) {
     if (e.key >= '0' && e.key <= '9') press(e.key);
     else if (e.key === 'Backspace') press('⌫');
     else if (e.key === 'Enter') submit();
+    else if (e.key === 'Escape') back();
   }
 
-  return (
-    <div onKeyDown={onKeyDown} tabIndex={0} style={{
-      minHeight: '100dvh', background: '#0D1B3E', display: 'flex', flexDirection: 'column',
-      alignItems: 'center', justifyContent: 'center', padding: '24px 16px', outline: 'none',
-    }}>
-      {/* Lotus + wordmark */}
-      <div style={{ marginBottom: 24, textAlign: 'center' }}>
-        <svg viewBox="0 0 100 100" style={{ width: 64, height: 64, display: 'block', margin: '0 auto 12px' }} aria-hidden="true">
-          <circle cx="50" cy="50" r="45" fill="none" stroke="#C9A84C" strokeWidth="1.8" />
-          <g transform="translate(50,50)">
-            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" />
-            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.82" transform="rotate(72)" />
-            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.62" transform="rotate(144)" />
-            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.62" transform="rotate(216)" />
-            <path d="M 0,5 C -10,-8 -8,-36 0,-42 C 8,-36 10,-8 0,5 Z" fill="#C9A84C" opacity="0.82" transform="rotate(288)" />
-            <circle cx="0" cy="0" r="9" fill="#0D1B3E" /><circle cx="0" cy="0" r="5" fill="#C9A84C" />
-          </g>
-        </svg>
-        <div style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontSize: 38, fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1 }}>
-          <span style={{ color: 'white' }}>Siam</span><span style={{ color: '#C9A84C' }}>EPOS</span>
-        </div>
-        <div style={{ color: 'rgba(201,168,76,0.75)', fontSize: 12, marginTop: 8, letterSpacing: '0.22em', textTransform: 'uppercase', fontFamily: 'system-ui, -apple-system, sans-serif', fontWeight: 600 }}>
-          Spa · Staff Login
-        </div>
+  const spaName = brand.spa_name || 'SiamEPOS Spa';
+  const lp = LOGO_PX[brand.brand_logo_size] || LOGO_PX.large;
+  const time = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const date = now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+
+  // ── left brand panel (customizable) ──
+  const brandPanel = isMobile ? (
+    <div style={{ width: '100%', flexShrink: 0, background: NAVY, padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 14 }}>
+      <BrandMark size={lp.mobile} logo={brand.brand_logo} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontFamily: SERIF, fontSize: 24, color: '#fff', fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{spaName}</div>
+        <div style={{ fontFamily: SERIF, fontSize: 12, fontWeight: 700, marginTop: 3, color: GOLD }}>SPA</div>
+      </div>
+    </div>
+  ) : (
+    <div style={{ width: 560, flexShrink: 0, background: NAVY, position: 'relative', padding: '0 64px', display: 'flex', flexDirection: 'column', justifyContent: 'center', overflow: 'hidden' }}>
+      <div style={{ position: 'absolute', right: -70, bottom: -70, opacity: 0.05, pointerEvents: 'none' }}><Lotus size={360} /></div>
+      <BrandMark size={lp.desktop} logo={brand.brand_logo} />
+      <div style={{ fontFamily: SERIF, fontSize: 56, color: '#fff', fontWeight: 700, letterSpacing: '-1.5px', lineHeight: 1.05, marginTop: 28, wordBreak: 'break-word' }}>{spaName}</div>
+      <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 13, marginTop: 10, letterSpacing: '0.1em', textTransform: 'uppercase' }}>Spa · Point of sale</div>
+      <div style={{ width: 64, height: 3, background: GOLD, borderRadius: 2, margin: '22px 0' }} />
+      <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 11, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 5, fontWeight: 600 }}>Powered by</div>
+      <div style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 700, letterSpacing: '-0.5px', lineHeight: 1 }}>
+        <span style={{ color: '#fff' }}>Siam</span><span style={{ color: GOLD }}>EPOS</span>
+      </div>
+    </div>
+  );
+
+  // ── right paper panel ──
+  const rightPanel = (
+    <div style={{ flex: 1, minWidth: isMobile ? 'auto' : 380, background: PAPER, position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '28px 18px' : '40px 32px', borderRadius: isMobile ? 0 : '28px 0 0 28px' }}>
+      {/* clock */}
+      <div style={{ position: 'absolute', top: isMobile ? 14 : 26, right: isMobile ? 18 : 30, textAlign: 'right' }}>
+        <div style={{ color: GOLD_ON_LIGHT, fontWeight: 800, fontVariantNumeric: 'tabular-nums', fontSize: 22, lineHeight: 1, fontFamily: SANS }}>{time}</div>
+        <div style={{ color: MUTED, fontSize: 12, marginTop: 3, fontFamily: SANS }}>{date}</div>
       </div>
 
-      {/* Two-panel card: name picker + keypad (stacks on narrow screens) */}
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', gap: 16, justifyContent: 'center',
-        background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(201,168,76,0.25)',
-        borderRadius: 20, padding: 20, width: '100%', maxWidth: 560,
-      }}>
-        {/* ── Name picker ── */}
-        <div style={{ flex: '1 1 200px', minWidth: 200 }}>
-          <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 10, fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-            Tap your name
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
-            {staff.length === 0 && <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, fontFamily: 'system-ui, sans-serif' }}>No staff found.</div>}
-            {staff.map((s) => {
-              const active = sel?.id === s.id;
-              return (
-                <button key={s.id} onClick={() => pickStaff(s)} style={{
-                  minHeight: 50, borderRadius: 11, cursor: 'pointer', padding: '8px 12px', textAlign: 'left',
-                  border: active ? '1px solid #C9A84C' : '1px solid rgba(201,168,76,0.22)',
-                  background: active ? 'rgba(201,168,76,0.18)' : 'rgba(255,255,255,0.04)',
-                  color: 'white', fontFamily: 'system-ui, -apple-system, sans-serif',
-                  WebkitTapHighlightColor: 'transparent',
-                }}>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{s.name}</div>
-                  {s.role && <div style={{ fontSize: 11, fontWeight: 500, color: active ? '#C9A84C' : 'rgba(201,168,76,0.55)', textTransform: 'capitalize' }}>{s.role}</div>}
-                </button>
-              );
-            })}
-          </div>
+      {!sel ? (
+        <div style={{ width: '100%', maxWidth: 460, textAlign: 'center' }}>
+          <div style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 700, color: INK }}>Welcome back</div>
+          <div style={{ color: MUTED, fontSize: 14, marginTop: 6, marginBottom: 26, fontFamily: SANS }}>Tap your name to sign in</div>
+          {staff.length === 0 ? (
+            <div style={{ color: MUTED, fontSize: 14, fontFamily: SANS }}>No staff found.</div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 12 }}>
+              {staff.map((s) => {
+                const mgr = isManager(s.role);
+                return (
+                  <button key={s.id} onClick={() => pickStaff(s)} style={{
+                    background: '#fff', border: '1px solid #E6E0D2', borderRadius: 14, padding: '16px 10px 14px',
+                    cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)', WebkitTapHighlightColor: 'transparent',
+                  }}>
+                    <div style={{ width: 56, height: 56, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: mgr ? NAVY : GOLD_TINT, color: mgr ? GOLD : GOLD_ON_LIGHT, fontWeight: 800, fontSize: 20, fontFamily: SANS }}>
+                      {initials(s.name)}
+                    </div>
+                    <div style={{ fontWeight: 700, fontSize: 14, color: INK, fontFamily: SANS }}>{s.name}</div>
+                    {s.role && <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', color: GOLD_ON_LIGHT, background: GOLD_TINT, padding: '2px 8px', borderRadius: 20, textTransform: 'uppercase', fontFamily: SANS }}>{s.role}</div>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+          <a href="/owner-login" style={{ display: 'inline-block', marginTop: 26, color: GOLD_ON_LIGHT, fontSize: 14, textDecoration: 'none', fontWeight: 700, fontFamily: SANS }}>Sign in with email instead →</a>
         </div>
-
-        {/* ── Keypad ── */}
-        <div style={{ flex: '1 1 220px', minWidth: 220, maxWidth: 280 }}>
-          <div style={{ height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 14 }}>
-            {!sel ? (
-              <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 14, fontFamily: 'system-ui, sans-serif' }}>Select your name</span>
-            ) : pin.length === 0 ? (
-              <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 14, fontFamily: 'system-ui, sans-serif' }}>{sel.name} — enter PIN</span>
-            ) : (
-              Array.from({ length: pin.length }).map((_, i) => (
-                <div key={i} style={{ width: 14, height: 14, borderRadius: '50%', background: '#C9A84C', boxShadow: '0 0 8px rgba(201,168,76,0.55)' }} />
-              ))
-            )}
+      ) : (
+        <div style={{ width: '100%', maxWidth: 300, textAlign: 'center' }}>
+          <button onClick={back} style={{ position: 'absolute', top: isMobile ? 14 : 26, left: isMobile ? 16 : 28, background: 'none', border: 'none', color: MUTED, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: SANS }}>← Back</button>
+          <div style={{ width: 84, height: 84, borderRadius: '50%', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: isManager(sel.role) ? NAVY : GOLD_TINT, color: isManager(sel.role) ? GOLD : GOLD_ON_LIGHT, fontWeight: 800, fontSize: 30, fontFamily: SANS }}>
+            {initials(sel.name)}
           </div>
-          <div style={{ height: 34, marginBottom: 10 }}>
-            {error && (
-              <div style={{ background: 'rgba(239,68,68,0.14)', border: '1px solid rgba(239,68,68,0.35)', color: '#fca5a5', borderRadius: 8, padding: '7px 12px', fontSize: 13, textAlign: 'center', fontFamily: 'system-ui, sans-serif' }}>{error}</div>
-            )}
+          <div style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 700, color: INK, marginTop: 14 }}>{sel.name}</div>
+          {sel.role && <div style={{ color: MUTED, fontSize: 13, textTransform: 'capitalize', fontFamily: SANS }}>{sel.role}</div>}
+          <div style={{ color: MUTED, fontSize: 14, marginTop: 20, marginBottom: 12, fontWeight: 600, fontFamily: SANS }}>Enter your PIN</div>
+          <div style={{ height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 10 }}>
+            {pin.length === 0
+              ? <span style={{ color: '#c9c2b2', fontSize: 13, fontFamily: SANS }}>••••</span>
+              : Array.from({ length: pin.length }).map((_, i) => <div key={i} style={{ width: 15, height: 15, borderRadius: '50%', background: NAVY }} />)}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 12, opacity: sel ? 1 : 0.5 }}>
+          <div style={{ height: 30, marginBottom: 8 }}>
+            {error && <div style={{ background: '#fdecea', border: '1px solid #f5c6c2', color: '#b0281a', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontFamily: SANS }}>{error}</div>}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 84px)', gap: 12, justifyContent: 'center', marginBottom: 12 }}>
             {PAD_KEYS.map((k, i) => {
               if (k === '') return <div key={i} />;
               const isDel = k === '⌫';
               return (
-                <button key={i} onClick={() => !busy && press(k)} disabled={busy || !sel} style={{
-                  height: 58, borderRadius: 12,
-                  border: isDel ? '1px solid rgba(239,68,68,0.25)' : '1px solid rgba(255,255,255,0.10)',
-                  cursor: sel && !busy ? 'pointer' : 'default',
-                  background: isDel ? 'rgba(239,68,68,0.10)' : 'rgba(255,255,255,0.08)',
-                  color: isDel ? '#fca5a5' : 'white', fontSize: isDel ? 20 : 24, fontWeight: 700,
-                  fontFamily: 'system-ui, -apple-system, sans-serif', WebkitTapHighlightColor: 'transparent',
+                <button key={i} onClick={() => !busy && press(k)} disabled={busy} style={{
+                  height: 64, borderRadius: 14, border: '1px solid #E6E0D2', cursor: busy ? 'default' : 'pointer',
+                  background: '#fff', color: isDel ? '#b0281a' : INK, fontSize: isDel ? 20 : 26, fontWeight: 700,
+                  fontFamily: SANS, WebkitTapHighlightColor: 'transparent',
                 }}>{k}</button>
               );
             })}
           </div>
-          <button onClick={submit} disabled={busy || !sel || !pin} style={{
-            width: '100%', height: 54, borderRadius: 12, border: 'none',
-            background: busy ? 'rgba(255,255,255,0.08)' : (sel && pin) ? '#C9A84C' : 'rgba(255,255,255,0.06)',
-            color: (sel && pin && !busy) ? '#0D1B3E' : 'rgba(255,255,255,0.28)',
-            fontSize: 16, fontWeight: 800, cursor: (sel && pin && !busy) ? 'pointer' : 'default',
-            letterSpacing: '0.04em', fontFamily: 'system-ui, -apple-system, sans-serif', WebkitTapHighlightColor: 'transparent',
+          <button onClick={submit} disabled={busy || !pin} style={{
+            width: '100%', height: 54, borderRadius: 14, border: 'none',
+            background: (pin && !busy) ? NAVY : '#e7e1d3', color: (pin && !busy) ? '#fff' : '#b3ab98',
+            fontSize: 16, fontWeight: 800, cursor: (pin && !busy) ? 'pointer' : 'default', letterSpacing: '0.03em', fontFamily: SANS,
           }}>{busy ? 'Signing in…' : 'Sign In'}</button>
         </div>
-      </div>
+      )}
+    </div>
+  );
 
-      <a href="/owner-login" style={{ marginTop: 22, color: 'rgba(201,168,76,0.8)', fontSize: 13, textDecoration: 'none', fontFamily: 'system-ui, -apple-system, sans-serif', fontWeight: 600 }}>
-        Owner login →
-      </a>
-      <div style={{ marginTop: 18, color: 'rgba(201,168,76,0.35)', fontSize: 12, letterSpacing: '0.05em', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
-        siamepos.co.uk
-      </div>
+  return (
+    <div onKeyDown={onKeyDown} tabIndex={0} style={{ minHeight: '100dvh', display: 'flex', flexDirection: isMobile ? 'column' : 'row', background: NAVY, outline: 'none' }}>
+      {brandPanel}
+      {rightPanel}
     </div>
   );
 }

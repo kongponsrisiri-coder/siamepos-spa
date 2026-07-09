@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../api.js';
+import { BRAND_PRESETS, DEFAULT_PRIMARY, DEFAULT_ACCENT, applyBrandTheme } from '../../theme.js'; // SPA-BRAND-001
 
 const KEYS = [
   { k: 'spa_name',         t: 'Spa name'   },
@@ -47,6 +48,8 @@ export default function SettingsSection() {
         ))}
       </div>
 
+      <BrandingCard settings={settings} save={save} busy={busy} />
+
       <AppUpdatesCard />
 
       <div className="card">
@@ -64,6 +67,88 @@ export default function SettingsSection() {
         <p className="muted">
           The embed snippets for your website live under the <strong>Embed Codes</strong> tab.
         </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Branding (SPA-BRAND-001) ────────────────────────────────────────
+// Per-spa white-label: logo, colours + login logo size. Saves each key to the
+// settings table (same PUT /settings the identity fields use). Colour changes
+// call applyBrandTheme for a live preview across the app.
+const bLbl = { display: 'block', fontSize: 12, fontWeight: 700, color: '#555', marginBottom: 6 };
+const bColor = { width: 52, height: 40, border: '1px solid #ddd', borderRadius: 8, cursor: 'pointer', background: 'none' };
+
+function BrandingCard({ settings, save, busy }) {
+  const primary  = settings.brand_primary   || DEFAULT_PRIMARY;
+  const accent   = settings.brand_accent    || DEFAULT_ACCENT;
+  const logoSize = settings.brand_logo_size || 'large';
+
+  function onLogo(e) {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    if (file.size > 1024 * 1024) { alert('Logo is too large — please use an image under 1 MB.'); return; }
+    const reader = new FileReader();
+    reader.onload = () => save('brand_logo', String(reader.result));
+    reader.readAsDataURL(file);
+  }
+  function pickPreset(p) {
+    save('brand_primary', p.primary);
+    save('brand_accent', p.accent);
+    applyBrandTheme({ brand_primary: p.primary, brand_accent: p.accent });
+  }
+  function setColour(key, val) {
+    save(key, val);
+    applyBrandTheme({ brand_primary: key === 'brand_primary' ? val : primary, brand_accent: key === 'brand_accent' ? val : accent });
+  }
+
+  return (
+    <div className="card col">
+      <h3 style={{ margin: 0 }}>Branding</h3>
+      <div className="sub" style={{ marginBottom: 8 }}>Your logo, colours + login name — makes the till feel like your spa. The login-screen name is the “Spa name” above.</div>
+
+      <label style={bLbl}>App logo (login &amp; headers)</label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 18 }}>
+        <div style={{ width: 80, height: 80, borderRadius: 12, background: primary, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+          {settings.brand_logo
+            ? <img src={settings.brand_logo} alt="" style={{ maxWidth: '86%', maxHeight: '86%', objectFit: 'contain' }} />
+            : <span style={{ color: '#fff', opacity: 0.5, fontSize: 11 }}>no logo</span>}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label style={{ padding: '8px 16px', borderRadius: 8, background: '#0D1B3E', color: '#fff', fontSize: 13, fontWeight: 700, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1 }}>
+            📁 Choose logo
+            <input type="file" accept="image/*" onChange={onLogo} disabled={busy} style={{ display: 'none' }} />
+          </label>
+          {settings.brand_logo && <button onClick={() => save('brand_logo', '')} disabled={busy} style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: '#fee2e2', color: '#ef4444', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>🗑 Remove</button>}
+        </div>
+      </div>
+
+      <label style={bLbl}>App logo size</label>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+        {[['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['xl', 'Extra Large']].map(([val, label]) => (
+          <button key={val} onClick={() => save('brand_logo_size', val)} disabled={busy} style={{
+            padding: '7px 15px', borderRadius: 8, border: '2px solid', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            borderColor: logoSize === val ? '#0D1B3E' : '#ddd', background: logoSize === val ? '#0D1B3E' : '#fff', color: logoSize === val ? '#fff' : '#555',
+          }}>{label}</button>
+        ))}
+      </div>
+
+      <label style={bLbl}>Colour theme</label>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
+        {BRAND_PRESETS.map((p) => {
+          const active = primary.toLowerCase() === p.primary.toLowerCase() && accent.toLowerCase() === p.accent.toLowerCase();
+          return (
+            <button key={p.name} title={p.name} onClick={() => pickPreset(p)} disabled={busy} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 9px', borderRadius: 8, border: `2px solid ${active ? '#0D1B3E' : '#e5e5e5'}`, background: '#fff', cursor: 'pointer' }}>
+              <span style={{ width: 15, height: 15, borderRadius: 4, background: p.primary }} />
+              <span style={{ width: 15, height: 15, borderRadius: 4, background: p.accent }} />
+            </button>
+          );
+        })}
+      </div>
+
+      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        <div><label style={bLbl}>Primary</label><input type="color" value={primary} onChange={(e) => setColour('brand_primary', e.target.value)} style={bColor} /></div>
+        <div><label style={bLbl}>Accent</label><input type="color" value={accent} onChange={(e) => setColour('brand_accent', e.target.value)} style={bColor} /></div>
       </div>
     </div>
   );
