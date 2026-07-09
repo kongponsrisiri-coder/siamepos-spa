@@ -205,7 +205,11 @@ app.use('/api/clients',      requireAuth, clientRoutes);
 app.use('/api/bills',        requireAuth, requireValidLicense, billRoutes);
 app.use('/api/stripe',       requireAuth, stripeRouter);
 app.use('/api/reports',      requireAuth, reportRoutes);
-app.use('/api/settings',     requireAuth, settingsRoutes);
+// Auth is per-route inside settings.js: GET is requireAuth, PUT is
+// settingsAuth (admin/manager JWT OR the x-sync-secret so a desktop till can
+// push its own settings up to the cloud). A blanket requireAuth here would
+// block the sync-secret path — that's what silently reverted till saves.
+app.use('/api/settings',     settingsRoutes);
 app.use('/api/vouchers',     requireAuth, voucherRoutes);
 app.use('/api/campaigns',    requireAuth, campaignRoutes);
 app.use('/api/payment-links', requireAuth, paymentLinkRoutes);

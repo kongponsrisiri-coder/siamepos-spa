@@ -1,7 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const { pool } = require('../db/dbAdapter');
-const { requireRole } = require('../middleware/auth');
+const { requireAuth, requireRole } = require('../middleware/auth');
 const offlineQueue = require('../services/offlineQueue');
 
 const router = express.Router();
@@ -25,8 +25,11 @@ function settingsAuth(req, res, next) {
   return requireRole('admin', 'manager')(req, res, next);
 }
 
-// GET /api/settings — returns all settings as { key: value }
-router.get('/', async (_req, res) => {
+// GET /api/settings — returns all settings as { key: value }.
+// Kept behind requireAuth (was the mount-level guard before it moved here so
+// the PUT sync-secret path could bypass it). The pre-login login screen reads
+// branding from the public /api/widget/branding endpoint, not this one.
+router.get('/', requireAuth, async (_req, res) => {
   try {
     const { rows } = await pool.query('SELECT key, value FROM settings');
     const settings = Object.fromEntries(rows.map((r) => [r.key, r.value]));
