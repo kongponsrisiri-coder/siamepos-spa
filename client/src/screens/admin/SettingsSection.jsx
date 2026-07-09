@@ -259,15 +259,39 @@ function AppUpdatesCard() {
 
 function Row({ row, value, busy, onSave }) {
   const [v, setV] = useState(value);
+  const [justSaved, setJustSaved] = useState(false);
   useEffect(() => { setV(value); }, [value]);
   const dirty = v !== value;
+
+  // Foolproof save: commit when the field loses focus (click away) OR on Enter,
+  // as well as the explicit Save button — so a typed value (e.g. the Spa name
+  // that shows on the login) can't be left uncommitted. A "Saved" flash makes
+  // it obvious it persisted.
+  async function commit() {
+    if (!dirty || busy) return;
+    await onSave(v);
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 2000);
+  }
+
   return (
     <div>
       <label>{row.t}</label>
       <div className="row">
-        <input value={v} onChange={(e) => setV(e.target.value)} />
-        <button className={dirty ? 'primary' : ''} disabled={!dirty || busy} onClick={() => onSave(v)}>Save</button>
+        <input
+          value={v}
+          onChange={(e) => { setV(e.target.value); setJustSaved(false); }}
+          onBlur={commit}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+        />
+        <button className={dirty ? 'primary' : ''} disabled={!dirty || busy} onClick={commit}
+          style={(!dirty && justSaved) ? { color: '#15803d', borderColor: '#15803d' } : undefined}>
+          {(!dirty && justSaved) ? '✓ Saved' : 'Save'}
+        </button>
       </div>
+      {dirty
+        ? <div style={{ fontSize: 11, color: '#b45309', marginTop: 3 }}>Unsaved — click away or press Enter to save</div>
+        : (justSaved ? <div style={{ fontSize: 11, color: '#15803d', marginTop: 3 }}>✓ Saved</div> : null)}
     </div>
   );
 }
