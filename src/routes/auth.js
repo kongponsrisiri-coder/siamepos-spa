@@ -51,8 +51,12 @@ function loginThrottled(ip) {
 // restaurant EPOS — and it's what lets login check a SINGLE bcrypt row.
 router.get('/staff', async (req, res) => {
   try {
+    // Only TILL OPERATORS appear in the login picker (admin / manager /
+    // reception / etc). Bookable therapists (role='therapist') are service
+    // providers, not till users, so they're excluded — the "tap your name"
+    // list should be the people who actually sign into the till.
     const { rows } = await pool.query(
-      'SELECT id, name, role FROM therapists WHERE active = TRUE ORDER BY name',
+      "SELECT id, name, role FROM therapists WHERE active = TRUE AND role <> 'therapist' ORDER BY name",
     );
     res.json({ staff: rows });
   } catch (err) {
