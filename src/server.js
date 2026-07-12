@@ -43,6 +43,10 @@ const app = express();
 const server = http.createServer(app);
 
 // CORS — allow the live spa app + localhost for dev.
+// Each per-client deploy can add its OWN frontend origin(s) via the
+// ALLOWED_ORIGINS env var (comma-separated) instead of editing this list.
+// Backward-compatible: if the env var is unset the defaults below are the
+// only allowed origins, so existing deploys (e.g. Highbury) are unaffected.
 const ALLOWED_ORIGINS = [
   'https://spa.siamepos.co.uk',
   'https://siamepos-spa.netlify.app',
@@ -51,6 +55,10 @@ const ALLOWED_ORIGINS = [
   'https://www.siamepos.com',
   'http://localhost:5173',
   'http://localhost:3000',
+  ...(process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean),
 ];
 app.use(cors({
   origin: (origin, cb) => cb(null, !origin || ALLOWED_ORIGINS.includes(origin)),
