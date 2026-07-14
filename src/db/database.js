@@ -496,6 +496,14 @@ async function initSchema() {
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS deposit_taken_at TIMESTAMPTZ;
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS deposit_taken_by INT REFERENCES therapists(id) ON DELETE SET NULL;
 
+    -- SPA-WHATSAPP-AI-001: the WhatsApp concierge HOLDS a slot before payment.
+    -- A held booking has status='held' and hold_expires_at set; the Stripe
+    -- webhook promotes it to 'booked' on payment, and a sweeper releases
+    -- (cancels) any held booking past its expiry so the slot frees up again.
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS hold_expires_at TIMESTAMPTZ;
+    CREATE INDEX IF NOT EXISTS idx_appointments_hold_expires
+      ON appointments (hold_expires_at) WHERE status = 'held';
+
     -- SPA-TURN-ORDER — receptionist-set column order on the timeline,
     -- per date. The "who's next in line" rotation common in Thai spas
     -- (whoever arrived first that day gets the first walk-in's turn).

@@ -75,14 +75,45 @@ async function webhookHandler(req, res) {
            RETURNING appointment_id, amount`,
           [session.id],
         );
-        // A booking deposit link → mark the held appointment paid too.
+        // A booking deposit link → mark the appointment paid. If it was a
+        // concierge HOLD (status='held'), payment is what CONFIRMS it, so
+        // promote held → booked in the same statement (SPA-WHATSAPP-AI-001).
+        const link = rows[0];
+        if (link && link.appointment_id) {
+          const upd = await pool.query(
+            `UPDATE appointments
+               SET payment_status = 'deposit_paid',
+                   deposit_amount = $2,
+                   deposit_stripe_id = $3,
+                   status = CASE WHEN status = 'held' THEN 'booked' ELSE status END,
+                   hold_expires_at = NULL
+             WHERE id = $1 AND status NOT IN ('cancelled','no_show')
+             RETURNING id, status`,
+            [link.appointment_id, link.amount, session.payment_intent || null],
+          );
+          // Notify the timeline; Stage 2 hooks the WhatsApp confirmation here.
+          if (upd.rows[0]) req.app?.get('io')?.emit('appointment_confirmed', upd.rows[0]);
+        }
+      }
+    }
+
+    // A concierge checkout session that EXPIRED without payment → release the
+    // hold so the slot frees up (mirrors the sweeper, driven by Stripe's event).
+    if (event.type === 'checkout.session.expired') {
+      const session = event.data.object;
+      if (session.id) {
+        const { rows } = await pool.query(
+          `UPDATE payment_links SET status = 'expired'
+             WHERE stripe_session_id = $1 AND status = 'pending'
+           RETURNING appointment_id`,
+          [session.id],
+        );
         const link = rows[0];
         if (link && link.appointment_id) {
           await pool.query(
-            `UPDATE appointments
-               SET payment_status = 'deposit_paid', deposit_amount = $2, deposit_stripe_id = $3
-             WHERE id = $1 AND status NOT IN ('cancelled','no_show')`,
-            [link.appointment_id, link.amount, session.payment_intent || null],
+            `UPDATE appointments SET status = 'cancelled', payment_status = 'none', hold_expires_at = NULL
+               WHERE id = $1 AND status = 'held'`,
+            [link.appointment_id],
           );
         }
       }

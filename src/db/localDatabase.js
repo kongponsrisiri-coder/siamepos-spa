@@ -585,6 +585,7 @@ async function initSchema() {
       deposit_taken_at        TEXT,
       deposit_taken_by        INTEGER REFERENCES therapists(id) ON DELETE SET NULL,
       price_at_booking        REAL,
+      hold_expires_at         TEXT,
       created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       cloud_id      INTEGER
     );
@@ -935,6 +936,7 @@ function runMigrations() {
   addColumnIfMissing('appointments', 'deposit_taken_at',       'TEXT');
   addColumnIfMissing('appointments', 'deposit_taken_by',       'INTEGER');
   addColumnIfMissing('appointments', 'price_at_booking',       'REAL');
+  addColumnIfMissing('appointments', 'hold_expires_at',        'TEXT');
   addColumnIfMissing('appointments', 'cloud_id',               'INTEGER');
 
   // client_medical — full intake-form expansion

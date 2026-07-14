@@ -31,6 +31,8 @@ const campaignRoutes    = require('./routes/campaigns');
 const bookingRoutes     = require('./routes/booking');
 const syncRoutes        = require('./routes/sync');     // SEPOS-SPA-PRO-001 Phase B — offline pull feed
 const paymentLinkRoutes = require('./routes/paymentLinks'); // SEPOS-SPA-PAYLINK-001
+const conciergeRoutes   = require('./routes/concierge');    // SPA-WHATSAPP-AI-001 — AI booking tools
+const conciergeTools    = require('./services/conciergeTools');
 const { router: licenseRoutes, requireValidLicense } = require('./routes/license'); // SEPOS-SPA-LICENSE-001
 const licenseClient     = require('./services/licenseClient');
 const deviceRoutes      = require('./routes/device');             // SEPOS-SPA-LICENSE-001 Part B
@@ -141,6 +143,7 @@ app.get('/pay-thanks', (req, res) => {
 
 // ---- Public routes (NO auth) ---------------------------------------------
 app.use('/api/widget',    widgetRoutes);
+app.use('/api/concierge', conciergeRoutes); // SPA-WHATSAPP-AI-001 — secret-gated (X-Concierge-Secret)
 app.use('/api/treatwell', treatwellRoutes);
 app.use('/api/treatwell-email', treatwellEmailRoutes); // public /inbound (secret-gated) + staff review queue
 app.use('/api/booking',   bookingRoutes);     // public self-service via HMAC token
@@ -272,6 +275,16 @@ if (require.main === module) {
       server.listen(PORT, () => {
         console.log(`[server] SiamEPOS Spa listening on :${PORT}`);
       });
+
+      // SPA-WHATSAPP-AI-001 — release expired concierge holds every minute so a
+      // slot a customer never paid for frees up again. Cloud only (the concierge
+      // is customer-facing and always-up; the local till doesn't run holds).
+      if ((process.env.DB_MODE || '').toLowerCase() !== 'local') {
+        setInterval(() => {
+          conciergeTools.releaseExpiredHolds().catch((e) =>
+            console.error('[concierge] sweeper', e.message));
+        }, 60_000).unref();
+      }
 
       // SEPOS-SPA-BUGHUNT C5/#7 — loudly flag insecure default secrets on a
       // CLOUD (internet-facing) deploy. Forgeable JWT/booking/unsub secrets allow
