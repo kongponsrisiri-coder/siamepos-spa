@@ -169,6 +169,47 @@ The optional `?text=` pre-fills the customer's first message.
 
 ---
 
+## Appendix — Getting your Claude (Anthropic) API key
+
+`ANTHROPIC_API_KEY` is the key that lets the spa talk to Claude. It powers the
+**WhatsApp concierge** and the existing **Treatwell email AI** — set it once and
+both work. Without it the concierge stays silent (no crash).
+
+**Steps (~10 min):**
+1. Go to **platform.claude.com** (the Claude Developer Platform) and sign up /
+   log in with the business email.
+2. **Add billing:** Settings → **Billing** → add a card and buy a small amount of
+   credit (e.g. £5–£10 to start). It's pay-as-you-go — you're only charged for
+   what you use.
+3. **Set a spend limit** so there are no surprises: Billing → **Usage limits** →
+   set a low monthly cap (e.g. £20). You can raise it later.
+4. **Create the key:** Settings → **API keys** → **Create Key**, name it
+   "SiamSpa Concierge". **Copy it now** — it's shown only once (starts with
+   `sk-ant-...`). If you lose it, just create another and delete the old one.
+5. On **Railway** (spa-api → Variables), set:
+   ```
+   ANTHROPIC_API_KEY = sk-ant-...        ← the key you copied
+   CONCIERGE_MODEL   = claude-sonnet-5   ← optional; this is the default
+   ```
+   Save; Railway redeploys automatically.
+
+**What it costs:** the concierge uses **Claude Sonnet 5** by default, priced at
+about **$3 per million words-in / $15 per million words-out** (introductory
+$2 / $10 through 31 Aug 2026). A whole booking conversation is only a few
+thousand words, so in practice it's **a few pence per booking** — at one spa's
+volume, a handful of pounds a month. Watch the real numbers on the platform's
+**Usage** page for the first week and adjust your cap.
+
+**Keep it secret:** the key is like a password to your Claude account. Never
+paste it into the website, a git commit, or a chat. It lives only in Railway's
+Variables. If it ever leaks, delete it on platform.claude.com and create a new
+one — nothing else needs to change.
+
+**Test it:** once set (plus the Twilio Sandbox from Step 1), message the spa on
+WhatsApp — a reply means the key is working.
+
+---
+
 ## Quick reference — what the code exposes
 | Thing | Value |
 |---|---|
