@@ -272,6 +272,18 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
     const c = await pool.query('SELECT id, name, email, phone FROM clients WHERE id = $1', [id]);
     if (!c.rows[0]) return res.status(404).json({ error: 'not found' });
 
+    // On a desktop till, erasure must reach the cloud (and thence every other
+    // till) to be a true GDPR deletion. Block it offline so we never leave a
+    // copy elsewhere that we can't confirm was wiped. This gate must run BEFORE
+    // the G2/G3 scrubs below — otherwise a refused (offline) erasure would have
+    // already destroyed the notes + transcript while the client itself remains.
+    if (offlineQueue.isLocal && isOffline()) {
+      return res.status(503).json({
+        error: 'offline', offline: true,
+        message: 'Erasing a client needs an internet connection so the deletion reaches the cloud and all devices. Please try again when back online.',
+      });
+    }
+
     // SEPOS-SPA-AUDIT G3 — scrub free-text appointment notes (may hold health
     // notes) BEFORE the delete: the appointments FK is ON DELETE SET NULL, so
     // afterwards the rows survive de-identified but the notes would linger.
@@ -287,15 +299,6 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
     }
 
     if (offlineQueue.isLocal) {
-      // On a desktop till, erasure must reach the cloud (and thence every other
-      // till) to be a true GDPR deletion. Block it offline so we never leave a
-      // copy elsewhere that we can't confirm was wiped.
-      if (isOffline()) {
-        return res.status(503).json({
-          error: 'offline', offline: true,
-          message: 'Erasing a client needs an internet connection so the deletion reaches the cloud and all devices. Please try again when back online.',
-        });
-      }
       // cloud_id exists only on the local SQLite schema — fetch it here, on the
       // local path, so the cloud path never references a missing column.
       const cl = await pool.query('SELECT cloud_id FROM clients WHERE id = $1', [id]);
