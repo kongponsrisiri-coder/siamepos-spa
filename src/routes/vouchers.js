@@ -397,16 +397,39 @@ router.post('/:id/redeem', async (req, res) => {
   }
 });
 
-// DELETE /api/vouchers/:id  — cancel (admin only)
+// DELETE /api/vouchers/:id  — admin only.
+//   default            → CANCEL (voids the voucher but keeps it for reports/audit)
+//   ?permanent=1       → DELETE the row + its redemption history entirely.
+//     Meant for test/demo vouchers (incl. ones redeemed during a demo) so they
+//     don't pollute the list or reports. Real customer vouchers should be
+//     cancelled, not deleted — cancellation preserves the money trail.
 router.delete('/:id', requireRole('admin'), async (req, res) => {
   const id = Number(req.params.id);
+  const permanent = req.query.permanent === '1' || req.query.permanent === 'true';
   try {
-    const { rows } = await pool.query(
-      "UPDATE vouchers SET status = 'cancelled' WHERE id = $1 RETURNING *",
-      [id],
-    );
-    if (!rows[0]) return res.status(404).json({ error: 'not found' });
-    res.json({ ok: true });
+    if (!permanent) {
+      const { rows } = await pool.query(
+        "UPDATE vouchers SET status = 'cancelled' WHERE id = $1 RETURNING *",
+        [id],
+      );
+      if (!rows[0]) return res.status(404).json({ error: 'not found' });
+      return res.json({ ok: true });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const r = await client.query('DELETE FROM voucher_redemptions WHERE voucher_id = $1', [id]);
+      const v = await client.query('DELETE FROM vouchers WHERE id = $1 RETURNING code', [id]);
+      if (!v.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'not found' }); }
+      await client.query('COMMIT');
+      console.warn(`[vouchers] PERMANENT delete ${v.rows[0].code} (+${r.rowCount || 0} redemption rows) by staff id=${req.staff?.id}`);
+      res.json({ ok: true, deleted: v.rows[0].code, redemptions_removed: r.rowCount || 0 });
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch (_) { /* noop */ }
+      throw err;
+    } finally {
+      client.release();
+    }
   } catch (err) {
     console.error('[vouchers] delete', err);
     res.status(500).json({ error: 'server error' });

@@ -454,6 +454,17 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
     onUpdated();
   }
 
+  // Permanent delete — admin cleanup for test/demo vouchers (works even if the
+  // voucher was redeemed during a demo). Two-step inline confirm instead of a
+  // browser dialog (window.confirm/prompt are unreliable in the Electron till).
+  const [confirmDel, setConfirmDel] = useState(false);
+  async function deleteVoucherPermanently() {
+    if (!confirmDel) { setConfirmDel(true); return; }
+    await api.del(`/vouchers/${v.id}?permanent=1`);
+    onClose();
+    onUpdated();
+  }
+
   return (
     <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal" style={{ maxWidth: 540 }} onClick={e => e.stopPropagation()}>
@@ -544,9 +555,22 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
           </div>
 
           {/* Actions */}
-          {isAdmin && v.status === 'active' && (
-            <div className="row" style={{ justifyContent: 'flex-end', paddingTop: 4 }}>
-              <button className="danger" onClick={cancelVoucher}>Cancel Voucher</button>
+          {isAdmin && (
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', paddingTop: 4 }}>
+              {/* Permanent delete — for test/demo vouchers. Deletes the voucher
+                  AND its redemption history, removing it from lists + reports.
+                  Real customer vouchers should be cancelled instead. */}
+              <button
+                onClick={deleteVoucherPermanently}
+                style={confirmDel
+                  ? { background: 'var(--danger)', color: 'white', fontWeight: 700 }
+                  : { background: 'transparent', color: 'var(--danger)', border: '1px solid var(--danger)' }}
+              >
+                {confirmDel ? 'Really delete? Click again to erase it (incl. from reports)' : 'Delete permanently'}
+              </button>
+              {v.status === 'active' && (
+                <button className="danger" onClick={cancelVoucher}>Cancel Voucher</button>
+              )}
             </div>
           )}
         </div>
