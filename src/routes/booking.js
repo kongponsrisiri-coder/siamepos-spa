@@ -160,12 +160,18 @@ router.post('/by-token/:token/confirm-payment', async (req, res) => {
       return res.status(402).json({ error: 'payment not yet succeeded', stripe_status: intent.status });
     }
     const depositAmount = +(intent.amount_received / 100).toFixed(2);
-    await pool.query(
+    // SEPOS-SPA-AUDIT X5 — guard the flip so a replayed confirm-payment (after a
+    // cancel/refund — the PI stays 'succeeded' and the token still validates)
+    // can't resurrect 'deposit_paid' on a cancelled/no-show row.
+    const upd = await pool.query(
       `UPDATE appointments
          SET deposit_amount = $2, payment_status = 'deposit_paid'
-       WHERE id = $1`,
+       WHERE id = $1 AND status NOT IN ('cancelled','no_show')`,
       [id, depositAmount],
     );
+    if (upd.rowCount === 0) {
+      return res.status(409).json({ error: 'booking is no longer active — deposit not applied' });
+    }
     res.json({ ok: true, deposit_amount: depositAmount });
   } catch (err) {
     console.error('[booking] confirm-payment', err);
@@ -220,12 +226,38 @@ router.put('/by-token/:token', async (req, res) => {
 
   try {
     const oldStarts = cur.starts_at;
-    const upd = await pool.query(
-      `UPDATE appointments
+    // SEPOS-SPA-AUDIT X1 — the public reschedule did a bare UPDATE after a
+    // read-only availability check (TOCTOU) and could double-book two customers
+    // into the same slot. Mirror the internal move guard: advisory-lock per
+    // therapist+room on PG (SQLite till is single-writer) and re-assert
+    // non-overlap atomically in the UPDATE; 0 rows = the slot was just taken.
+    const rsSql = `UPDATE appointments
          SET starts_at = $2, ends_at = $3, therapist_id = $4, room_id = $5
-         WHERE id = $1 RETURNING *`,
-      [id, b.starts_at, newEndsAt.toISOString(), newTherapistId, newRoomId],
-    );
+         WHERE id = $1
+           AND NOT EXISTS (
+             SELECT 1 FROM appointments a
+             WHERE a.id != $1 AND a.status NOT IN ('cancelled','no_show')
+               AND ( a.therapist_id = $4 OR a.room_id = $5 )
+               AND NOT (a.ends_at <= $2 OR a.starts_at >= $3)
+           )
+         RETURNING *`;
+    const rsParams = [id, b.starts_at, newEndsAt.toISOString(), newTherapistId, newRoomId];
+    let upd;
+    if ((process.env.DB_MODE || '').toLowerCase() !== 'local') {
+      const lockClient = await pool.connect();
+      try {
+        await lockClient.query('BEGIN');
+        if (newTherapistId) await lockClient.query('SELECT pg_advisory_xact_lock(1, $1)', [Number(newTherapistId)]);
+        if (newRoomId)      await lockClient.query('SELECT pg_advisory_xact_lock(2, $1)', [Number(newRoomId)]);
+        upd = await lockClient.query(rsSql, rsParams);
+        await lockClient.query('COMMIT');
+      } catch (e) { try { await lockClient.query('ROLLBACK'); } catch {} throw e; } finally { lockClient.release(); }
+    } else {
+      upd = await pool.query(rsSql, rsParams);
+    }
+    if (!upd.rows[0]) {
+      return res.status(409).json({ error: 'conflict', message: 'That slot was just taken — please pick another time or therapist.' });
+    }
     await pool.query(
       `INSERT INTO appointment_amendments
          (appointment_id, kind, from_value, to_value, by_customer)
