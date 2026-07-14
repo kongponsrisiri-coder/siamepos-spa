@@ -4,6 +4,7 @@
 
 const express = require('express');
 const { pool } = require('../db/dbAdapter');
+const conciergeOrchestrator = require('../services/conciergeOrchestrator'); // SPA-WHATSAPP-AI-001
 
 const router = express.Router();
 const Stripe = require('stripe');
@@ -91,8 +92,15 @@ async function webhookHandler(req, res) {
              RETURNING id, status`,
             [link.appointment_id, link.amount, session.payment_intent || null],
           );
-          // Notify the timeline; Stage 2 hooks the WhatsApp confirmation here.
-          if (upd.rows[0]) req.app?.get('io')?.emit('appointment_confirmed', upd.rows[0]);
+          // Notify the timeline, and — for a WhatsApp booking that just got
+          // paid — send the customer their confirmation on WhatsApp.
+          if (upd.rows[0]) {
+            req.app?.get('io')?.emit('appointment_confirmed', upd.rows[0]);
+            if (upd.rows[0].status === 'booked') {
+              conciergeOrchestrator.sendBookingConfirmationWhatsApp(link.appointment_id)
+                .catch((e) => console.error('[stripe] whatsapp confirm', e.message));
+            }
+          }
         }
       }
     }

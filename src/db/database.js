@@ -653,6 +653,22 @@ async function initSchema() {
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS appointment_id INT REFERENCES appointments(id) ON DELETE SET NULL;
   `);
 
+  // ── WhatsApp concierge conversations (SPA-WHATSAPP-AI-001, Stage 2) ─────
+  // One row per customer WhatsApp number. `messages` is the Anthropic-format
+  // conversation history (trimmed) that gives the AI multi-turn memory. When a
+  // customer (or the AI) asks for a person, `handoff` is set and the bot stops
+  // auto-replying until staff clear it.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS concierge_conversations (
+      phone         TEXT PRIMARY KEY,
+      customer_name TEXT,
+      messages      JSONB NOT NULL DEFAULT '[]'::jsonb,
+      handoff       BOOLEAN NOT NULL DEFAULT FALSE,
+      updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_concierge_conv_updated ON concierge_conversations (updated_at);
+  `);
+
   // ── Device heartbeat (SEPOS-SPA-LICENSE-001 Part B) ─────────────────────
   // Each installed desktop till POSTs /api/device/heartbeat; ops reads these
   // back via /api/health to track installed devices + their version + last-seen.
