@@ -3,6 +3,8 @@
 
 const crypto = require('crypto');
 const { pool } = require('../db/dbAdapter');
+const voucherWalletPass   = require('./voucherWalletPass');   // Apple Wallet (isConfigured)
+const voucherGoogleWallet = require('./voucherGoogleWallet'); // Google Wallet (isConfigured)
 
 const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 
@@ -286,6 +288,27 @@ async function sendVoucherGiftEmail({ voucher, treatment_name }) {
          Valid until ${new Date(voucher.expires_at).toLocaleDateString('en-GB', { day:'numeric', month:'long', year:'numeric' })}
        </div>`
     : '';
+
+  // "Add to Wallet" buttons — only shown for the platforms whose credentials
+  // are set on Railway, so the email never links to a 503 endpoint. The code is
+  // the bearer token; links point at the public API (absolute URL required in
+  // email). PUBLIC_API_URL is set on the spa's Railway service.
+  const apiBase = (process.env.PUBLIC_API_URL || 'https://spa-api.siamepos.co.uk').replace(/\/$/, '');
+  const codeEnc = encodeURIComponent(voucher.code);
+  const appleOn  = voucherWalletPass.isConfigured();
+  const googleOn = voucherGoogleWallet.isConfigured();
+  const walletBlock = (appleOn || googleOn)
+    ? `<div style="text-align:center;margin:22px 0 4px;">
+         <div style="font-size:12px;color:#6b6b6b;margin-bottom:10px;">Save it to your phone</div>
+         ${appleOn ? `<a href="${apiBase}/api/widget/voucher/${codeEnc}/wallet-pass"
+            style="display:inline-block;margin:4px 6px;padding:11px 20px;background:#000;color:#fff;text-decoration:none;border-radius:9px;font-weight:600;font-size:14px;">
+            &#63743;&nbsp; Add to Apple Wallet</a>` : ''}
+         ${googleOn ? `<a href="${apiBase}/api/widget/voucher/${codeEnc}/google-wallet"
+            style="display:inline-block;margin:4px 6px;padding:11px 20px;background:#1e3a6e;color:#fff;text-decoration:none;border-radius:9px;font-weight:600;font-size:14px;">
+            &#128179;&nbsp; Add to Google Wallet</a>` : ''}
+         <div style="font-size:11px;color:#9a9a9a;margin-top:9px;">Open this email on your phone to add the voucher to your wallet</div>
+       </div>`
+    : '';
   const html = `
 <!doctype html>
 <html><body style="margin:0;padding:0;background:#faf7f2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1c1c1c;">
@@ -313,6 +336,7 @@ async function sendVoucherGiftEmail({ voucher, treatment_name }) {
             Show this code (or this email) at the spa when you book. We'll do the rest.
           </p>
           ${expiryLine}
+          ${walletBlock}
         </td></tr>
         <tr><td style="padding:18px 30px;background:#faf7f2;border-top:1px solid #e8e3d8;font-size:11px;color:#6b6b6b;line-height:1.55;">
           <div style="margin-bottom:6px;"><strong style="color:#1e3a6e;">${spaName.replace(/[<>]/g, '')}</strong>${spaAddress ? ' · ' + spaAddress.replace(/[<>]/g, '') : ''}</div>

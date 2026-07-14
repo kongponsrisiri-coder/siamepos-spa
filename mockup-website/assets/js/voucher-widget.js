@@ -114,6 +114,14 @@
       '.bss-v-titem .bss-v-tprice{font-size:14px;font-weight:700;color:' + GOLD + ';}',
       '.bss-v-titem .bss-v-sel{width:18px;height:18px;border-radius:50%;border:2px solid ' + BORDER + ';flex-shrink:0;transition:all 0.12s;}',
       '.bss-v-titem.selected .bss-v-sel{background:' + NAVY + ';border-color:' + NAVY + ';}',
+      /* sessions selector */
+      '.bss-v-sess-wrap{margin-top:16px;}',
+      '.bss-v-sess-lbl{font-size:12px;font-weight:600;color:' + NAVY + ';letter-spacing:0.06em;text-transform:uppercase;margin-bottom:8px;}',
+      '.bss-v-sess{display:flex;gap:8px;}',
+      '.bss-v-sessbtn{flex:1;min-width:52px;padding:11px 6px;border:1.5px solid ' + BORDER + ';background:#fff;border-radius:8px;font-size:15px;font-weight:700;color:' + NAVY + ';cursor:pointer;text-align:center;transition:all 0.15s;font-family:Inter,sans-serif;}',
+      '.bss-v-sessbtn:hover{border-color:' + GOLD + ';}',
+      '.bss-v-sessbtn.selected{border-color:' + NAVY + ';background:' + NAVY + ';color:#fff;}',
+      '.bss-v-sess-total{margin-top:10px;font-size:13px;color:' + MUTED + ';}',
       /* form */
       '.bss-v-field{margin-bottom:14px;}',
       '.bss-v-field label{display:block;font-size:12px;font-weight:600;color:' + NAVY + ';letter-spacing:0.06em;text-transform:uppercase;margin-bottom:5px;}',
@@ -159,6 +167,7 @@
     tab: 'amount',   // 'amount' | 'treatment'
     amount: null,    // selected £ amount
     treatment: null, // { id, name, price }
+    sessions: 1,     // treatment tab: number of sessions in the bundle (1 = single)
     treatments: null,// loaded from API
     recipient: '',
     recipientEmail: '',
@@ -183,7 +192,7 @@
   function open() {
     injectStyles();
     state.step = 1; state.tab = 'amount';
-    state.amount = null; state.treatment = null;
+    state.amount = null; state.treatment = null; state.sessions = 1;
     state.recipient = ''; state.recipientEmail = '';
     state.sender = ''; state.message = '';
     state.code = '';
@@ -260,6 +269,27 @@
       }
     }
 
+    // Sessions selector — appears under the treatment list once a treatment is
+    // picked. 1 = a single-treatment voucher (unchanged); 3/5/10 = a prepaid
+    // bundle, exactly like the till sells.
+    var sessHtml = '';
+    if (!isAmount && state.treatment) {
+      var presets = [1, 3, 5, 10];
+      var sessBtns = presets.map(function (n) {
+        return '<button class="bss-v-sessbtn' + (state.sessions === n ? ' selected' : '') + '" data-sess="' + n + '">' + n + '</button>';
+      }).join('');
+      var total = Number(state.treatment.price) * state.sessions;
+      sessHtml =
+        '<div class="bss-v-sess-wrap">'
+        + '<div class="bss-v-sess-lbl">Number of sessions</div>'
+        + '<div class="bss-v-sess">' + sessBtns + '</div>'
+        + '<div class="bss-v-sess-total">' + state.sessions + ' × ' + gbp(state.treatment.price)
+          + ' = <strong style="color:' + NAVY + ';">' + gbp(total) + '</strong>'
+          + (state.sessions > 1 ? ' &nbsp;·&nbsp; a ' + state.sessions + '-session bundle' : '')
+        + '</div>'
+        + '</div>';
+    }
+
     body.innerHTML =
       '<div class="bss-v-tabs">'
       + '<button class="bss-v-tab' + (isAmount ? ' active' : '') + '" id="bss-tab-amt">Choose an amount</button>'
@@ -268,7 +298,7 @@
       + (isAmount
         ? '<div class="bss-v-amounts">' + amountsHtml + '</div>'
            + '<p class="bss-v-hint">Recipient can use towards any treatment at Baan Siam Spa.</p>'
-        : treatHtml)
+        : treatHtml + sessHtml)
       + '<div class="bss-v-btns">'
       + '<button class="bss-v-btn bss-v-btn-ghost" id="bss-v-cancel-btn">Cancel</button>'
       + '<button class="bss-v-btn" id="bss-v-next1" ' + (canProceedStep1() ? '' : 'disabled') + '>Continue →</button>'
@@ -299,6 +329,14 @@
       });
     });
 
+    /* Sessions select */
+    body.querySelectorAll('.bss-v-sessbtn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        state.sessions = Number(btn.dataset.sess) || 1;
+        renderBody();
+      });
+    });
+
     document.getElementById('bss-v-cancel-btn').addEventListener('click', close);
     document.getElementById('bss-v-next1').addEventListener('click', function () {
       if (canProceedStep1()) { state.step = 2; render(); }
@@ -307,6 +345,20 @@
 
   function canProceedStep1() {
     return state.tab === 'amount' ? !!state.amount : !!state.treatment;
+  }
+
+  /* Total price + display label — shared by steps 2, 3, 4 and the POST. A
+     treatment bundle of N sessions costs N × the treatment price. */
+  function voucherPrice() {
+    if (state.tab === 'amount') return Number(state.amount) || 0;
+    if (state.treatment) return Number(state.treatment.price) * (state.sessions || 1);
+    return 0;
+  }
+  function voucherLabel() {
+    if (state.tab === 'amount') return gbp(state.amount) + ' gift voucher';
+    if (!state.treatment) return 'treatment voucher';
+    return (state.sessions > 1 ? state.sessions + '× ' : '') + state.treatment.displayName
+      + (state.sessions > 1 ? ' bundle' : ' voucher');
   }
 
   function loadTreatments() {
@@ -328,11 +380,11 @@
 
   /* ── Step 2 — Personalise ─────────────────────────────────────── */
   function renderStep2(body) {
-    var vLabel = state.tab === 'amount' ? gbp(state.amount) + ' gift voucher' : state.treatment.displayName + ' voucher';
+    var vLabel = voucherLabel();
     body.innerHTML =
       '<div class="bss-v-summary">'
       + '<div><div class="bss-v-slabel">Your voucher</div><div class="bss-v-sval">' + esc(vLabel) + '</div></div>'
-      + '<div class="bss-v-sprice">' + (state.tab === 'amount' ? gbp(state.amount) : gbp(state.treatment.price)) + '</div>'
+      + '<div class="bss-v-sprice">' + gbp(voucherPrice()) + '</div>'
       + '</div>'
       + '<div class="bss-v-field"><label>Recipient\'s name</label><input type="text" id="bss-recipient" placeholder="e.g. Emma Thompson" value="' + esc(state.recipient) + '"></div>'
       + '<div class="bss-v-field"><label>Recipient\'s email</label><input type="email" id="bss-remail" placeholder="emma@example.com" value="' + esc(state.recipientEmail) + '"></div>'
@@ -359,8 +411,8 @@
 
   /* ── Step 3 — Mock payment ────────────────────────────────────── */
   function renderStep3(body) {
-    var vLabel = state.tab === 'amount' ? gbp(state.amount) + ' gift voucher' : state.treatment.displayName + ' voucher';
-    var price  = state.tab === 'amount' ? state.amount : state.treatment.price;
+    var vLabel = voucherLabel();
+    var price  = voucherPrice();
 
     body.innerHTML =
       '<div class="bss-v-summary">'
@@ -398,7 +450,7 @@
 
       // POST to the spa API to create a real voucher record
       var body = {
-        value:           state.tab === 'amount' ? state.amount : Number(state.treatment.price),
+        value:           voucherPrice(),
         purchased_by:    state.sender,
         purchased_for:   state.recipient,
         recipient_email: state.recipientEmail,
@@ -406,6 +458,11 @@
       };
       if (state.tab === 'treatment' && state.treatment) {
         body.treatment_id = state.treatment.id;
+        // A multi-session pick becomes a prepaid bundle, matching the till.
+        if (state.sessions > 1) {
+          body.voucher_type   = 'sessions';
+          body.total_sessions = state.sessions;
+        }
       }
 
       fetch(window.SPA_API + '/api/widget/vouchers', {
@@ -430,8 +487,8 @@
 
   /* ── Step 4 — Success ─────────────────────────────────────────── */
   function renderStep4(body) {
-    var vLabel = state.tab === 'amount' ? gbp(state.amount) + ' gift voucher' : state.treatment.displayName + ' voucher';
-    var price  = state.tab === 'amount' ? state.amount : state.treatment.price;
+    var vLabel = voucherLabel();
+    var price  = voucherPrice();
     var expiry = new Date(); expiry.setFullYear(expiry.getFullYear() + 1);
     var expiryStr = expiry.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 
@@ -462,7 +519,7 @@
     });
     document.getElementById('bss-v-another').addEventListener('click', function () {
       state.step = 1; state.tab = 'amount'; state.amount = null;
-      state.treatment = null; state.code = '';
+      state.treatment = null; state.sessions = 1; state.code = '';
       render();
     });
   }

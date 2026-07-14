@@ -6,8 +6,23 @@ const Stripe = require('stripe');
 const { pool } = require('../db/dbAdapter');
 const { computeAvailability, getTherapistWorkingWindow, londonDateString } = require('../services/availability');
 const { sendBookingConfirmation, sendVoucherGiftEmail, sendOwnerNewBookingEmail } = require('../services/emailService');
+const voucherWalletPass   = require('../services/voucherWalletPass');   // Apple Wallet .pkpass
+const voucherGoogleWallet = require('../services/voucherGoogleWallet'); // Google Wallet save link
 
 const router = express.Router();
+
+// Look up a voucher by code with its treatment name — shared by both wallet
+// endpoints. Returns null if not found.
+async function loadVoucherByCode(code) {
+  const { rows } = await pool.query(
+    `SELECT v.*, t.name AS treatment_name
+       FROM vouchers v
+       LEFT JOIN treatments t ON t.id = v.treatment_id
+      WHERE v.code = $1`,
+    [String(code || '').trim().toUpperCase()],
+  );
+  return rows[0] || null;
+}
 
 function stripeClient() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -481,17 +496,40 @@ router.post('/book', async (req, res) => {
 // POST /api/widget/vouchers
 // Public endpoint — called by the Baan Siam website voucher widget.
 // Creates a voucher record for online purchases (payment_method always 'card').
-// body: { value, purchased_by, purchased_for, recipient_email, message?,
-//          treatment_id?, treatment_name? }
+// body (monetary):  { value, purchased_by, purchased_for, recipient_email,
+//                     message?, treatment_id?, payment_intent_id? }
+// body (sessions):  { voucher_type:'sessions', value (total sale price),
+//                     total_sessions, treatment_id (required), ... }
+//   — a "sessions" voucher is a bundle of N treatments (e.g. 5 × 60-min Thai
+//     massage), exactly like the till sells (POST /api/vouchers). value is the
+//     total price paid; per-session accounting is derived from value/total.
 // SPA-SEC-001 — hard ceiling on an online voucher so a tampered request
 // can't mint an absurd balance even on a Stripe-less demo install.
 const MAX_ONLINE_VOUCHER = 1000;
+const MAX_SESSIONS = 50; // sanity cap so a tampered request can't mint 9999 sessions
 
 router.post('/vouchers', async (req, res) => {
-  const { value, purchased_by, purchased_for, recipient_email, message, treatment_id, payment_intent_id } = req.body || {};
+  const {
+    value, purchased_by, purchased_for, recipient_email, message,
+    treatment_id, payment_intent_id, voucher_type, total_sessions,
+  } = req.body || {};
+  const isSessions = voucher_type === 'sessions';
   if (!value || Number(value) <= 0) return res.status(400).json({ error: 'value required' });
   if (Number(value) > MAX_ONLINE_VOUCHER) {
     return res.status(400).json({ error: `online vouchers are capped at £${MAX_ONLINE_VOUCHER}` });
+  }
+  if (isSessions) {
+    // A session bundle online must be tied to a specific treatment (the price
+    // and "what it buys" are unambiguous), and the count must be sane.
+    const n = Number(total_sessions);
+    if (!n || n <= 0 || !Number.isInteger(n) || n > MAX_SESSIONS) {
+      return res.status(400).json({ error: `total_sessions required (1–${MAX_SESSIONS})` });
+    }
+    if (!treatment_id) {
+      return res.status(400).json({ error: 'treatment_id required for a sessions voucher' });
+    }
+    const t = await pool.query('SELECT id FROM treatments WHERE id = $1 AND active = TRUE', [Number(treatment_id)]);
+    if (!t.rows[0]) return res.status(400).json({ error: 'treatment not found' });
   }
 
   // SPA-SEC-001 — a voucher is 100% pre-paid value redeemable at the till,
@@ -542,8 +580,9 @@ router.post('/vouchers', async (req, res) => {
       `INSERT INTO vouchers
          (code, initial_value, remaining_value, purchased_by, purchased_for,
           recipient_email, payment_method, notes, expires_at, treatment_id,
-          stripe_payment_intent_id)
-       VALUES ($1,$2,$2,$3,$4,$5,'card',$6,$7,$8,$9) RETURNING *`,
+          stripe_payment_intent_id,
+          voucher_type, total_sessions, sessions_remaining)
+       VALUES ($1,$2,$2,$3,$4,$5,'card',$6,$7,$8,$9,$10,$11,$11) RETURNING *`,
       [
         code,
         voucherValue,
@@ -554,6 +593,8 @@ router.post('/vouchers', async (req, res) => {
         expiresAt,
         treatment_id  ? Number(treatment_id) : null,
         stripeIntentId,
+        isSessions ? 'sessions' : 'monetary',
+        isSessions ? Number(total_sessions) : null,
       ],
     );
     const voucher = rows[0];
@@ -576,6 +617,53 @@ router.post('/vouchers', async (req, res) => {
   } catch (err) {
     console.error('[widget/vouchers] create', err);
     res.status(500).json({ error: 'server error' });
+  }
+});
+
+// GET /api/widget/voucher/:code/wallet-pass
+// Returns a signed Apple Wallet .pkpass for the voucher. Public — the code is
+// the bearer token (same trust model as quoting the code at the till). Returns
+// 503 until the PASS_SIGNER_* certs are set on Railway.
+router.get('/voucher/:code/wallet-pass', async (req, res) => {
+  const code = req.params.code;
+  try {
+    if (!voucherWalletPass.isConfigured()) {
+      return res.status(503).json({ error: 'Apple Wallet not configured' });
+    }
+    const v = await loadVoucherByCode(code);
+    if (!v) return res.status(404).json({ error: 'Voucher not found' });
+    const buf = await voucherWalletPass.buildVoucherPass(v);
+    res.set('Content-Type', 'application/vnd.apple.pkpass');
+    res.set('Content-Disposition', `attachment; filename="${v.code}.pkpass"`);
+    res.send(buf);
+  } catch (err) {
+    if (err.code === 'PASS_NOT_CONFIGURED') {
+      return res.status(503).json({ error: 'Apple Wallet not configured' });
+    }
+    console.error('[voucher] wallet-pass', err);
+    res.status(500).json({ error: 'Could not build wallet pass' });
+  }
+});
+
+// GET /api/widget/voucher/:code/google-wallet
+// Redirects to the signed "Save to Google Wallet" URL for the voucher. Public,
+// same bearer-code model. Returns 503 until GOOGLE_WALLET_* env is set.
+router.get('/voucher/:code/google-wallet', async (req, res) => {
+  const code = req.params.code;
+  try {
+    if (!voucherGoogleWallet.isConfigured()) {
+      return res.status(503).json({ error: 'Google Wallet not configured' });
+    }
+    const v = await loadVoucherByCode(code);
+    if (!v) return res.status(404).json({ error: 'Voucher not found' });
+    const url = voucherGoogleWallet.buildSaveUrl(v);
+    res.redirect(302, url);
+  } catch (err) {
+    if (err.code === 'GWALLET_NOT_CONFIGURED') {
+      return res.status(503).json({ error: 'Google Wallet not configured' });
+    }
+    console.error('[voucher] google-wallet', err);
+    res.status(500).json({ error: 'Could not build Google Wallet link' });
   }
 });
 

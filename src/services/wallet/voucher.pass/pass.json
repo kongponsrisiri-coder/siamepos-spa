@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "passTypeIdentifier": "pass.uk.co.siamepos.voucher",
+  "teamIdentifier": "G6D63G9WVY",
+  "organizationName": "SiamEPOS Spa",
+  "description": "Gift Voucher",
+  "serialNumber": "PLACEHOLDER",
+  "foregroundColor": "rgb(255, 255, 255)",
+  "backgroundColor": "rgb(30, 58, 110)",
+  "labelColor": "rgb(201, 168, 76)",
+  "storeCard": {}
+}
