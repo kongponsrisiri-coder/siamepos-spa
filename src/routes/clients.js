@@ -269,8 +269,22 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
     // SQLite, so selecting it unconditionally 500'd every erasure on the cloud
     // (the GDPR-critical path) and no deletion/tombstone ever happened. We now
     // fetch cloud_id separately INSIDE the local-only branch below.
-    const c = await pool.query('SELECT id, name, email FROM clients WHERE id = $1', [id]);
+    const c = await pool.query('SELECT id, name, email, phone FROM clients WHERE id = $1', [id]);
     if (!c.rows[0]) return res.status(404).json({ error: 'not found' });
+
+    // SEPOS-SPA-AUDIT G3 — scrub free-text appointment notes (may hold health
+    // notes) BEFORE the delete: the appointments FK is ON DELETE SET NULL, so
+    // afterwards the rows survive de-identified but the notes would linger.
+    try { await pool.query('UPDATE appointments SET notes = NULL WHERE client_id = $1', [id]); }
+    catch (e) { console.warn('[gdpr-erase] notes scrub failed:', e.message); }
+    // SEPOS-SPA-AUDIT G2 — erasure must also wipe the WhatsApp concierge
+    // transcript (keyed by phone, no FK cascade to clients); it can hold
+    // health-adjacent disclosures. Guarded so a missing table (older till
+    // schema) never breaks the GDPR-critical delete path.
+    if (c.rows[0].phone) {
+      try { await pool.query('DELETE FROM concierge_conversations WHERE phone = $1', [c.rows[0].phone]); }
+      catch (e) { console.warn('[gdpr-erase] concierge transcript wipe skipped:', e.message); }
+    }
 
     if (offlineQueue.isLocal) {
       // On a desktop till, erasure must reach the cloud (and thence every other
@@ -296,8 +310,11 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
       await pool.query('INSERT INTO deleted_records (entity, cloud_id) VALUES ($1, $2)', ['client', id]);
     }
 
+    // SEPOS-SPA-AUDIT G3 — audit line logs IDs only; don't copy the erased
+    // name/email into log storage (that's a persistent copy of the PII we
+    // just erased). The client id + staff id are enough for an audit trail.
     console.warn(
-      `[gdpr-erase] client id=${id} name="${c.rows[0].name}" email="${c.rows[0].email || ''}" deleted by staff id=${req.staff.id} (${req.staff.name}) at ${new Date().toISOString()}`,
+      `[gdpr-erase] client id=${id} deleted by staff id=${req.staff.id} at ${new Date().toISOString()}`,
     );
     res.json({ ok: true });
   } catch (err) {

@@ -204,6 +204,23 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
     const deposit = computeDeposit(policy, priceAtBooking);
     const s = stripeClient();
 
+    // SEPOS-SPA-AUDIT W3 — if a deposit is DUE but Stripe isn't configured, do
+    // NOT fall through to the free-confirm branch below: that silently bypasses
+    // the no-show deposit the policy requires and turns every WhatsApp hold into
+    // a free confirmed booking. Roll back the hold and hand off to a human.
+    if (deposit > 0 && !s) {
+      try { await client.query('ROLLBACK'); } catch (_) { /* already rolled back */ }
+      return {
+        booking_id: null,
+        status: 'payment_unavailable',
+        confirmed: false,
+        checkout_url: null,
+        deposit_amount: deposit,
+        hold_expires_at: null,
+        message: 'Online deposit payment is temporarily unavailable — a team member will confirm this booking shortly.',
+      };
+    }
+
     if (deposit > 0 && s) {
       // Stripe requires the session to live ≥30 min; our shorter hold is
       // enforced by the sweeper, which also expires this session on release.

@@ -818,6 +818,19 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_ingestion_log_ref    ON ingestion_log (external_ref);
     CREATE INDEX IF NOT EXISTS idx_ingestion_log_status ON ingestion_log (status, created_at);
+
+    -- SEPOS-SPA-AUDIT S1 — schema parity with cloud database.js: the WhatsApp
+    -- concierge SELECT/INSERTs concierge_conversations; it was missing here, so
+    -- any concierge activity under DB_MODE=local would 500 ("no such table").
+    -- (JSONB→TEXT, BOOLEAN→INTEGER, TIMESTAMPTZ→TEXT per this file's dialect.)
+    CREATE TABLE IF NOT EXISTS concierge_conversations (
+      phone         TEXT PRIMARY KEY,
+      customer_name TEXT,
+      messages      TEXT NOT NULL DEFAULT '[]',
+      handoff       INTEGER NOT NULL DEFAULT 0,
+      updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_concierge_conv_updated ON concierge_conversations (updated_at);
   `);
 
   // ── indexes ───────────────────────────────────────────────────────────────

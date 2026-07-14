@@ -482,7 +482,11 @@ router.post('/book', async (req, res) => {
         total_amount: Number(tr.rows[0].price),
         balance_due: +(Number(tr.rows[0].price) - depositAmount).toFixed(2),
       },
-      client: { id: cli.id, name: cli.name },
+      // SEPOS-SPA-AUDIT G1 — echo the SUBMITTED name, never the STORED one. On
+      // an existing-client match this endpoint (public, unauthenticated) used to
+      // return cli.name, turning a known phone/email into a name+membership
+      // oracle on the spa's clientele. Return what the caller typed.
+      client: { id: cli.id, name: b.name || null },
     });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -556,6 +560,20 @@ router.post('/vouchers', async (req, res) => {
     if (used.rows[0]) return res.status(409).json({ error: 'this payment has already been used for a voucher' });
     voucherValue = +(intent.amount_received / 100).toFixed(2);
     if (voucherValue <= 0) return res.status(402).json({ error: 'voucher payment captured £0' });
+    // SEPOS-SPA-AUDIT M2 — bind the session COUNT to the amount actually paid,
+    // exactly like /book binds the deposit to the server price. Without this the
+    // client sets total_sessions freely (only capped at 50), so paying for one
+    // session mints N full same-duration treatments. Require paid ≈ sessions × price.
+    if (isSessions) {
+      const tp = await pool.query('SELECT price FROM treatments WHERE id = $1', [Number(treatment_id)]);
+      const unit = Number(tp.rows[0]?.price) || 0;
+      const expectedPence = Math.round(Number(total_sessions) * unit * 100);
+      if (unit <= 0 || Math.abs(intent.amount_received - expectedPence) > 1) {
+        return res.status(402).json({
+          error: `voucher payment £${(intent.amount_received / 100).toFixed(2)} doesn't match ${total_sessions} × £${unit.toFixed(2)} for this treatment`,
+        });
+      }
+    }
   }
   const stripeIntentId = sv ? payment_intent_id : null;
 

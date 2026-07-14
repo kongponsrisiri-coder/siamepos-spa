@@ -117,7 +117,7 @@ router.get('/trading', async (req, res) => {
     );
     const appts = await pool.query(
       `SELECT
-         (COUNT(*) FILTER (WHERE status NOT IN ('cancelled','no_show')))::int AS appt_count,
+         (COUNT(*) FILTER (WHERE status NOT IN ('cancelled','no_show','held')))::int AS appt_count,
          (COUNT(*) FILTER (WHERE status = 'no_show'))::int                    AS no_shows,
          (COUNT(*) FILTER (WHERE status = 'cancelled'))::int                  AS cancelled
        FROM appointments WHERE starts_at::date = $1::date`,
