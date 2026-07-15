@@ -261,14 +261,16 @@ router.get('/bills', async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // GET /vouchers
-// All active gift vouchers plus their redemption history. The till needs
-// these to redeem a voucher offline (check remaining balance / sessions).
-// Redemptions are scoped to the active vouchers we return.
+// Gift vouchers + redemption history for the till. Sends 'active' (for offline
+// redeem lookups) AND 'cancelled' (SPA-VOUCHER-SYNC-001 — so a cancel done on
+// the cloud or another till is reflected here; the till's upsert flips the local
+// status to 'cancelled' instead of leaving a stale 'active' copy).
+// Redemptions are scoped to the vouchers we return.
 // ---------------------------------------------------------------------------
 router.get('/vouchers', async (_req, res) => {
   try {
     const vouchers = await pool.query(
-      `SELECT * FROM vouchers WHERE status = 'active' ORDER BY id`,
+      `SELECT * FROM vouchers WHERE status IN ('active','cancelled') ORDER BY id`,
     );
 
     const voucherIds = vouchers.rows.map((v) => v.id);
@@ -288,6 +290,45 @@ router.get('/vouchers', async (_req, res) => {
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
+  }
+});
+
+// POST /voucher-op   body: { cloud_id, op: 'cancel' | 'delete' }
+// SPA-VOUCHER-SYNC-001 — a desktop till pushes a voucher cancel/delete UP to the
+// cloud (the authoritative store) so it can't be re-activated by the next pull.
+// Sync-secret gated by the router.use(gate) above (no admin JWT — the till only
+// holds the sync secret). `cloud_id` is the cloud voucher's own id.
+router.post('/voucher-op', async (req, res) => {
+  const cloudId = Number(req.body && req.body.cloud_id);
+  const op = req.body && req.body.op;
+  if (!cloudId || !['cancel', 'delete'].includes(op)) {
+    return res.status(400).json({ error: 'cloud_id + op (cancel|delete) required' });
+  }
+  try {
+    if (op === 'cancel') {
+      const r = await pool.query(
+        "UPDATE vouchers SET status = 'cancelled' WHERE id = $1 RETURNING id",
+        [cloudId],
+      );
+      return res.json({ ok: true, applied: r.rowCount });
+    }
+    // op === 'delete' — remove the voucher + its redemption history atomically.
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM voucher_redemptions WHERE voucher_id = $1', [cloudId]);
+      const r = await client.query('DELETE FROM vouchers WHERE id = $1 RETURNING id', [cloudId]);
+      await client.query('COMMIT');
+      return res.json({ ok: true, applied: r.rowCount });
+    } catch (err) {
+      try { await client.query('ROLLBACK'); } catch (_) { /* noop */ }
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (err) {
+    console.error('[sync] voucher-op', err);
+    res.status(500).json({ error: 'server error' });
   }
 });
 

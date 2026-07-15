@@ -4,7 +4,8 @@ const { pool } = require('../db/dbAdapter');
 const { requireRole } = require('../middleware/auth');
 const { sendVoucherGiftEmail } = require('../services/emailService');
 const { buildAt } = require('../services/availability');
-const { isOffline } = require('../services/syncService');
+const { isOffline, pushVoucherOp } = require('../services/syncService');
+const offlineQueue = require('../services/offlineQueue');
 
 // Voucher is valid through the END of expires_at in London time. Without
 // this, `new Date('2026-05-21') < new Date()` flips the voucher to expired
@@ -407,6 +408,38 @@ router.delete('/:id', requireRole('admin'), async (req, res) => {
   const id = Number(req.params.id);
   const permanent = req.query.permanent === '1' || req.query.permanent === 'true';
   try {
+    // SPA-VOUCHER-SYNC-001 — on a local desktop till, vouchers are cloud-
+    // authoritative (same rule as redemption). A local-only cancel/delete gets
+    // re-activated by the next pull (which carries the still-active cloud copy),
+    // so it "comes back". Fix: block when offline, and when online push the op to
+    // the CLOUD first (by cloud_id), then mirror it locally below. No-op in cloud
+    // mode (offlineQueue.isLocal is false there).
+    if (offlineQueue.isLocal) {
+      if (isOffline()) {
+        return res.status(503).json({
+          error: 'offline', offline: true,
+          message: 'Cancelling or deleting a voucher needs an internet connection so the change reaches the cloud (and other tills). Please try again when back online.',
+        });
+      }
+      const cid = await pool.query('SELECT cloud_id FROM vouchers WHERE id = $1', [id]);
+      if (!cid.rows[0]) return res.status(404).json({ error: 'not found' });
+      const cloudId = cid.rows[0].cloud_id;
+      // Vouchers created on the cloud carry a cloud_id; push the op up so the
+      // cloud stops sending this voucher back as active. (A rare till-only
+      // voucher with no cloud_id simply applies locally — nothing to push.)
+      if (cloudId != null) {
+        try {
+          await pushVoucherOp(cloudId, permanent ? 'delete' : 'cancel');
+        } catch (e) {
+          return res.status(502).json({
+            error: 'cloud_unreachable',
+            message: 'Could not reach the cloud to save this change. Please check your connection and try again in a moment.',
+          });
+        }
+      }
+      // fall through → apply the same op to the local SQLite copy
+    }
+
     if (!permanent) {
       const { rows } = await pool.query(
         "UPDATE vouchers SET status = 'cancelled' WHERE id = $1 RETURNING *",

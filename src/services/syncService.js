@@ -58,6 +58,28 @@ async function getJSON(path, { timeout = PULL_TIMEOUT_MS, headers = {} } = {}) {
   return r.json();
 }
 
+// SPA-VOUCHER-SYNC-001 — push a voucher cancel/delete UP to the cloud from a
+// local desktop till. Vouchers are cloud-authoritative (like redemption): a
+// local-only cancel/delete would be undone by the next pull, which only carries
+// active vouchers. So the till applies the op to the cloud first (by the cloud
+// voucher id), then mirrors it locally. Sync-secret gated like every /api/sync
+// call. Throws on failure so the caller can refuse to diverge from the cloud.
+async function pushVoucherOp(cloudId, op) {
+  if (!CLOUD_API_URL) return false; // not wired to a cloud → nothing to push to
+  const r = await fetch(CLOUD_API_URL + '/api/sync/voucher-op', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...syncHeaders() },
+    body: JSON.stringify({ cloud_id: Number(cloudId), op }),
+    signal: AbortSignal.timeout(PULL_TIMEOUT_MS),
+  });
+  if (!r.ok) {
+    const e = new Error(`voucher-op → HTTP ${r.status}`);
+    e.status = r.status;
+    throw e;
+  }
+  return true;
+}
+
 // ───────────────────────────────────────────────────────────────────────────
 // Generic upsert helper (cloud-authoritative config tables).
 //
@@ -844,6 +866,7 @@ module.exports = {
   pullFromCloud,
   getStatus,
   isOffline,
+  pushVoucherOp,   // SPA-VOUCHER-SYNC-001 — till → cloud voucher cancel/delete
   // exported for targeted refreshes / tests
   ping,
   tick,
