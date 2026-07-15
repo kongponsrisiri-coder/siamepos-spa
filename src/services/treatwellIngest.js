@@ -35,11 +35,12 @@ function toStartIso(parsed) {
 
 async function logIngestion(row) {
   try {
+    const channel = row.source ? `${row.source}_email` : 'treatwell_email';
     await pool.query(
       `INSERT INTO ingestion_log
          (source, external_ref, action, status, confidence, parsed, raw, appointment_id, error)
-       VALUES ('treatwell_email', $1, $2, $3, $4, $5, $6, $7, $8)`,
-      [row.ref || null, row.action || null, row.status, row.confidence || null,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [channel, row.ref || null, row.action || null, row.status, row.confidence || null,
        row.parsed ? JSON.stringify(row.parsed) : null, row.raw || null,
        row.appointmentId || null, row.error || null],
     );
@@ -73,10 +74,12 @@ async function findOrCreateClient(db, parsed) {
       [cli.id, parsed.name || '', parsed.phone || '', parsed.email || '']);
     return cli;
   }
+  const src = parsed.source || 'treatwell';
+  const guestLabel = src.charAt(0).toUpperCase() + src.slice(1) + ' guest';
   const ins = await db.query(
     `INSERT INTO clients (name, phone, email, source, gdpr_consent, gdpr_consent_at)
-     VALUES ($1, $2, $3, 'treatwell', TRUE, now()) RETURNING *`,
-    [parsed.name || 'Treatwell guest', parsed.phone || null, parsed.email || null]);
+     VALUES ($1, $2, $3, $4, TRUE, now()) RETURNING *`,
+    [parsed.name || guestLabel, parsed.phone || null, parsed.email || null, src]);
   return ins.rows[0];
 }
 
@@ -127,10 +130,12 @@ async function createBooking(parsed, raw, io) {
   const endIso = new Date(new Date(startIso).getTime() + durationMin * 60000).toISOString();
   const { therapistId, roomId, conflict } = await autoAssign(treatmentId, startIso);
 
+  const src = parsed.source || 'treatwell';
+  const srcLabel = src.charAt(0).toUpperCase() + src.slice(1);
   const notes = [
     conflict,
     treatmentId ? null : `[unmatched treatment: ${parsed.treatment || 'unknown'}]`,
-    parsed.room ? `Treatwell room: ${parsed.room}` : null,
+    parsed.room ? `${srcLabel} room: ${parsed.room}` : null,
   ].filter(Boolean).join(' ') || null;
 
   let priceAtBooking = parsed.price != null ? Number(parsed.price) : null;
@@ -144,13 +149,13 @@ async function createBooking(parsed, raw, io) {
     INSERT INTO appointments
       (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
        status, source, notes, treatwell_booking_id, price_at_booking, treatwell_payment_type)
-    VALUES ($1,$2,$3,$4,$5,$6,'booked','treatwell',$7,$8,$9,$10) RETURNING *`;
+    VALUES ($1,$2,$3,$4,$5,$6,'booked',$11,$7,$8,$9,$10) RETURNING *`;
 
   let appt;
   if (DB_MODE === 'local') {
     const cli = await findOrCreateClient(pool, parsed);
     const r = await pool.query(insertSql,
-      [cli.id, treatmentId, therapistId, roomId, startIso, endIso, notes, parsed.ref, priceAtBooking, paymentType]);
+      [cli.id, treatmentId, therapistId, roomId, startIso, endIso, notes, parsed.ref, priceAtBooking, paymentType, src]);
     appt = r.rows[0];
   } else {
     const db = await pool.connect();
@@ -162,7 +167,7 @@ async function createBooking(parsed, raw, io) {
       if (therapistId) await db.query('SELECT pg_advisory_xact_lock(1, $1)', [therapistId]);
       if (roomId)      await db.query('SELECT pg_advisory_xact_lock(2, $1)', [roomId]);
       const r = await db.query(insertSql,
-        [cli.id, treatmentId, therapistId, roomId, startIso, endIso, notes, parsed.ref, priceAtBooking, paymentType]);
+        [cli.id, treatmentId, therapistId, roomId, startIso, endIso, notes, parsed.ref, priceAtBooking, paymentType, src]);
       await db.query('COMMIT');
       appt = r.rows[0];
     } catch (e) {
@@ -189,7 +194,7 @@ async function createBooking(parsed, raw, io) {
         client: row,
         treatment: row.treatment_name ? { name: row.treatment_name, duration_minutes: row.duration_minutes, price: row.price } : null,
         therapistName: row.therapist_name,
-        source: 'treatwell',
+        source: src,
       });
     } catch (e) { console.error('[treatwellIngest] owner notify failed:', e.message); }
   })();
@@ -240,7 +245,7 @@ async function cancelBooking(parsed, raw, io) {
 }
 
 function logBase(parsed, raw) {
-  return { ref: parsed.ref, action: parsed.action, confidence: parsed.confidence, parsed, raw };
+  return { source: parsed.source, ref: parsed.ref, action: parsed.action, confidence: parsed.confidence, parsed, raw };
 }
 
 /**
@@ -248,14 +253,18 @@ function logBase(parsed, raw) {
  * server for realtime push. Never throws to the caller for business outcomes —
  * everything lands in ingestion_log; only genuine DB errors bubble up.
  */
-async function ingestBooking(parsed, raw, io) {
+async function ingestBooking(parsed, raw, io, opts = {}) {
+  // SPA-BOOKING-INGEST — stamp the marketplace source (treatwell | fresha | …).
+  // Route-detected source wins; fall back to what the AI reported; default
+  // 'treatwell' for the legacy/reprocess path so existing behaviour is unchanged.
+  if (parsed) parsed.source = (opts.source || parsed.source || 'treatwell');
   if (!parsed || !parsed.ok || !parsed.ref) {
     // No order ref → not a booking email (Treatwell marketing/statement/review):
     // 'ignore' it quietly (still audited, but kept out of the review queue). A
     // ref present but unparseable → keep for review (never silently drop a real
     // booking).
     const status = (parsed && parsed.ref) ? 'needs_review' : 'ignored';
-    await logIngestion({ ref: parsed?.ref, action: parsed?.action, status,
+    await logIngestion({ source: parsed?.source, ref: parsed?.ref, action: parsed?.action, status,
       confidence: parsed?.confidence || 'none', parsed, raw, error: parsed?.reason || 'unparseable' });
     return { status, reason: parsed?.reason || 'unparseable' };
   }

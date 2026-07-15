@@ -1,10 +1,14 @@
-// SPA-TREATWELL-001 — inbound Treatwell EMAIL webhook + review queue.
+// SPA-TREATWELL-001 / SPA-BOOKING-INGEST — inbound marketplace booking EMAIL
+// webhook + review queue. Handles BOTH Treatwell and Fresha (and is easy to
+// extend to more).
 //
-// The venue auto-forwards Treatwell booking emails to a unique inbound address;
-// an inbound-email-parse service (Brevo/Mailgun/etc.) POSTs the email here. We
-// parse it deterministically, fall back to AI (Sonnet) only when unsure, and
-// hand the result to the shared ingest engine. Nothing is silently dropped —
-// low-confidence/unparseable items land in `ingestion_log` as needs_review.
+// The venue auto-forwards its booking emails to a unique inbound address; an
+// inbound-email-parse service (Brevo/Mailgun/etc.) POSTs the email here. We
+// detect the marketplace (Treatwell | Fresha) from the sender/subject/body,
+// parse Treatwell deterministically (Fresha via AI), tag the resulting
+// appointment with the right `source`, and hand it to the shared ingest engine.
+// Nothing is silently dropped — low-confidence/unparseable items land in
+// `ingestion_log` as needs_review.
 //
 //   POST /api/treatwell-email/inbound   (public, gated by a secret header)
 //   GET  /api/treatwell-email/review-queue            (staff auth)
@@ -26,13 +30,25 @@ function inboundSecret() {
   return process.env.INBOUND_EMAIL_SECRET || process.env.TREATWELL_WEBHOOK_SECRET || null;
 }
 
-// Pull subject + plaintext out of whatever inbound-parse provider posted.
+// Pull subject + plaintext + sender out of whatever inbound-parse provider posted.
 function extractEmail(body) {
   const b = body || {};
   const subject = b.subject || b.Subject || (b.headers && b.headers.subject) || '';
   const text = b.text || b.plain || b['body-plain'] || b['stripped-text'] ||
                b.TextBody || b.plaintext || b.bodyPlain || '';
-  return { subject: String(subject || ''), text: String(text || '') };
+  const from = b.from || b.From || b.sender || b['from-email'] ||
+               (b.headers && (b.headers.from || b.headers.From)) || '';
+  return { subject: String(subject || ''), text: String(text || ''), from: String(from || '') };
+}
+
+// SPA-BOOKING-INGEST — which marketplace an inbound email is from. Scans the
+// sender + subject + body for provider markers. Returns 'treatwell' | 'fresha',
+// or null (not a recognised marketplace booking email → ignored, no AI spend).
+function detectSource({ subject = '', text = '', from = '' } = {}) {
+  const hay = `${from}\n${subject}\n${text}`.toLowerCase();
+  if (/treatwell/.test(hay) || /\bT\d{8,}\b/.test(text)) return 'treatwell';
+  if (/fresha/.test(hay)) return 'fresha';
+  return null;
 }
 
 const FIELDS = ['action', 'ref', 'name', 'email', 'phone', 'treatment', 'durationMin',
@@ -69,22 +85,31 @@ router.post('/inbound', async (req, res) => {
   const provided = req.get('x-inbound-secret') || (req.query && req.query.secret);
   if (provided !== secret) return res.status(401).json({ error: 'unauthorised' });
 
-  const { subject, text } = extractEmail(req.body);
+  const { subject, text, from } = extractEmail(req.body);
   if (!text) return res.status(400).json({ error: 'no email body' });
 
   try {
-    let parsed = parseTreatwellEmail({ subject, text });
-    // Only spend an AI call when there's a real booking signal (a Treatwell
-    // order ref) but the deterministic parse wasn't fully confident. Emails
-    // with NO T-ref are almost certainly not bookings (Treatwell marketing /
-    // statements / review requests) — ingestBooking will quietly 'ignore' them.
-    if (parsed.ref && (!parsed.ok || parsed.confidence !== 'high')) {
-      parsed = mergeParsed(parsed, await extractBookingWithAI({ subject, text }));
+    const source = detectSource({ subject, text, from });
+    let parsed;
+    if (source === 'treatwell') {
+      // Free deterministic parse; AI only fills gaps when there's a real booking
+      // signal (a Treatwell order ref) but the parse wasn't fully confident.
+      parsed = parseTreatwellEmail({ subject, text });
+      if (parsed.ref && (!parsed.ok || parsed.confidence !== 'high')) {
+        parsed = mergeParsed(parsed, await extractBookingWithAI({ subject, text, source }));
+      }
+    } else if (source === 'fresha') {
+      // No deterministic parser for Fresha yet — the AI extractor handles it.
+      parsed = await extractBookingWithAI({ subject, text, source });
+    } else {
+      // Not a recognised marketplace booking email (marketing / statements /
+      // random mail) — ignore quietly, no AI spend, kept out of the review queue.
+      return res.json({ ok: true, action: 'ignore', status: 'ignored', reason: 'not a Treatwell/Fresha booking email' });
     }
-    const result = await ingestBooking(parsed, text, req.app.get('io'));
+    const result = await ingestBooking(parsed, text, req.app.get('io'), { source });
     // Always 200 to the provider so it doesn't retry-storm; the real outcome is
     // in the body + ingestion_log.
-    return res.json({ ok: true, ...result, ref: parsed && parsed.ref, confidence: parsed && parsed.confidence });
+    return res.json({ ok: true, ...result, source, ref: parsed && parsed.ref, confidence: parsed && parsed.confidence });
   } catch (err) {
     console.error('[treatwell-email] inbound error', err);
     return res.status(500).json({ error: 'server error' });
@@ -114,12 +139,18 @@ router.post('/review/:id/reprocess', requireAuth, async (req, res) => {
     const r = await pool.query('SELECT raw FROM ingestion_log WHERE id = $1', [id]);
     if (!r.rows[0]) return res.status(404).json({ error: 'not found' });
     const text = r.rows[0].raw || '';
-    let parsed = parseTreatwellEmail({ text });
-    if (!parsed.ok || parsed.confidence !== 'high') {
-      parsed = mergeParsed(parsed, await extractBookingWithAI({ text }));
+    const source = detectSource({ text }) || 'treatwell';
+    let parsed;
+    if (source === 'fresha') {
+      parsed = await extractBookingWithAI({ text, source });
+    } else {
+      parsed = parseTreatwellEmail({ text });
+      if (!parsed.ok || parsed.confidence !== 'high') {
+        parsed = mergeParsed(parsed, await extractBookingWithAI({ text, source }));
+      }
     }
-    const result = await ingestBooking(parsed, text, req.app.get('io'));
-    res.json({ ok: true, ...result });
+    const result = await ingestBooking(parsed, text, req.app.get('io'), { source });
+    res.json({ ok: true, ...result, source });
   } catch (err) {
     console.error('[treatwell-email] reprocess', err);
     res.status(500).json({ error: 'server error' });
