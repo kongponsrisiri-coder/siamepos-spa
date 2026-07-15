@@ -63,6 +63,14 @@ const ALLOWED_ORIGINS = [
     .map((o) => o.trim())
     .filter(Boolean),
 ];
+// SPA-WIDGET-CORS-001 — the public booking widget embeds on client websites
+// we don't control, so its API surface must answer ANY origin. This must be
+// registered BEFORE the allow-list CORS below: that middleware terminates
+// preflights for unknown origins, which blocked the widget on every external
+// embed (found wiring Highbury's website). Anonymous routes only — the
+// widget sends no cookies/credentials.
+app.use('/api/widget', cors({ origin: '*' }));
+
 app.use(cors({
   origin: (origin, cb) => cb(null, !origin || ALLOWED_ORIGINS.includes(origin)),
   credentials: true,
