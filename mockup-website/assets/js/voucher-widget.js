@@ -362,8 +362,17 @@
   }
 
   function loadTreatments() {
-    if (!window.spaFetch) return;
-    window.spaFetch('/api/widget/treatments').then(function (data) {
+    // Self-contained: use the host page's window.spaFetch if present, otherwise
+    // fetch straight from window.SPA_API. Lets this widget populate treatments
+    // (and therefore the session-bundle picker) on ANY site that just sets
+    // window.SPA_API — no config.js / spaFetch helper required.
+    var req = window.spaFetch
+      ? window.spaFetch('/api/widget/treatments')
+      : fetch((window.SPA_API || '') + '/api/widget/treatments').then(function (r) {
+          if (!r.ok) throw new Error(r.statusText);
+          return r.json();
+        });
+    req.then(function (data) {
       state.treatments = (data.treatments || [])
         .filter(function (t) { return Number(t.price) > 0; })
         .map(function (t) {

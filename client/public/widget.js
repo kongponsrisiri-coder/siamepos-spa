@@ -21,6 +21,21 @@
       try { return new URL(s.src).origin; } catch (e) { return ''; }
     })();
 
+  // Expose a tiny fetch helper that sibling SiamEPOS embeds (the gift-voucher
+  // widget) rely on. This means a host page only has to load this booking
+  // widget (or set window.SPA_API) — it no longer also needs config.js just to
+  // populate the voucher widget's treatment list. Guarded so a page that
+  // already defines its own spaFetch wins. `path` is the FULL path, e.g.
+  // '/api/widget/treatments'.
+  if (!window.spaFetch) {
+    window.spaFetch = function (path) {
+      return fetch((window.SPA_API || API_BASE) + path).then(function (res) {
+        if (!res.ok) throw new Error(res.statusText);
+        return res.json();
+      });
+    };
+  }
+
   // -------- styles ----------------------------------------------------------
   var STYLE = `
     .ses-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.5); z-index:2147483600;
