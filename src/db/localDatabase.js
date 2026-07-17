@@ -831,6 +831,18 @@ async function initSchema() {
       updated_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     CREATE INDEX IF NOT EXISTS idx_concierge_conv_updated ON concierge_conversations (updated_at);
+
+    -- SPA-PETTYCASH-001 — cash paid OUT of the drawer for small expenses.
+    -- Mirrors cloud database.js (SERIAL→AUTOINCREMENT, NUMERIC→REAL,
+    -- TIMESTAMPTZ→TEXT). Reduces cash-taken on the Z report; not a sale.
+    CREATE TABLE IF NOT EXISTS petty_cash (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      amount     REAL NOT NULL CHECK (amount > 0),
+      reason     TEXT NOT NULL,
+      created_by INTEGER REFERENCES therapists(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_petty_cash_created_at ON petty_cash (created_at);
   `);
 
   // ── indexes ───────────────────────────────────────────────────────────────

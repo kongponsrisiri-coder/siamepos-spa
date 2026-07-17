@@ -481,7 +481,7 @@ tbody tr:hover td { background: var(--navy-muted); }
    Hides nav, sidebar, action buttons; keeps the content + tables. */
 @media print {
   body { background: white !important; }
-  .top-nav, .bottom-nav, .admin-sidebar, .section-header .row, .modal-backdrop { display: none !important; }
+  .top-nav, .bottom-nav, .admin-sidebar, .section-header .row, .modal-backdrop, .no-print { display: none !important; }
   .admin-layout { display: block !important; height: auto !important; overflow: visible !important; margin: 0 !important; width: 100% !important; }
   .admin-content { padding: 0 !important; }
   .card { box-shadow: none !important; border: 1px solid #ccc !important; page-break-inside: avoid; }

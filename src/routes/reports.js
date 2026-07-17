@@ -1,5 +1,6 @@
 const express = require('express');
 const { pool } = require('../db/dbAdapter');
+const { requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -410,6 +411,16 @@ router.get('/z-report', async (req, res) => {
        ORDER BY revenue DESC`,
       [date],
     );
+    // SPA-PETTYCASH-001 — cash paid OUT of the drawer today for expenses.
+    // Not revenue; it reduces the cash that should be in the drawer at close.
+    const pettyCash = await pool.query(
+      `SELECT p.id, p.amount, p.reason, p.created_at, t.name AS staff_name
+       FROM petty_cash p
+       LEFT JOIN therapists t ON t.id = p.created_by
+       WHERE p.created_at::date = $1::date
+       ORDER BY p.created_at ASC`,
+      [date],
+    );
     // Spa identity so the receipt/print/CSV all carry the business name.
     const ident = await pool.query(
       `SELECT key, value FROM settings WHERE key IN ('spa_name','spa_email','spa_address','spa_phone')`,
@@ -422,6 +433,14 @@ router.get('/z-report', async (req, res) => {
     const zPrepayCount = Number(zod.count_pending) + Number(zod.count_consumed) + Number(zod.count_forfeit);
     const pb = buildPaymentBreakdown(byMethod.rows, voucherSalesByMethod.rows, { total: Number(zod.total_taken || 0), count: zPrepayCount });
     const billMoneyIn = byMethod.rows.filter((r) => MONEY_IN_METHODS.has(r.payment_method)).reduce((s, r) => s + Number(r.revenue || 0), 0);
+    // SPA-PETTYCASH-001 — cash-drawer reconciliation. `cash_taken` is the CASH
+    // physically received today (cash bills + cash-bought vouchers, from the
+    // split-aware money_taken 'cash' line). Petty cash paid out reduces it to
+    // `net_cash` — what should actually be in the drawer / go to the bank
+    // (excludes any opening float, which the till doesn't track).
+    const pettyTotal = pettyCash.rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+    const cashTaken = Number((pb.money_taken.find((m) => m.payment_method === 'cash') || {}).revenue || 0);
+    const netCash = +(cashTaken - pettyTotal).toFixed(2);
     res.json({
       date,
       totals: { ...totals.rows[0], revenue: pb.revenue },
@@ -435,6 +454,22 @@ router.get('/z-report', async (req, res) => {
         count: voucherSales.rows[0].count,
         total: voucherSales.rows[0].total,
         by_payment_method: voucherSalesByMethod.rows,
+      },
+      petty_cash: {
+        total: +pettyTotal.toFixed(2),
+        count: pettyCash.rows.length,
+        entries: pettyCash.rows.map((r) => ({
+          id: r.id,
+          amount: Number(r.amount),
+          reason: r.reason,
+          staff_name: r.staff_name || null,
+          created_at: r.created_at,
+        })),
+      },
+      cash_reconciliation: {
+        cash_taken: +cashTaken.toFixed(2),
+        petty_cash: +pettyTotal.toFixed(2),
+        net_cash: netCash,
       },
       identity: {
         spa_name:    identity.spa_name    || process.env.SPA_NAME    || 'SiamEPOS Spa',
@@ -463,6 +498,76 @@ router.post('/z-report/close', async (req, res) => {
     res.json({ ok: true, closed_date: date });
   } catch (err) {
     console.error('[reports] z-close', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// ── Petty cash (SPA-PETTYCASH-001) ──────────────────────────────────────────
+// Cash removed from the drawer for expenses. Shown on the Z report where it is
+// subtracted from cash taken to give net cash (see /z-report cash_reconciliation).
+
+// GET /api/reports/petty-cash?date=   — the day's petty-cash entries + total.
+router.get('/petty-cash', async (req, res) => {
+  const date = req.query.date || today();
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.id, p.amount, p.reason, p.created_at, t.name AS staff_name
+       FROM petty_cash p
+       LEFT JOIN therapists t ON t.id = p.created_by
+       WHERE p.created_at::date = $1::date
+       ORDER BY p.created_at ASC`,
+      [date],
+    );
+    const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+    res.json({
+      date,
+      total: +total.toFixed(2),
+      count: rows.length,
+      entries: rows.map((r) => ({
+        id: r.id, amount: Number(r.amount), reason: r.reason,
+        staff_name: r.staff_name || null, created_at: r.created_at,
+      })),
+    });
+  } catch (err) {
+    console.error('[reports] petty-cash list', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// POST /api/reports/petty-cash  body: { amount, reason }
+// Records cash taken out of the drawer. Staff (not therapists) only.
+router.post('/petty-cash', requireRole('admin', 'manager', 'reception'), async (req, res) => {
+  const amount = Number(req.body?.amount);
+  const reason = String(req.body?.reason || '').trim();
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(400).json({ error: 'amount must be a positive number' });
+  }
+  if (!reason) return res.status(400).json({ error: 'reason is required' });
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO petty_cash (amount, reason, created_by)
+       VALUES ($1, $2, $3)
+       RETURNING id, amount, reason, created_at`,
+      [+amount.toFixed(2), reason, req.staff?.id || null],
+    );
+    const r = rows[0];
+    res.status(201).json({ ok: true, entry: { ...r, amount: Number(r.amount) } });
+  } catch (err) {
+    console.error('[reports] petty-cash create', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// DELETE /api/reports/petty-cash/:id  — remove a mistaken entry (admin/manager).
+router.delete('/petty-cash/:id', requireRole('admin', 'manager'), async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.status(400).json({ error: 'bad id' });
+  try {
+    const { rowCount } = await pool.query('DELETE FROM petty_cash WHERE id = $1', [id]);
+    if (!rowCount) return res.status(404).json({ error: 'not found' });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[reports] petty-cash delete', err);
     res.status(500).json({ error: 'server error' });
   }
 });

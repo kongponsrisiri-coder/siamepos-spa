@@ -669,6 +669,23 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_concierge_conv_updated ON concierge_conversations (updated_at);
   `);
 
+  // ── Petty cash (SPA-PETTYCASH-001) ──────────────────────────────────────
+  // Cash paid OUT of the till drawer during the day for small expenses
+  // (milk, taxi, supplies…). It is NOT a sale — it does not touch revenue or
+  // VAT. On the Z report it reduces the CASH taken to give the real cash that
+  // should be in the drawer / banked:  net cash = cash taken − petty cash out.
+  // `amount` is a positive £ figure (the cash removed).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS petty_cash (
+      id         SERIAL PRIMARY KEY,
+      amount     NUMERIC(10,2) NOT NULL CHECK (amount > 0),
+      reason     TEXT NOT NULL,
+      created_by INT REFERENCES therapists(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_petty_cash_created_at ON petty_cash (created_at);
+  `);
+
   // ── Device heartbeat (SEPOS-SPA-LICENSE-001 Part B) ─────────────────────
   // Each installed desktop till POSTs /api/device/heartbeat; ops reads these
   // back via /api/health to track installed devices + their version + last-seen.

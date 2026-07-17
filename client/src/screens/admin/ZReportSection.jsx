@@ -39,6 +39,11 @@ export default function ZReportSection() {
   const [data, setData] = useState(null);
   const [bills, setBills] = useState([]);
   const [busy, setBusy] = useState(false);
+  // SPA-PETTYCASH-001 — add-entry form state.
+  const [pcAmount, setPcAmount] = useState('');
+  const [pcReason, setPcReason] = useState('');
+  const [pcBusy, setPcBusy] = useState(false);
+  const [pcErr, setPcErr] = useState('');
 
   const load = useCallback(async () => {
     // Pull summary + line-by-line bills together so the export has both.
@@ -51,6 +56,33 @@ export default function ZReportSection() {
   }, [date]);
 
   useEffect(() => { load(); }, [load]);
+
+  // SPA-PETTYCASH-001 — record cash taken out of the drawer for an expense.
+  async function addPettyCash(e) {
+    e?.preventDefault?.();
+    setPcErr('');
+    const amount = Number(pcAmount);
+    if (!Number.isFinite(amount) || amount <= 0) { setPcErr('Enter an amount greater than 0.'); return; }
+    if (!pcReason.trim()) { setPcErr('Enter what the cash was for.'); return; }
+    setPcBusy(true);
+    try {
+      await api.post('/reports/petty-cash', { amount, reason: pcReason.trim(), date });
+      setPcAmount(''); setPcReason('');
+      await load();
+    } catch (err) {
+      setPcErr(err?.message || 'Could not save. On a till this needs the till to be running.');
+    } finally { setPcBusy(false); }
+  }
+  async function deletePettyCash(id) {
+    if (!confirm('Remove this petty-cash entry? The cash total will go back up.')) return;
+    setPcBusy(true);
+    try {
+      await api.del(`/reports/petty-cash/${id}`);
+      await load();
+    } catch (err) {
+      setPcErr(err?.message || 'Could not remove.');
+    } finally { setPcBusy(false); }
+  }
 
   async function closeDay() {
     if (!confirm(`Close Z report for ${date}? This stamps the day as closed.`)) return;
@@ -165,6 +197,21 @@ export default function ZReportSection() {
       rows.push(['Pending (upcoming)',     data.online_deposits.count_pending  || 0]);
       rows.push(['Consumed (paid in full)', data.online_deposits.count_consumed || 0]);
       rows.push(['Forfeit (late cancel)',  data.online_deposits.count_forfeit || 0]);
+    }
+
+    // SPA-PETTYCASH-001 — cash-drawer reconciliation for the accountant.
+    if (data.cash_reconciliation) {
+      const rec = data.cash_reconciliation;
+      rows.push([]);
+      rows.push(['Cash drawer (petty cash reconciliation)']);
+      rows.push(['Cash taken', '', Number(rec.cash_taken || 0).toFixed(2)]);
+      if (data.petty_cash && Array.isArray(data.petty_cash.entries)) {
+        for (const p of data.petty_cash.entries) {
+          rows.push([`  Petty cash — ${p.reason}${p.staff_name ? ` (${p.staff_name})` : ''}`, '', '-' + Number(p.amount || 0).toFixed(2)]);
+        }
+      }
+      rows.push(['Petty cash paid out', '', '-' + Number(rec.petty_cash || 0).toFixed(2)]);
+      rows.push(['Net cash in drawer (to bank, excl. float)', '', Number(rec.net_cash || 0).toFixed(2)]);
     }
 
     // Voucher sales — now folded into the card/cash money-taken lines above;
@@ -354,6 +401,62 @@ export default function ZReportSection() {
             )}
           </div>
         )}
+
+        {/* SPA-PETTYCASH-001 — cash-drawer reconciliation. Petty cash paid out
+            is subtracted from the cash TAKEN to show what should be in the
+            drawer / banked. Not a sale — it never touches revenue or VAT. */}
+        {(() => {
+          const rec = data.cash_reconciliation || { cash_taken: 0, petty_cash: 0, net_cash: 0 };
+          const pc = data.petty_cash || { total: 0, count: 0, entries: [] };
+          return (
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 4 }}>
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <strong>💵 Cash drawer</strong>
+                <span className="muted" style={{ fontSize: 12 }}>Petty cash reconciliation</span>
+              </div>
+              <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
+                <span>Cash taken</span><span>{fmtMoney(rec.cash_taken)}</span>
+              </div>
+              {pc.entries.length > 0 && pc.entries.map((p) => (
+                <div key={p.id} className="row" style={{ justifyContent: 'space-between', padding: '3px 0', fontSize: 12, color: 'var(--muted)' }}>
+                  <span>
+                    ↳ {p.reason}{p.staff_name ? ` · ${p.staff_name}` : ''}
+                    <button
+                      onClick={() => deletePettyCash(p.id)} disabled={pcBusy}
+                      title="Remove this entry"
+                      style={{ marginLeft: 6, border: 'none', background: 'none', color: '#b91c1c', cursor: 'pointer', fontSize: 12, padding: 0 }}
+                    >✕</button>
+                  </span>
+                  <span>− {fmtMoney(p.amount)}</span>
+                </div>
+              ))}
+              <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
+                <span>Petty cash paid out{pc.count ? ` (${pc.count})` : ''}</span>
+                <span style={{ color: pc.total > 0 ? '#b91c1c' : 'inherit' }}>− {fmtMoney(pc.total)}</span>
+              </div>
+              <div className="row" style={{ justifyContent: 'space-between', padding: '6px 0 2px', borderTop: '1px solid var(--border)', fontWeight: 700 }}>
+                <span>Net cash in drawer</span><span>{fmtMoney(rec.net_cash)}</span>
+              </div>
+              <div className="muted" style={{ fontSize: 11, marginBottom: 6 }}>
+                Cash you should have to bank (excludes any opening float).
+              </div>
+              {/* Add a petty-cash entry */}
+              <form onSubmit={addPettyCash} className="row no-print" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input
+                  type="number" step="0.01" min="0" inputMode="decimal"
+                  value={pcAmount} onChange={(e) => setPcAmount(e.target.value)}
+                  placeholder="£ amount" style={{ width: 100 }} disabled={pcBusy}
+                />
+                <input
+                  type="text" value={pcReason} onChange={(e) => setPcReason(e.target.value)}
+                  placeholder="What for? (e.g. milk, taxi)" style={{ flex: 1, minWidth: 140 }} disabled={pcBusy}
+                />
+                <button type="submit" disabled={pcBusy}>{pcBusy ? 'Saving…' : '+ Add petty cash'}</button>
+              </form>
+              {pcErr && <div style={{ color: '#b91c1c', fontSize: 12, marginTop: 4 }}>{pcErr}</div>}
+            </div>
+          );
+        })()}
 
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <span className="muted" style={{ fontSize: 12 }}>
