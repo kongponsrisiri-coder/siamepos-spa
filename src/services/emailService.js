@@ -354,6 +354,133 @@ async function sendVoucherGiftEmail({ voucher, treatment_name }) {
   });
 }
 
+// SPA-LOYALTY-001 Layer 1 — post-visit loyalty progress email.
+// "That was visit 7 of 10 — 3 more for your free massage ⭐". The customer-
+// facing progress visibility IS the point of the loyalty feature: the till
+// counts automatically; this tells the customer where they stand. Includes an
+// "Add to Apple Wallet" loyalty-card button when passes are configured, and
+// the standard unsubscribe footer (caller already checks unsubscribed_at).
+async function sendLoyaltyProgress({ client, visitNumber, rolled, status }) {
+  if (!client?.email) return { skipped: true };
+  const spaName    = (process.env.SPA_NAME || 'SiamEPOS Spa').replace(/[<>]/g, '');
+  const spaAddress = (process.env.SPA_ADDRESS || '').replace(/[<>]/g, '');
+  const apiBase = (process.env.PUBLIC_API_URL || 'https://spa-api.siamepos.co.uk').replace(/\/$/, '');
+  const safeName = String(client.name || 'there').split(' ')[0].replace(/[<>]/g, '');
+
+  const next = status.next_tier;
+  const toNext = status.visits_to_next;
+  const justEarned = (status.available_rewards || [])
+    .filter((t) => t.at_visit <= visitNumber);
+  const esc = (s) => String(s || '').replace(/[<>]/g, '');
+
+  // Headline + subject: celebrate a fresh reward > completed card > progress.
+  let subject, headline, subline;
+  if (justEarned.length > 0) {
+    const r = justEarned[justEarned.length - 1];
+    subject  = `🎉 You've earned it — ${r.reward}`;
+    headline = `You've earned: ${esc(r.reward)} 🎉`;
+    subline  = `Just mention it at reception — it's waiting on your card.`;
+  } else if (rolled) {
+    subject  = `⭐ Card complete — thank you, ${safeName}!`;
+    headline = `Loyalty card complete! 🎉`;
+    subline  = `Your rewards are all collected and a fresh card has started — visit 1 begins next time.`;
+  } else if (next) {
+    subject  = `⭐ That was visit ${visitNumber} — ${toNext} more for your ${next.reward}`;
+    headline = `That was visit ${visitNumber}`;
+    subline  = `${toNext} more visit${toNext === 1 ? '' : 's'} until your <strong>${esc(next.reward)}</strong> ⭐`;
+  } else {
+    subject  = `⭐ Visit ${visitNumber} — thank you, ${safeName}!`;
+    headline = `That was visit ${visitNumber}`;
+    subline  = `Thank you for visiting — every direct booking counts on your card.`;
+  }
+
+  // Progress dots toward the next tier (email-safe: plain characters).
+  let progressBlock = '';
+  if (next) {
+    const target = next.at_visit;
+    const have = Math.min(status.visits, target);
+    const dots = Array.from({ length: target }, (_, i) =>
+      `<span style="display:inline-block;width:14px;height:14px;border-radius:50%;margin:2px;background:${i < have ? '#C9A84C' : 'rgba(255,255,255,0.25)'};"></span>`,
+    ).join('');
+    progressBlock = `
+      <div style="margin:14px 0 4px;">${dots}</div>
+      <div style="color:rgba(255,255,255,0.78);font-size:13px;">${have} of ${target} toward ${esc(next.reward)}</div>`;
+  }
+
+  // Ladder overview (multi-tier schemes) — ✓ redeemed, ★ ready, ○ upcoming.
+  const ladderRows = (status.tiers || []).map((t) => {
+    const redeemed = (status.redeemed_tiers || []).includes(t.at_visit);
+    const ready = (status.available_rewards || []).some((a) => a.at_visit === t.at_visit);
+    const mark = redeemed ? '✓' : ready ? '★' : '○';
+    const color = redeemed ? '#8a8a8a' : ready ? '#C9A84C' : '#444';
+    return `<tr>
+      <td style="padding:4px 10px 4px 0;color:${color};font-weight:700;">${mark}</td>
+      <td style="padding:4px 0;color:${color};">Visit ${t.at_visit} — ${esc(t.reward)}${ready ? ' <strong>(ready!)</strong>' : redeemed ? ' (enjoyed)' : ''}</td>
+    </tr>`;
+  }).join('');
+
+  // Apple Wallet loyalty card button (only when passes are configured).
+  let walletBlock = '';
+  try {
+    const loyaltyWalletPass = require('./loyaltyWalletPass');
+    if (loyaltyWalletPass.isConfigured()) {
+      const rec = await loyaltyWalletPass.ensurePassRecord(client.id);
+      if (rec) {
+        walletBlock = `
+        <div style="text-align:center;margin:22px 0 4px;">
+          <a href="${apiBase}/api/wallet/loyalty/${encodeURIComponent(rec.serial)}.pkpass?t=${encodeURIComponent(rec.auth_token)}"
+             style="display:inline-block;margin:4px 6px;padding:11px 20px;background:#000;color:#fff;text-decoration:none;border-radius:9px;font-weight:600;font-size:14px;">
+             &#63743;&nbsp; Add your loyalty card to Apple Wallet</a>
+          <div style="font-size:11px;color:#9a9a9a;margin-top:8px;">Your visit count updates on the card automatically after every visit</div>
+        </div>`;
+      }
+    }
+  } catch (e) { /* wallet optional — email still sends */ }
+
+  const unsubUrl = `${apiBase}/api/unsubscribe?token=${encodeURIComponent(unsubscribeToken(client.email))}`;
+  const html = `
+<!doctype html>
+<html><body style="margin:0;padding:0;background:#faf7f2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1c1c1c;">
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#faf7f2;padding:32px 0;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width:600px;background:white;border-radius:14px;overflow:hidden;box-shadow:0 4px 18px rgba(20,38,74,0.10);">
+        <tr><td style="background:#1e3a6e;padding:28px 30px;color:#C9A84C;font-family:Georgia,serif;font-size:24px;font-weight:700;letter-spacing:0.02em;">
+          ${spaName}
+        </td></tr>
+        <tr><td style="padding:32px;line-height:1.65;color:#1c1c1c;">
+          <p style="font-size:15px;margin:0 0 18px;">Hi ${safeName}, thank you for coming in today.</p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#1e3a6e;border-radius:12px;margin:0 0 24px;">
+            <tr><td style="padding:26px 28px;text-align:center;color:white;">
+              <div style="font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:rgba(255,255,255,0.55);">Loyalty card</div>
+              <div style="font-size:28px;font-weight:700;color:#C9A84C;margin:8px 0 2px;">${headline}</div>
+              <div style="color:rgba(255,255,255,0.85);font-size:14px;">${subline}</div>
+              ${progressBlock}
+            </td></tr>
+          </table>
+          ${ladderRows ? `
+          <div style="font-size:13px;color:#6b6b6b;margin:0 0 6px;letter-spacing:0.08em;text-transform:uppercase;">Your rewards</div>
+          <table role="presentation" cellpadding="0" cellspacing="0" style="font-size:14px;margin:0 0 8px;">${ladderRows}</table>` : ''}
+          <p style="font-size:13px;color:#6b6b6b;margin:12px 0 0;">
+            Visits count automatically when you book with us directly — nothing to carry, nothing to stamp.
+          </p>
+          ${walletBlock}
+        </td></tr>
+        <tr><td style="padding:18px 30px;background:#faf7f2;border-top:1px solid #e8e3d8;font-size:11px;color:#6b6b6b;line-height:1.55;">
+          <div style="margin-bottom:6px;"><strong style="color:#1e3a6e;">${spaName}</strong>${spaAddress ? ' · ' + spaAddress : ''}</div>
+          <div>You receive these because you're on our loyalty card. <a href="${unsubUrl}" style="color:#6b6b6b;">Unsubscribe</a></div>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`.trim();
+
+  return sendBrevoEmail({
+    to: [{ email: client.email, name: client.name || undefined }],
+    subject: `${spaName} — ${subject}`,
+    html,
+  });
+}
+
 // SPA-OWNER-NOTIFY — email the spa owner whenever a new booking
 // arrives, regardless of source (widget / treatwell / admin POST).
 // Reads recipient from settings.spa_email with env-var fallback.
@@ -453,4 +580,5 @@ module.exports = {
   bookingToken,
   parseBookingToken,
   sendVoucherGiftEmail,
+  sendLoyaltyProgress,   // SPA-LOYALTY-001
 };

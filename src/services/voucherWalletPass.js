@@ -53,6 +53,19 @@ function isConfigured() {
   return loadCerts();
 }
 
+// SPA-LOYALTY-001 — the loyalty pass generator and the APNs pass-update push
+// (walletPush.js) use the SAME Apple pass certificate. Returns null when not
+// configured.
+function getCerts() {
+  if (!loadCerts()) return null;
+  return {
+    wwdr: _wwdr,
+    signerCert: _signerCert,
+    signerKey: _signerKey,
+    signerKeyPassphrase: _signerKeyPassphrase,
+  };
+}
+
 // ── Spa branding (env, with sane defaults) ─────────────────────────
 const SPA_NAME    = process.env.SPA_NAME    || 'SiamEPOS Spa';
 const SPA_ADDRESS = process.env.SPA_ADDRESS || '';
@@ -81,7 +94,7 @@ function expiryIsoEndOfDay(expiresAt) {
 // ── Main generator ─────────────────────────────────────────────────
 // Returns a Buffer (the signed .pkpass zip). Caller writes it to res with
 // content-type application/vnd.apple.pkpass.
-async function buildVoucherPass(voucher) {
+async function buildVoucherPass(voucher, opts = {}) {
   if (!isConfigured()) {
     const e = new Error('Wallet pass not configured on server');
     e.code = 'PASS_NOT_CONFIGURED';
@@ -97,6 +110,9 @@ async function buildVoucherPass(voucher) {
 
   // serialNumber must be unique per pass — the voucher code already is unique
   // + stable. Apple uses this as the Wallet-side identity.
+  // SPA-LOYALTY-001 L2 — when the caller supplies webServiceURL +
+  // authenticationToken the pass becomes UPDATABLE: Wallet registers with our
+  // pass web service and the balance refreshes after each redemption.
   const pass = await PKPass.from({
     model: MODEL_DIR,
     certificates: {
@@ -110,6 +126,9 @@ async function buildVoucherPass(voucher) {
     description:      `${SPA_NAME} Gift Voucher`,
     organizationName: SPA_NAME,
     ...(expIso ? { expirationDate: expIso } : {}),
+    ...(opts.webServiceURL && opts.authenticationToken
+      ? { webServiceURL: opts.webServiceURL, authenticationToken: opts.authenticationToken }
+      : {}),
   });
 
   if (isSessions) {
@@ -186,7 +205,12 @@ async function buildVoucherPass(voucher) {
   return pass.getAsBuffer();
 }
 
+// The shared Apple Pass Type ID (all SiamEPOS spa passes sign under it).
+const PASS_TYPE_ID = 'pass.uk.co.siamepos.voucher';
+
 module.exports = {
   buildVoucherPass,
   isConfigured,
+  getCerts,       // SPA-LOYALTY-001 — shared by loyaltyWalletPass + walletPush
+  PASS_TYPE_ID,
 };

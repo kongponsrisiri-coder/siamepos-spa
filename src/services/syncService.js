@@ -600,6 +600,11 @@ const PUSH_MAP = {
   create_bill:               { table: 'bills',          insert: true,  fks: { appointment_id: 'appointments' } },
   add_bill_item:             { table: 'bill_items',     insert: true,  fks: { bill_id: 'bills' } },
   pay_bill_cash:             { table: 'bills',          insert: false, fks: {} },
+  // SPA-LOYALTY-001 — loyalty events (earn/redeem/revoke/unredeem) push as
+  // inserts; the cloud's applyOp has a custom kind that also sets the client
+  // counters to the event's after-state and fires the email/Wallet push.
+  // bill_id may legitimately be null (reversal after a bill delete).
+  loyalty_event:             { table: 'loyalty_events', insert: true,  fks: { client_id: 'clients', bill_id: 'bills' } },
 };
 
 // A stable per-DEVICE id, generated once and persisted in sync_state. It's

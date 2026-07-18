@@ -650,7 +650,29 @@ router.get('/voucher/:code/wallet-pass', async (req, res) => {
     }
     const v = await loadVoucherByCode(code);
     if (!v) return res.status(404).json({ error: 'Voucher not found' });
-    const buf = await voucherWalletPass.buildVoucherPass(v);
+    // SPA-LOYALTY-001 L2 — register the pass so it becomes UPDATABLE: Wallet
+    // signs up with our pass web service and the balance refreshes on the
+    // phone after each redemption. Get-or-create keeps the token stable so a
+    // re-download replaces (not duplicates) the pass in Wallet. Registry
+    // hiccups degrade to a static pass — never block the download.
+    let passOpts = {};
+    try {
+      const crypto = require('crypto');
+      const apiBase = (process.env.PUBLIC_API_URL || 'https://spa-api.siamepos.co.uk').replace(/\/$/, '');
+      let rec = (await pool.query(`SELECT auth_token FROM wallet_passes WHERE serial = $1`, [v.code])).rows[0];
+      if (!rec) {
+        await pool.query(
+          `INSERT INTO wallet_passes (kind, voucher_id, serial, auth_token)
+           VALUES ('voucher', $1, $2, $3) ON CONFLICT (serial) DO NOTHING`,
+          [v.id, v.code, crypto.randomBytes(24).toString('hex')],
+        );
+        rec = (await pool.query(`SELECT auth_token FROM wallet_passes WHERE serial = $1`, [v.code])).rows[0];
+      }
+      if (rec) passOpts = { webServiceURL: `${apiBase}/api/wallet`, authenticationToken: rec.auth_token };
+    } catch (e) {
+      console.warn('[voucher] wallet-pass registry failed (pass still issued, static):', e.message);
+    }
+    const buf = await voucherWalletPass.buildVoucherPass(v, passOpts);
     res.set('Content-Type', 'application/vnd.apple.pkpass');
     res.set('Content-Disposition', `attachment; filename="${v.code}.pkpass"`);
     res.send(buf);

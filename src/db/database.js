@@ -686,6 +686,69 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_petty_cash_created_at ON petty_cash (created_at);
   `);
 
+  // ── Loyalty card (SPA-LOYALTY-001) ──────────────────────────────────────
+  // "Every Nth visit free", auto-tracked from the till. A visit = a completed
+  // PAID bill for a DIRECT booking (Treatwell/Fresha-sourced appointments do
+  // NOT earn — deliberate channel-shift incentive). Config lives in settings:
+  //   loyalty_enabled ('1'/'0'), loyalty_tiers (JSON ladder
+  //   [{at_visit, reward, value?}, …]), loyalty_min_spend,
+  //   loyalty_repeat_after_last ('1' default).
+  // clients carries the live counters; loyalty_events is the append-only audit
+  // (earn / redeem / revoke / unredeem) that also RIDES THE SYNC from local
+  // tills (each event stores the counters before/after so the cloud can apply
+  // it deterministically).
+  await pool.query(`
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS loyalty_visits INT NOT NULL DEFAULT 0;
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS loyalty_cycle  INT NOT NULL DEFAULT 0;
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS loyalty_events (
+      id            SERIAL PRIMARY KEY,
+      client_id     INT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      bill_id       INT REFERENCES bills(id) ON DELETE SET NULL,
+      type          TEXT NOT NULL CHECK (type IN ('earn','redeem','revoke','unredeem')),
+      visit_number  INT,
+      tier_visit    INT,
+      reward        TEXT,
+      cycle         INT NOT NULL DEFAULT 0,
+      visits_before INT,
+      cycle_before  INT,
+      visits_after  INT,
+      cycle_after   INT,
+      created_by    INT REFERENCES therapists(id) ON DELETE SET NULL,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_loyalty_events_client ON loyalty_events (client_id, cycle);
+    CREATE INDEX IF NOT EXISTS idx_loyalty_events_bill   ON loyalty_events (bill_id);
+  `);
+
+  // ── Apple Wallet pass registry (SPA-LOYALTY-001 Layer 2 / SEPOS-WALLET P2) ─
+  // One row per ISSUED pass (loyalty card or gift voucher). `serial` is the
+  // Wallet-side identity; `auth_token` authenticates both the public download
+  // link and Apple's pass-update web service ("Authorization: ApplePass <t>").
+  // `updated_at` bumps on every content change and drives passesUpdatedSince +
+  // Last-Modified. wallet_registrations maps passes → devices for APNs pushes.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS wallet_passes (
+      id         SERIAL PRIMARY KEY,
+      kind       TEXT NOT NULL CHECK (kind IN ('loyalty','voucher')),
+      client_id  INT REFERENCES clients(id) ON DELETE CASCADE,
+      voucher_id INT REFERENCES vouchers(id) ON DELETE CASCADE,
+      serial     TEXT NOT NULL UNIQUE,
+      auth_token TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS wallet_registrations (
+      id                SERIAL PRIMARY KEY,
+      device_library_id TEXT NOT NULL,
+      push_token        TEXT NOT NULL,
+      serial            TEXT NOT NULL,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+      UNIQUE (device_library_id, serial)
+    );
+    CREATE INDEX IF NOT EXISTS idx_wallet_reg_serial ON wallet_registrations (serial);
+  `);
+
   // ── Device heartbeat (SEPOS-SPA-LICENSE-001 Part B) ─────────────────────
   // Each installed desktop till POSTs /api/device/heartbeat; ops reads these
   // back via /api/health to track installed devices + their version + last-seen.

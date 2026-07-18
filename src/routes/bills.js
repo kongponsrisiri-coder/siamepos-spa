@@ -5,6 +5,7 @@ const { requireRole } = require('../middleware/auth');
 const { isOffline } = require('../services/syncService');
 const offlineQueue = require('../services/offlineQueue');
 const { sendBrevoEmail } = require('../services/emailService');
+const loyaltyService = require('../services/loyaltyService'); // SPA-LOYALTY-001
 
 const router = express.Router();
 
@@ -432,7 +433,12 @@ router.post('/:id/pay', async (req, res) => {
     if (method === 'cash') {
       await offlineQueue.enqueue('pay_bill_cash', { localId: id });
     }
-    res.json({ bill: rows[0] });
+    // SPA-LOYALTY-001 — the paid bill may earn a loyalty stamp (direct
+    // bookings only; gates live in the service). Never blocks the payment —
+    // recordEarnForBill swallows its own errors. Returned so the till can
+    // show "⭐ visit 7 — 3 more to go" on the payment confirmation.
+    const loyalty = await loyaltyService.recordEarnForBill(id, { staffId: req.staff?.id });
+    res.json({ bill: rows[0], loyalty });
   } catch (err) {
     console.error('[bills] pay', err);
     res.status(500).json({ error: 'server error' });
@@ -659,8 +665,17 @@ router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
       }
       await client.query(`UPDATE voucher_redemptions SET reversed_at = now() WHERE id = $1`, [r.id]);
     }
+    // SPA-LOYALTY-001 — capture any loyalty events tied to this bill BEFORE
+    // the delete (the FK nulls their bill_id), then reverse them after commit.
+    const loyEvs = await client.query(
+      `SELECT id FROM loyalty_events WHERE bill_id = $1 AND type IN ('earn','redeem')`,
+      [id],
+    );
     await client.query('DELETE FROM bills WHERE id = $1', [id]);
     await client.query('COMMIT');
+    if (loyEvs.rows.length) {
+      await loyaltyService.revokeEventsById(loyEvs.rows.map((r) => r.id), { staffId: req.staff?.id });
+    }
     res.json({ ok: true });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -852,6 +867,9 @@ router.post('/:id/refund', requireRole('admin', 'manager'), async (req, res) => 
     );
     await client.query('COMMIT');
     req.app.get('io')?.emit('appointment_updated', { id: bill.appt_id });
+    // SPA-LOYALTY-001 — a refunded visit no longer counts: reverse the earn
+    // (and un-redeem any reward applied to this bill). Never throws.
+    await loyaltyService.revokeForBill(id, { staffId: req.staff?.id });
     res.json({ bill: rows[0], stripe_refunded: stripeRefunded, vouchers_restored: vouchersRestored });
   } catch (err) {
     await client.query('ROLLBACK').catch(() => {});

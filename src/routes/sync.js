@@ -307,9 +307,13 @@ router.post('/voucher-op', async (req, res) => {
   try {
     if (op === 'cancel') {
       const r = await pool.query(
-        "UPDATE vouchers SET status = 'cancelled' WHERE id = $1 RETURNING id",
+        "UPDATE vouchers SET status = 'cancelled' WHERE id = $1 RETURNING id, code",
         [cloudId],
       );
+      // SPA-LOYALTY-001 L2 — a cancelled voucher's Wallet pass should refresh.
+      if (r.rows[0]?.code) {
+        require('../services/walletPush').bumpVoucherPass(r.rows[0].code).catch(() => {});
+      }
       return res.json({ ok: true, applied: r.rowCount });
     }
     // op === 'delete' — remove the voucher + its redemption history atomically.
@@ -378,6 +382,10 @@ const PUSH_ACTIONS = {
   add_bill_item:             { table: 'bill_items',      kind: 'insert' },
   pay_bill_cash:             { table: 'bills',           kind: 'update' },
   delete_client:             { table: 'clients',         kind: 'delete', entity: 'client' },
+  // SPA-LOYALTY-001 — custom kind: inserts the event AND sets the client's
+  // loyalty counters to the event's after-state (the till already ran the
+  // maths; per-device ordering makes the apply deterministic).
+  loyalty_event:             { table: 'loyalty_events',  kind: 'loyalty_event' },
 };
 
 // Column list for a table, from the live catalog. Works on Postgres (cloud)
@@ -420,6 +428,12 @@ async function applyOp(action, data, db = pool) {
   const spec = PUSH_ACTIONS[action];
   if (!spec) throw new Error(`unknown push action: ${action}`);
   const { table, kind } = spec;
+
+  // SPA-LOYALTY-001 — event insert + counter apply in one go (see service).
+  if (kind === 'loyalty_event') {
+    const loyaltyService = require('../services/loyaltyService');
+    return loyaltyService.applySyncedEvent(data, db);
+  }
 
   if (kind === 'insert') {
     const fields = await writableData(table, data);
@@ -525,6 +539,14 @@ router.post('/push', async (req, res) => {
       );
       await client.query('COMMIT');
       inTxn = false;
+      // SPA-LOYALTY-001 — post-commit side-effects for a freshly-applied
+      // loyalty event: progress email (earns) + Wallet pass APNs push.
+      // Fire-and-forget; must never fail the sync response.
+      if (action === 'loyalty_event' && cloudId != null) {
+        require('../services/loyaltyService')
+          .notifyForEvent(cloudId)
+          .catch((e) => console.error('[sync] loyalty notify failed:', e.message));
+      }
       results.push({ op_key, ok: true, cloud_id: cloudId });
     } catch (e) {
       if (inTxn) {

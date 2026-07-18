@@ -832,6 +832,52 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_concierge_conv_updated ON concierge_conversations (updated_at);
 
+    -- SPA-LOYALTY-001 — loyalty events (earn/redeem/revoke/unredeem audit).
+    -- Mirrors cloud database.js; cloud_id is LOCAL-ONLY (sync push mapping,
+    -- like bills/appointments). Client counters live on clients
+    -- (loyalty_visits / loyalty_cycle — added in runMigrations()).
+    CREATE TABLE IF NOT EXISTS loyalty_events (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_id     INTEGER NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+      bill_id       INTEGER REFERENCES bills(id) ON DELETE SET NULL,
+      type          TEXT NOT NULL CHECK (type IN ('earn','redeem','revoke','unredeem')),
+      visit_number  INTEGER,
+      tier_visit    INTEGER,
+      reward        TEXT,
+      cycle         INTEGER NOT NULL DEFAULT 0,
+      visits_before INTEGER,
+      cycle_before  INTEGER,
+      visits_after  INTEGER,
+      cycle_after   INTEGER,
+      created_by    INTEGER REFERENCES therapists(id) ON DELETE SET NULL,
+      created_at    TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      cloud_id      INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_loyalty_events_client ON loyalty_events (client_id, cycle);
+    CREATE INDEX IF NOT EXISTS idx_loyalty_events_bill   ON loyalty_events (bill_id);
+
+    -- SPA-LOYALTY-001 Layer 2 — schema parity with cloud wallet tables. The
+    -- Apple pass web service only runs on the CLOUD (Apple must reach it);
+    -- these exist locally purely so shared code never hits "no such table".
+    CREATE TABLE IF NOT EXISTS wallet_passes (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind       TEXT NOT NULL CHECK (kind IN ('loyalty','voucher')),
+      client_id  INTEGER REFERENCES clients(id) ON DELETE CASCADE,
+      voucher_id INTEGER REFERENCES vouchers(id) ON DELETE CASCADE,
+      serial     TEXT NOT NULL UNIQUE,
+      auth_token TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS wallet_registrations (
+      id                INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_library_id TEXT NOT NULL,
+      push_token        TEXT NOT NULL,
+      serial            TEXT NOT NULL,
+      created_at        TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE (device_library_id, serial)
+    );
+    CREATE INDEX IF NOT EXISTS idx_wallet_reg_serial ON wallet_registrations (serial);
+
     -- SPA-PETTYCASH-001 — cash paid OUT of the drawer for small expenses.
     -- Mirrors cloud database.js (SERIAL→AUTOINCREMENT, NUMERIC→REAL,
     -- TIMESTAMPTZ→TEXT). Reduces cash-taken on the Z report; not a sale.
@@ -949,6 +995,8 @@ function runMigrations() {
   addColumnIfMissing('clients', 'unsubscribed_at', 'TEXT');
   addColumnIfMissing('clients', 'updated_at',      'TEXT'); // SEPOS-SPA-BUGHUNT H5 (nullable: SQLite ALTER can't default CURRENT_TIMESTAMP)
   addColumnIfMissing('clients', 'cloud_id',        'INTEGER');
+  addColumnIfMissing('clients', 'loyalty_visits',  'INTEGER NOT NULL DEFAULT 0'); // SPA-LOYALTY-001
+  addColumnIfMissing('clients', 'loyalty_cycle',   'INTEGER NOT NULL DEFAULT 0'); // SPA-LOYALTY-001
 
   // appointments
   addColumnIfMissing('appointments', 'therapist_requested',    'INTEGER NOT NULL DEFAULT 0');

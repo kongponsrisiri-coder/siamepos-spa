@@ -26,6 +26,7 @@ export default function ClientProfileScreen() {
   const [editing, setEditing]         = useState(false);
   const [draft, setDraft]             = useState(null);
   const [error, setError]             = useState('');
+  const [loyalty, setLoyalty]         = useState(null); // SPA-LOYALTY-001
 
   const load = useCallback(async () => {
     // SEPOS-SPA-BUGHUNT — clear the previous client's data BEFORE fetching. Without
@@ -40,6 +41,11 @@ export default function ClientProfileScreen() {
       setClient(r.client);
       setMedical(r.medical);
       setAppointments(r.appointments);
+      // SPA-LOYALTY-001 — loyalty progress on the client card (non-fatal).
+      try {
+        const ls = await api.get(`/loyalty/status?client_id=${id}`);
+        setLoyalty(ls && ls.enabled ? ls : null);
+      } catch { setLoyalty(null); }
     } catch (e) { setError(e.message); }
   }, [id]);
 
@@ -112,6 +118,35 @@ export default function ClientProfileScreen() {
           ))}
         </div>
       </div>
+
+      {/* SPA-LOYALTY-001 — loyalty card progress, always visible above the
+          tabs' content so reception sees it at a glance. */}
+      {loyalty && (
+        <div className="card" style={{ background: '#fdf6ec', borderColor: '#e0c884' }}>
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap' }}>
+            <strong style={{ color: '#1e3a6e' }}>⭐ Loyalty card — visit {loyalty.visits}</strong>
+            {loyalty.next_tier && (
+              <span className="muted" style={{ fontSize: 13 }}>
+                {loyalty.visits_to_next} more for {loyalty.next_tier.reward}
+              </span>
+            )}
+          </div>
+          {(loyalty.tiers || []).length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 13 }}>
+              {loyalty.tiers.map((t) => {
+                const redeemed = (loyalty.redeemed_tiers || []).includes(t.at_visit);
+                const ready = (loyalty.available_rewards || []).some((a) => a.at_visit === t.at_visit);
+                return (
+                  <div key={t.at_visit} style={{ padding: '2px 0', color: redeemed ? '#9a8a68' : ready ? '#166534' : '#444' }}>
+                    {redeemed ? '✓' : ready ? '★' : '○'} Visit {t.at_visit} — {t.reward}
+                    {ready ? ' (ready — apply at checkout)' : redeemed ? ' (enjoyed)' : ''}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {tab === 'profile' && (editing ? (
         <ProfileEditor draft={draft} setDraft={setDraft} onCancel={() => setEditing(false)} onSave={saveEdit} />

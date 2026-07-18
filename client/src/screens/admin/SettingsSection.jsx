@@ -50,6 +50,8 @@ export default function SettingsSection() {
 
       <BrandingCard settings={settings} save={save} busy={busy} />
 
+      <LoyaltyCard settings={settings} save={save} busy={busy} />
+
       <AppUpdatesCard />
 
       <div className="card">
@@ -149,6 +151,109 @@ function BrandingCard({ settings, save, busy }) {
       <div style={{ display: 'flex', gap: 20, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <div><label style={bLbl}>Primary</label><input type="color" value={primary} onChange={(e) => setColour('brand_primary', e.target.value)} style={bColor} /></div>
         <div><label style={bLbl}>Accent</label><input type="color" value={accent} onChange={(e) => setColour('brand_accent', e.target.value)} style={bColor} /></div>
+      </div>
+    </div>
+  );
+}
+
+// ── Loyalty card (SPA-LOYALTY-001) ─────────────────────────────────
+// "Every Nth visit free", auto-counted from paid bills on DIRECT bookings
+// (Treatwell/Fresha visits never earn — that's the channel-shift point).
+// The reward ladder is fully spa-configurable: any number of tiers, each
+// "at visit N → reward", with an optional £ value that auto-applies as a
+// bill discount when redeemed at checkout.
+function LoyaltyCard({ settings, save, busy }) {
+  const enabled = settings.loyalty_enabled === '1' || settings.loyalty_enabled === 'true';
+  const repeat = settings.loyalty_repeat_after_last == null
+    ? true
+    : (settings.loyalty_repeat_after_last === '1' || settings.loyalty_repeat_after_last === 'true');
+
+  const [tiers, setTiers] = useState([]);
+  const [tiersDirty, setTiersDirty] = useState(false);
+  const [minSpend, setMinSpend] = useState('');
+
+  useEffect(() => {
+    try {
+      const parsed = JSON.parse(settings.loyalty_tiers || '[]');
+      setTiers(Array.isArray(parsed) ? parsed.map((t) => ({
+        at_visit: t.at_visit ?? '', reward: t.reward ?? '', value: t.value ?? '',
+      })) : []);
+    } catch { setTiers([]); }
+    setTiersDirty(false);
+  }, [settings.loyalty_tiers]);
+  useEffect(() => { setMinSpend(settings.loyalty_min_spend ?? ''); }, [settings.loyalty_min_spend]);
+
+  const setTier = (i, k, v) => { setTiers((ts) => ts.map((t, j) => (j === i ? { ...t, [k]: v } : t))); setTiersDirty(true); };
+  const addTier = () => { setTiers((ts) => [...ts, { at_visit: '', reward: '', value: '' }]); setTiersDirty(true); };
+  const removeTier = (i) => { setTiers((ts) => ts.filter((_, j) => j !== i)); setTiersDirty(true); };
+
+  async function saveTiers() {
+    const clean = tiers
+      .map((t) => ({
+        at_visit: Math.trunc(Number(t.at_visit)),
+        reward: String(t.reward || '').trim(),
+        ...(t.value !== '' && isFinite(Number(t.value)) && Number(t.value) > 0
+          ? { value: +Number(t.value).toFixed(2) } : {}),
+      }))
+      .filter((t) => Number.isFinite(t.at_visit) && t.at_visit > 0 && t.reward)
+      .sort((a, b) => a.at_visit - b.at_visit);
+    await save('loyalty_tiers', JSON.stringify(clean));
+    setTiersDirty(false);
+  }
+
+  return (
+    <div className="card col">
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+        <h3 style={{ margin: 0 }}>⭐ Loyalty card</h3>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+          <input type="checkbox" style={{ width: 'auto' }} checked={enabled}
+            disabled={busy} onChange={(e) => save('loyalty_enabled', e.target.checked ? '1' : '0')} />
+          <span style={{ fontWeight: 600 }}>{enabled ? 'On' : 'Off'}</span>
+        </label>
+      </div>
+      <div className="sub" style={{ marginTop: -6 }}>
+        Visits count automatically when a bill is paid — direct bookings only (Treatwell/Fresha
+        visits don't earn, so regulars have a reason to book with you directly). Customers get a
+        progress email after each visit and can keep the card in Apple Wallet.
+      </div>
+
+      <label style={bLbl}>Reward ladder — "at visit N, the customer gets…"</label>
+      {tiers.length === 0 && <div className="muted" style={{ fontSize: 13 }}>No rewards yet — add your first tier below (e.g. visit 5 → free hot-oil upgrade, visit 10 → free 60-min massage).</div>}
+      {tiers.map((t, i) => (
+        <div key={i} className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <span className="muted" style={{ fontSize: 13 }}>Visit</span>
+          <input type="number" min="1" value={t.at_visit} onChange={(e) => setTier(i, 'at_visit', e.target.value)}
+            style={{ width: 70 }} placeholder="10" />
+          <input value={t.reward} onChange={(e) => setTier(i, 'reward', e.target.value)}
+            style={{ flex: 1, minWidth: 160 }} placeholder="Reward (e.g. Free 60-min massage)" />
+          <span className="muted" style={{ fontSize: 13 }}>£ off (optional)</span>
+          <input type="number" min="0" step="0.01" value={t.value} onChange={(e) => setTier(i, 'value', e.target.value)}
+            style={{ width: 90 }} placeholder="auto" title="If set, this £ amount is applied to the bill automatically when the reward is redeemed at checkout" />
+          <button onClick={() => removeTier(i)} disabled={busy}
+            style={{ background: 'transparent', border: 'none', color: '#ef4444', cursor: 'pointer' }}>✕</button>
+        </div>
+      ))}
+      <div className="row" style={{ gap: 8 }}>
+        <button onClick={addTier} disabled={busy}>＋ Add tier</button>
+        {tiersDirty && <button className="primary" onClick={saveTiers} disabled={busy}>Save ladder</button>}
+      </div>
+
+      <div className="row" style={{ gap: 18, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 6 }}>
+        <div>
+          <label style={bLbl}>Minimum spend for a visit to count (£)</label>
+          <div className="row">
+            <input type="number" min="0" step="0.01" value={minSpend}
+              onChange={(e) => setMinSpend(e.target.value)} style={{ width: 110 }} placeholder="0" />
+            <button disabled={busy || String(minSpend) === String(settings.loyalty_min_spend ?? '')}
+              onClick={() => save('loyalty_min_spend', String(Number(minSpend) || 0))}>Save</button>
+          </div>
+          <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>Stops a £5 add-on counting as a full visit. Based on the bill's list value, so a free reward visit still counts.</div>
+        </div>
+        <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', paddingBottom: 6 }}>
+          <input type="checkbox" style={{ width: 'auto' }} checked={repeat}
+            disabled={busy} onChange={(e) => save('loyalty_repeat_after_last', e.target.checked ? '1' : '0')} />
+          <span>Start a fresh card after the last reward (classic punch-card)</span>
+        </label>
       </div>
     </div>
   );

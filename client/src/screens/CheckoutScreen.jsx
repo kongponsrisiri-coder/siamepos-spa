@@ -38,6 +38,13 @@ export default function CheckoutScreen() {
   const [showAddItem, setShowAddItem] = useState(false);
   const [newItem, setNewItem] = useState({ kind: 'retail', name: '', price: '', qty: 1 });
 
+  // SPA-LOYALTY-001 — loyalty status for the checkout banner. Loaded with
+  // counting_current_visit=1 so THIS visit counts toward the ladder (the
+  // classic "10th visit free" applies to the visit being paid right now).
+  const [loyalty, setLoyalty] = useState(null);
+  const [loyaltyBusy, setLoyaltyBusy] = useState(false);
+  const [loyaltyMsg, setLoyaltyMsg] = useState('');
+
   const load = useCallback(async () => {
     setError('');
     try {
@@ -68,6 +75,17 @@ export default function CheckoutScreen() {
         setTipSuggestions(
           s.settings.tip_suggestions.split(',').map((x) => Number(x)).filter((x) => !Number.isNaN(x)),
         );
+      }
+
+      // SPA-LOYALTY-001 — loyalty progress for the banner (named clients on
+      // direct bookings only; the server owns the rules). Non-fatal.
+      if (a?.client_id && !['treatwell', 'fresha'].includes(String(a.source || '').toLowerCase())) {
+        try {
+          const ls = await api.get(`/loyalty/status?client_id=${a.client_id}&counting_current_visit=1`);
+          setLoyalty(ls && ls.enabled ? ls : null);
+        } catch { /* loyalty off / older server — no banner */ }
+      } else {
+        setLoyalty(null);
       }
     } catch (e) { setError(e.message); }
   }, [appointmentId]);
@@ -151,6 +169,29 @@ export default function CheckoutScreen() {
       )) return;
     }
     saveDiscount(amount, label);
+  }
+
+  // SPA-LOYALTY-001 — one-tap reward at checkout. Records the redemption and
+  // (when the tier has a £ value) applies it to this bill as a discount, then
+  // reloads so the total reflects it.
+  async function applyLoyaltyReward(tier) {
+    setLoyaltyBusy(true); setLoyaltyMsg('');
+    try {
+      const r = await api.post('/loyalty/redeem', {
+        client_id: appt.client_id,
+        tier_visit: tier.at_visit,
+        bill_id: bill.id,
+        counting_current_visit: true,
+      });
+      setLoyaltyMsg(r.discount_applied != null
+        ? `⭐ ${tier.reward} applied — £${Number(tier.value).toFixed(2)} off this bill.`
+        : `⭐ ${tier.reward} recorded — honour it on this visit.`);
+      await load();
+    } catch (e) {
+      setLoyaltyMsg(e.message || 'Could not redeem');
+    } finally {
+      setLoyaltyBusy(false);
+    }
   }
 
   async function pay(method, extras = {}) {
@@ -303,6 +344,32 @@ export default function CheckoutScreen() {
           {appt.client_name || 'Walk-in'} · {appt.treatment_name} ·{' '}
           {new Date(appt.starts_at).toLocaleString('en-GB')}
         </div>
+
+        {/* SPA-LOYALTY-001 — the delight moment. Shows this visit's number,
+            progress to the next reward, and a ONE-TAP apply when a reward is
+            ready (this visit counts — classic "10th visit free"). */}
+        {loyalty && (
+          <div style={{ background: '#fdf6ec', border: '1px solid #e0c884', borderRadius: 10, padding: '10px 14px' }}>
+            <div style={{ fontWeight: 700, color: '#1e3a6e' }}>
+              ⭐ {appt.client_name ? `${appt.client_name.split(' ')[0]}'s` : 'This is'} visit #{loyalty.effective_visits}
+              {loyalty.next_tier && (
+                <span style={{ fontWeight: 400, color: '#6b5b3e' }}>
+                  {' '}— {loyalty.visits_to_next} more for {loyalty.next_tier.reward}
+                </span>
+              )}
+            </div>
+            {!paid && (loyalty.available_rewards || []).map((t) => (
+              <div key={t.at_visit} className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                <span style={{ fontSize: 14 }}>🎁 <strong>{t.reward}</strong> is ready{t.value ? ` (worth £${Number(t.value).toFixed(2)})` : ''}</span>
+                <button className="primary" disabled={loyaltyBusy} onClick={() => applyLoyaltyReward(t)}
+                  style={{ padding: '6px 14px', fontSize: 13 }}>
+                  {loyaltyBusy ? 'Applying…' : 'Apply reward'}
+                </button>
+              </div>
+            ))}
+            {loyaltyMsg && <div style={{ marginTop: 6, fontSize: 13, color: '#1e3a6e' }}>{loyaltyMsg}</div>}
+          </div>
+        )}
 
         <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
           {/* SPA-BILL-ITEMS — line items: treatment + any retail / add-ons */}

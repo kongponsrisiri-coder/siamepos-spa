@@ -6,6 +6,7 @@ const { sendVoucherGiftEmail } = require('../services/emailService');
 const { buildAt } = require('../services/availability');
 const { isOffline, pushVoucherOp } = require('../services/syncService');
 const offlineQueue = require('../services/offlineQueue');
+const walletPush = require('../services/walletPush'); // SPA-LOYALTY-001 L2 — live pass balances
 
 // Voucher is valid through the END of expires_at in London time. Without
 // this, `new Date('2026-05-21') < new Date()` flips the voucher to expired
@@ -357,6 +358,8 @@ router.post('/:id/redeem', async (req, res) => {
         [id, bill_id || null, sessionsValue, req.staff?.id || null, notes || null],
       );
       await client.query('COMMIT');
+      // SPA-LOYALTY-001 L2 — refresh the voucher's Wallet pass (new count).
+      walletPush.bumpVoucherPass(v.code).catch(() => {});
       return res.json({
         redemption: rRows[0],
         sessions_used: 1,
@@ -388,6 +391,8 @@ router.post('/:id/redeem', async (req, res) => {
     );
     await client.query('COMMIT');
 
+    // SPA-LOYALTY-001 L2 — refresh the voucher's Wallet pass (new balance).
+    walletPush.bumpVoucherPass(v.code).catch(() => {});
     res.json({ redemption: rRows[0], amount_used: deduct, remaining_value: newRemaining });
   } catch (err) {
     await client.query('ROLLBACK');

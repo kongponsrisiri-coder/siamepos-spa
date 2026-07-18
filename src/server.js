@@ -28,6 +28,8 @@ const widgetRoutes      = require('./routes/widget');
 const treatwellRoutes   = require('./routes/treatwell');
 const treatwellEmailRoutes = require('./routes/treatwellEmail'); // SPA-TREATWELL-001 — email ingest + review queue
 const campaignRoutes    = require('./routes/campaigns');
+const loyaltyRoutes     = require('./routes/loyalty');          // SPA-LOYALTY-001 — staff loyalty API
+const walletWebService  = require('./routes/walletWebService'); // SPA-LOYALTY-001 Layer 2 — Apple pass updates (public)
 const bookingRoutes     = require('./routes/booking');
 const syncRoutes        = require('./routes/sync');     // SEPOS-SPA-PRO-001 Phase B — offline pull feed
 const paymentLinkRoutes = require('./routes/paymentLinks'); // SEPOS-SPA-PAYLINK-001
@@ -157,6 +159,7 @@ app.use('/api/whatsapp',  whatsappRoutes);  // SPA-WHATSAPP-AI-001 Stage 2 — T
 app.use('/api/treatwell', treatwellRoutes);
 app.use('/api/treatwell-email', treatwellEmailRoutes); // public /inbound (secret-gated) + staff review queue
 app.use('/api/booking',   bookingRoutes);     // public self-service via HMAC token
+app.use('/api/wallet',    walletWebService);  // SPA-LOYALTY-001 L2 — Apple pass web service + pass downloads (per-pass token auth)
 app.use('/api/auth',      authRoutes);
 
 // Offline sync pull feed (SEPOS-SPA-PRO-001 Phase B). Self-gates on the
@@ -236,6 +239,7 @@ app.use('/api/reports',      requireAuth, reportRoutes);
 app.use('/api/settings',     settingsRoutes);
 app.use('/api/vouchers',     requireAuth, voucherRoutes);
 app.use('/api/campaigns',    requireAuth, campaignRoutes);
+app.use('/api/loyalty',      requireAuth, loyaltyRoutes);   // SPA-LOYALTY-001
 app.use('/api/payment-links', requireAuth, paymentLinkRoutes);
 
 // 404 for any unmatched /api/* request.
