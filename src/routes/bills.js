@@ -267,10 +267,15 @@ router.post('/:id/pay', async (req, res) => {
   // till that's currently offline, block the online-only methods with a clear,
   // OS-neutral message so the operator takes cash instead of hitting a cryptic
   // Stripe error. No-op in cloud mode (isOffline() is always false there).
+  // 'treatwell' was originally in this gate but is now allowed offline
+  // (Korakot 07-18: "why can't the client settle with Treatwell at checkout") —
+  // closing a Treatwell-settled bill takes £0 at the till and touches no
+  // shared balance, so there's nothing the internet is needed FOR; the bill
+  // rides the normal offline sync queue like a cash close.
   if (isOffline()) {
     const splitNeedsNet = method === 'split' && Array.isArray(split_payments)
       && split_payments.some((p) => ['card', 'voucher'].includes(String(p.method || '').toLowerCase()));
-    if (method === 'card' || method === 'voucher' || method === 'treatwell' || splitNeedsNet) {
+    if (method === 'card' || method === 'voucher' || splitNeedsNet) {
       return res.status(503).json({
         error: 'offline',
         offline: true,
@@ -430,7 +435,14 @@ router.post('/:id/pay', async (req, res) => {
        WHERE id = $1 AND status NOT IN ('cancelled','no_show')`,
       [rows[0].appointment_id],
     );
-    if (method === 'cash') {
+    // Push the paid state up from a local till for every method that closes
+    // WITHOUT a cloud round-trip. 'cash' always did; 'treatwell' (till takes
+    // £0, marketplace settles) and 'external' (already paid before SiamEPOS)
+    // are equally local-only closes — without this their bills stayed
+    // "unpaid" on the cloud forever. The op name is historic; the drain just
+    // pushes the current bill row. (Card/voucher reach the cloud via their
+    // own online flows.)
+    if (['cash', 'treatwell', 'external'].includes(method)) {
       await offlineQueue.enqueue('pay_bill_cash', { localId: id });
     }
     // SPA-LOYALTY-001 — the paid bill may earn a loyalty stamp (direct
