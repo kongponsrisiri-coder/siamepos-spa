@@ -426,11 +426,15 @@ async function sendLoyaltyProgress({ client, visitNumber, rolled, status }) {
     if (loyaltyWalletPass.isConfigured()) {
       const rec = await loyaltyWalletPass.ensurePassRecord(client.id);
       if (rec) {
+        // Deliberately says "Wallet", not "Apple Wallet" — the email reaches
+        // Android customers too (Korakot 07-18). The pass file itself is
+        // Apple-format until a Google Wallet issuer account exists
+        // (GOOGLE_WALLET_* — see voucherGoogleWallet).
         walletBlock = `
         <div style="text-align:center;margin:22px 0 4px;">
           <a href="${apiBase}/api/wallet/loyalty/${encodeURIComponent(rec.serial)}.pkpass?t=${encodeURIComponent(rec.auth_token)}"
              style="display:inline-block;margin:4px 6px;padding:11px 20px;background:#000;color:#fff;text-decoration:none;border-radius:9px;font-weight:600;font-size:14px;">
-             &#63743;&nbsp; Add your loyalty card to Apple Wallet</a>
+             📲&nbsp; Add your loyalty card to your Wallet</a>
           <div style="font-size:11px;color:#9a9a9a;margin-top:8px;">Your visit count updates on the card automatically after every visit</div>
         </div>`;
       }
