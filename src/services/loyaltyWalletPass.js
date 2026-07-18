@@ -127,6 +127,8 @@ async function buildLoyaltyPass({ client, status, serial, authToken }) {
       label: 'Where',
       value: SPA_ADDRESS ? `${SPA_NAME}\n${SPA_ADDRESS}` : SPA_NAME,
     },
+    // Per-spa T&Cs (settings → loyalty_terms; rides in via getStatus).
+    ...(status?.terms ? [{ key: 'terms', label: 'Terms & Conditions', value: status.terms }] : []),
     { key: 'support', label: 'Questions', value: SPA_EMAIL },
   );
 

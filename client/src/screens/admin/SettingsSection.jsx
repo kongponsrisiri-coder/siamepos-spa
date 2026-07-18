@@ -171,6 +171,7 @@ function LoyaltyCard({ settings, save, busy }) {
   const [tiers, setTiers] = useState([]);
   const [tiersDirty, setTiersDirty] = useState(false);
   const [minSpend, setMinSpend] = useState('');
+  const [terms, setTerms] = useState('');
 
   useEffect(() => {
     try {
@@ -182,6 +183,7 @@ function LoyaltyCard({ settings, save, busy }) {
     setTiersDirty(false);
   }, [settings.loyalty_tiers]);
   useEffect(() => { setMinSpend(settings.loyalty_min_spend ?? ''); }, [settings.loyalty_min_spend]);
+  useEffect(() => { setTerms(settings.loyalty_terms ?? ''); }, [settings.loyalty_terms]);
 
   const setTier = (i, k, v) => { setTiers((ts) => ts.map((t, j) => (j === i ? { ...t, [k]: v } : t))); setTiersDirty(true); };
   const addTier = () => { setTiers((ts) => [...ts, { at_visit: '', reward: '', value: '' }]); setTiersDirty(true); };
@@ -254,6 +256,21 @@ function LoyaltyCard({ settings, save, busy }) {
             disabled={busy} onChange={(e) => save('loyalty_repeat_after_last', e.target.checked ? '1' : '0')} />
           <span>Start a fresh card after the last reward (classic punch-card)</span>
         </label>
+      </div>
+
+      {/* Per-spa T&Cs — shown on the back of the Apple Wallet card and in the
+          progress-email footer. One clause per line reads best. */}
+      <div style={{ marginTop: 10 }}>
+        <label style={bLbl}>Terms &amp; conditions (shown on the Wallet card + emails)</label>
+        <textarea rows={7} value={terms} onChange={(e) => setTerms(e.target.value)}
+          placeholder={'1. Validity: …\n2. Earning stamps: …\n3. Non-transferable: …'}
+          style={{ width: '100%', fontSize: 13, lineHeight: 1.5 }} disabled={busy} />
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <span className="muted" style={{ fontSize: 11 }}>Leave empty to show no terms. Customers with the card in Apple Wallet see the new text automatically.</span>
+          {String(terms) !== String(settings.loyalty_terms ?? '') && (
+            <button className="primary" disabled={busy} onClick={() => save('loyalty_terms', terms.trim())}>Save terms</button>
+          )}
+        </div>
       </div>
     </div>
   );

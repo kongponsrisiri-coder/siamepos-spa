@@ -55,7 +55,7 @@ const NON_EARNING_SOURCES = new Set(['treatwell', 'fresha']);
 async function getConfig(db = pool) {
   const r = await db.query(
     `SELECT key, value FROM settings
-     WHERE key IN ('loyalty_enabled','loyalty_tiers','loyalty_min_spend','loyalty_repeat_after_last')`,
+     WHERE key IN ('loyalty_enabled','loyalty_tiers','loyalty_min_spend','loyalty_repeat_after_last','loyalty_terms')`,
   );
   const kv = Object.fromEntries(r.rows.map((x) => [x.key, x.value]));
   let tiers = [];
@@ -82,6 +82,9 @@ async function getConfig(db = pool) {
     repeatAfterLast: kv.loyalty_repeat_after_last == null
       ? true
       : (kv.loyalty_repeat_after_last === '1' || kv.loyalty_repeat_after_last === 'true'),
+    // Per-spa T&Cs (plain text, one clause per line) — shown on the Wallet
+    // pass back + the progress-email footer. Empty → those surfaces omit it.
+    terms: String(kv.loyalty_terms || '').trim(),
   };
 }
 
@@ -137,6 +140,7 @@ async function getStatus(clientId, { countingCurrentVisit = false } = {}, db = p
     next_tier: next,
     visits_to_next: next ? next.at_visit - effective : null,
     repeat_after_last: cfg.repeatAfterLast,
+    terms: cfg.terms || null,
   };
 }
 

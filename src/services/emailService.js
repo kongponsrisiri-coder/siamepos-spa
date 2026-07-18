@@ -467,6 +467,11 @@ async function sendLoyaltyProgress({ client, visitNumber, rolled, status }) {
         </td></tr>
         <tr><td style="padding:18px 30px;background:#faf7f2;border-top:1px solid #e8e3d8;font-size:11px;color:#6b6b6b;line-height:1.55;">
           <div style="margin-bottom:6px;"><strong style="color:#1e3a6e;">${spaName}</strong>${spaAddress ? ' · ' + spaAddress : ''}</div>
+          ${status.terms ? `
+          <div style="margin:0 0 8px;">
+            <div style="font-weight:700;color:#4a4a4a;margin-bottom:2px;">Terms &amp; Conditions</div>
+            <div style="font-size:10px;white-space:pre-line;">${esc(status.terms)}</div>
+          </div>` : ''}
           <div>You receive these because you're on our loyalty card. <a href="${unsubUrl}" style="color:#6b6b6b;">Unsubscribe</a></div>
         </td></tr>
       </table>
