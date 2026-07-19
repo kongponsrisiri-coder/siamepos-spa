@@ -94,11 +94,19 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
-          node-version: 20
+          # SPA-WIN-TILL-001: node 22 — better-sqlite3-multiple-ciphers ships a
+          # node-ABI-127 win32-x64 prebuilt, so the ROOT install needs no
+          # Visual Studio. (node 20 has NO win prebuilt → node-gyp → the
+          # runner's VS 2026 is invisible to node-gyp → silent hollow exe.)
+          node-version: 22
           cache: npm
           cache-dependency-path: electron/package-lock.json
 
       - name: Install dependencies (root + client + electron)
+        # bash = -e -o pipefail, so a FAILED root install fails the JOB.
+        # (pwsh only propagated the last command's exit code — that's how the
+        # v0.2.42 exe shipped with no database engine at all.)
+        shell: bash
         run: |
           npm install
           cd client && npm install && cd ..
@@ -111,6 +119,14 @@ jobs:
         env:
           VITE_API_BASE: ''
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify the DB engine is inside the payload
+        shell: bash
+        run: |
+          f="electron/dist-electron/win-unpacked/resources/node_modules/better-sqlite3-multiple-ciphers/build/Release/better_sqlite3.node"
+          test -f "$f" || { echo "::error::better_sqlite3.node MISSING from the win payload — hollow exe, refusing to ship"; exit 1; }
+          head -c 2 "$f" | grep -q "MZ" || { echo "::error::better_sqlite3.node is not a Windows PE binary"; exit 1; }
+          echo "engine present & PE ✓ ($(du -h "$f" | cut -f1))"
 
       - name: Upload EXE + update manifest
         uses: actions/upload-artifact@v5

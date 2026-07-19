@@ -38,6 +38,29 @@ const NATIVE_MODULES = ['better-sqlite3-multiple-ciphers'];
     onlyModules: NATIVE_MODULES,
     force: true,
   });
+  // SPA-WIN-TILL-001 — @electron/rebuild resolves happily when the module
+  // isn't even installed (that's how the hollow Windows exe shipped). Verify
+  // the compiled engine actually exists and is the right binary format for
+  // THIS platform before letting the build continue.
+  const fs = require('fs');
+  const nodeFile = path.join(PROJECT_ROOT, 'node_modules', 'better-sqlite3-multiple-ciphers', 'build', 'Release', 'better_sqlite3.node');
+  if (!fs.existsSync(nodeFile)) {
+    console.error('[rebuild-native] FATAL: better_sqlite3.node missing after rebuild:', nodeFile);
+    console.error('[rebuild-native] (did the ROOT npm install fail? the module must be installed before rebuilding)');
+    process.exit(1);
+  }
+  const magic = fs.readFileSync(nodeFile).subarray(0, 4);
+  const isPE    = magic[0] === 0x4d && magic[1] === 0x5a;                  // 'MZ'
+  const isMachO = [0xcf, 0xce, 0xca, 0xfe].includes(magic[0]);            // Mach-O / universal
+  if (process.platform === 'win32' && !isPE) {
+    console.error('[rebuild-native] FATAL: expected a Windows PE .node, magic =', magic);
+    process.exit(1);
+  }
+  if (process.platform === 'darwin' && !isMachO) {
+    console.error('[rebuild-native] FATAL: expected a Mach-O .node, magic =', magic);
+    process.exit(1);
+  }
+  console.log(`[rebuild-native] engine verified (${process.platform}, ${fs.statSync(nodeFile).size} bytes)`);
   console.log('[rebuild-native] done');
 })().catch((err) => {
   console.error('[rebuild-native] failed:', err && err.message ? err.message : err);
