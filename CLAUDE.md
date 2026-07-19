@@ -1,3 +1,5 @@
+
+**📌 STANDING RULE (Korakot, 2026-07-20): update `../restaurant-epos/TEAM-STATUS.md` IN REAL TIME** — the moment you ship, decide, or hit a blocker, put the row on the board THEN AND THERE, not in a batch at session end. Concurrent sessions read the board live. (End-of-session tidy-up still applies on top.)
 # SiamEPOS Spa — Developer Context for Sam
 
 ## Your Role
