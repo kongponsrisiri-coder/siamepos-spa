@@ -64,6 +64,11 @@ async function buildLoyaltyPass({ client, status, serial, authToken }) {
   }
   const apiBase = (process.env.PUBLIC_API_URL || 'https://spa-api.siamepos.co.uk').replace(/\/$/, '');
 
+  // SPA-BRAND-VOUCHER-001 — the card wears the spa's own colours (Settings →
+  // Branding). A brand change APNs-refreshes issued cards (settings.js hook).
+  const { getBrandTheme } = require('./brandTheme');
+  const theme = await getBrandTheme();
+
   const pass = await PKPass.from({
     model: MODEL_DIR,
     certificates: {
@@ -76,6 +81,9 @@ async function buildLoyaltyPass({ client, status, serial, authToken }) {
     serialNumber:        serial,
     description:         `${SPA_NAME} Loyalty Card`,
     organizationName:    SPA_NAME,
+    backgroundColor:     theme.primaryRgb,
+    foregroundColor:     theme.textOnPrimaryRgb,
+    labelColor:          theme.accentRgb,
     webServiceURL:       `${apiBase}/api/wallet`,
     authenticationToken: authToken,
   });

@@ -62,16 +62,18 @@ router.put('/', settingsAuth, async (req, res) => {
     // pull against the pending key (mirrors the restaurant EPOS's
     // update_kv_settings). No-op in cloud mode.
     await offlineQueue.enqueue('update_setting', { key, value: stored });
-    // SPA-LOYALTY-001 — loyalty config (terms/ladder) is printed on customers'
-    // Apple Wallet cards; a change should refresh every registered card, not
-    // wait for that customer's next visit. Fire-and-forget, cloud-side only
-    // (walletPush is a no-op without pass certs).
-    if (key.startsWith('loyalty_')) {
+    // SPA-LOYALTY-001 / SPA-BRAND-VOUCHER-001 — loyalty config (terms/ladder)
+    // is printed on loyalty cards, and the BRAND COLOURS are painted on EVERY
+    // Wallet pass (loyalty + voucher). A change should refresh registered
+    // cards on customers' phones, not wait for their next visit/redemption.
+    // Fire-and-forget, cloud-side only (walletPush no-ops without pass certs).
+    if (key.startsWith('loyalty_') || key.startsWith('brand_')) {
+      const kinds = key.startsWith('brand_') ? ['loyalty', 'voucher'] : ['loyalty'];
       (async () => {
         const { notifySerial } = require('../services/walletPush');
-        const r = await pool.query(`SELECT serial FROM wallet_passes WHERE kind = 'loyalty'`);
+        const r = await pool.query(`SELECT serial FROM wallet_passes WHERE kind = ANY($1)`, [kinds]);
         for (const row of r.rows) await notifySerial(row.serial);
-      })().catch((e) => console.error('[settings] loyalty pass refresh failed:', e.message));
+      })().catch((e) => console.error('[settings] wallet pass refresh failed:', e.message));
     }
     res.json({ ok: true });
   } catch (err) {

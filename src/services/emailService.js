@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { pool } = require('../db/dbAdapter');
 const voucherWalletPass   = require('./voucherWalletPass');   // Apple Wallet (isConfigured)
 const voucherGoogleWallet = require('./voucherGoogleWallet'); // Google Wallet (isConfigured)
+const { getBrandTheme }   = require('./brandTheme');          // SPA-BRAND-VOUCHER-001 — per-spa colours
 
 const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 
@@ -267,20 +268,22 @@ async function sendVoucherGiftEmail({ voucher, treatment_name }) {
   if (!voucher?.recipient_email) return { skipped: true, reason: 'no recipient_email' };
   const spaName    = process.env.SPA_NAME    || 'SiamEPOS Spa';
   const spaAddress = process.env.SPA_ADDRESS || '';
+  // SPA-BRAND-VOUCHER-001 — the email wears the spa's own colours.
+  const th = await getBrandTheme();
   const safeFor = String(voucher.purchased_for || '').replace(/[<>]/g, '') || 'there';
   const safeFrom = String(voucher.purchased_by || '').replace(/[<>]/g, '');
   const isSessions = voucher.voucher_type === 'sessions';
   const valueBlock = isSessions
-    ? `<div style="font-size:36px;font-weight:700;color:#C9A84C;margin:4px 0;">
+    ? `<div style="font-size:36px;font-weight:700;color:${th.accentHex};margin:4px 0;">
          ${Number(voucher.total_sessions || 0)} session${Number(voucher.total_sessions) === 1 ? '' : 's'}
        </div>
-       <div style="color:rgba(255,255,255,0.78);font-size:14px;">
+       <div style="color:${th.softOnPrimary};font-size:14px;">
          ${treatment_name ? `of ${String(treatment_name).replace(/[<>]/g, '')}` : 'of any treatment'}
        </div>`
-    : `<div style="font-size:36px;font-weight:700;color:#C9A84C;margin:4px 0;">
+    : `<div style="font-size:36px;font-weight:700;color:${th.accentHex};margin:4px 0;">
          £${Number(voucher.initial_value || 0).toFixed(2)}
        </div>
-       <div style="color:rgba(255,255,255,0.78);font-size:14px;">
+       <div style="color:${th.softOnPrimary};font-size:14px;">
          to spend on any treatment
        </div>`;
   const expiryLine = voucher.expires_at
@@ -304,7 +307,7 @@ async function sendVoucherGiftEmail({ voucher, treatment_name }) {
             style="display:inline-block;margin:4px 6px;padding:11px 20px;background:#000;color:#fff;text-decoration:none;border-radius:9px;font-weight:600;font-size:14px;">
             &#63743;&nbsp; Add to Apple Wallet</a>` : ''}
          ${googleOn ? `<a href="${apiBase}/api/widget/voucher/${codeEnc}/google-wallet"
-            style="display:inline-block;margin:4px 6px;padding:11px 20px;background:#1e3a6e;color:#fff;text-decoration:none;border-radius:9px;font-weight:600;font-size:14px;">
+            style="display:inline-block;margin:4px 6px;padding:11px 20px;background:${th.primaryHex};color:${th.textOnPrimaryHex};text-decoration:none;border-radius:9px;font-weight:600;font-size:14px;">
             &#128179;&nbsp; Add to Google Wallet</a>` : ''}
          <div style="font-size:11px;color:#9a9a9a;margin-top:9px;">Open this email on your phone to add the voucher to your wallet</div>
        </div>`
@@ -315,7 +318,7 @@ async function sendVoucherGiftEmail({ voucher, treatment_name }) {
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#faf7f2;padding:32px 0;">
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width:600px;background:white;border-radius:14px;overflow:hidden;box-shadow:0 4px 18px rgba(20,38,74,0.10);">
-        <tr><td style="background:#1e3a6e;padding:28px 30px;color:#C9A84C;font-family:Georgia,serif;font-size:24px;font-weight:700;letter-spacing:0.02em;">
+        <tr><td style="background:${th.primaryHex};padding:28px 30px;color:${th.accentHex};font-family:Georgia,serif;font-size:24px;font-weight:700;letter-spacing:0.02em;">
           ${spaName.replace(/[<>]/g, '')}
         </td></tr>
         <tr><td style="padding:32px;line-height:1.65;color:#1c1c1c;">
@@ -323,10 +326,10 @@ async function sendVoucherGiftEmail({ voucher, treatment_name }) {
           <p style="font-size:15px;margin:0 0 22px;">
             ${safeFrom ? `${safeFrom} has` : 'Someone has'} sent you a gift voucher for ${spaName.replace(/[<>]/g, '')}.
           </p>
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#1e3a6e;border-radius:12px;margin:0 0 24px;">
-            <tr><td style="padding:24px 28px;text-align:center;color:white;">
-              <div style="font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:rgba(255,255,255,0.55);">Voucher code</div>
-              <div style="font-family:'Menlo','Consolas',monospace;font-size:26px;font-weight:700;color:#C9A84C;letter-spacing:3px;margin:8px 0 14px;">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${th.primaryHex};border-radius:12px;margin:0 0 24px;">
+            <tr><td style="padding:24px 28px;text-align:center;color:${th.textOnPrimaryHex};">
+              <div style="font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:${th.softOnPrimary};">Voucher code</div>
+              <div style="font-family:'Menlo','Consolas',monospace;font-size:26px;font-weight:700;color:${th.accentHex};letter-spacing:3px;margin:8px 0 14px;">
                 ${String(voucher.code).replace(/[<>]/g, '')}
               </div>
               ${valueBlock}
@@ -339,7 +342,7 @@ async function sendVoucherGiftEmail({ voucher, treatment_name }) {
           ${walletBlock}
         </td></tr>
         <tr><td style="padding:18px 30px;background:#faf7f2;border-top:1px solid #e8e3d8;font-size:11px;color:#6b6b6b;line-height:1.55;">
-          <div style="margin-bottom:6px;"><strong style="color:#1e3a6e;">${spaName.replace(/[<>]/g, '')}</strong>${spaAddress ? ' · ' + spaAddress.replace(/[<>]/g, '') : ''}</div>
+          <div style="margin-bottom:6px;"><strong style="color:${th.primaryHex};">${spaName.replace(/[<>]/g, '')}</strong>${spaAddress ? ' · ' + spaAddress.replace(/[<>]/g, '') : ''}</div>
           <div>A gift sent through the SiamEPOS Spa voucher system. Please reply if you have any questions.</div>
         </td></tr>
       </table>
@@ -366,6 +369,8 @@ async function sendLoyaltyProgress({ client, visitNumber, rolled, status }) {
   const spaAddress = (process.env.SPA_ADDRESS || '').replace(/[<>]/g, '');
   const apiBase = (process.env.PUBLIC_API_URL || 'https://spa-api.siamepos.co.uk').replace(/\/$/, '');
   const safeName = String(client.name || 'there').split(' ')[0].replace(/[<>]/g, '');
+  // SPA-BRAND-VOUCHER-001 — the email wears the spa's own colours.
+  const th = await getBrandTheme();
 
   const next = status.next_tier;
   const toNext = status.visits_to_next;
@@ -399,12 +404,13 @@ async function sendLoyaltyProgress({ client, visitNumber, rolled, status }) {
   if (next) {
     const target = next.at_visit;
     const have = Math.min(status.visits, target);
+    const emptyDot = th.lightPrimary ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.25)';
     const dots = Array.from({ length: target }, (_, i) =>
-      `<span style="display:inline-block;width:14px;height:14px;border-radius:50%;margin:2px;background:${i < have ? '#C9A84C' : 'rgba(255,255,255,0.25)'};"></span>`,
+      `<span style="display:inline-block;width:14px;height:14px;border-radius:50%;margin:2px;background:${i < have ? th.accentHex : emptyDot};"></span>`,
     ).join('');
     progressBlock = `
       <div style="margin:14px 0 4px;">${dots}</div>
-      <div style="color:rgba(255,255,255,0.78);font-size:13px;">${have} of ${target} toward ${esc(next.reward)}</div>`;
+      <div style="color:${th.softOnPrimary};font-size:13px;">${have} of ${target} toward ${esc(next.reward)}</div>`;
   }
 
   // Ladder overview (multi-tier schemes) — ✓ redeemed, ★ ready, ○ upcoming.
@@ -412,7 +418,7 @@ async function sendLoyaltyProgress({ client, visitNumber, rolled, status }) {
     const redeemed = (status.redeemed_tiers || []).includes(t.at_visit);
     const ready = (status.available_rewards || []).some((a) => a.at_visit === t.at_visit);
     const mark = redeemed ? '✓' : ready ? '★' : '○';
-    const color = redeemed ? '#8a8a8a' : ready ? '#C9A84C' : '#444';
+    const color = redeemed ? '#8a8a8a' : ready ? th.accentHex : '#444';
     return `<tr>
       <td style="padding:4px 10px 4px 0;color:${color};font-weight:700;">${mark}</td>
       <td style="padding:4px 0;color:${color};">Visit ${t.at_visit} — ${esc(t.reward)}${ready ? ' <strong>(ready!)</strong>' : redeemed ? ' (enjoyed)' : ''}</td>
@@ -448,16 +454,16 @@ async function sendLoyaltyProgress({ client, visitNumber, rolled, status }) {
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#faf7f2;padding:32px 0;">
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width:600px;background:white;border-radius:14px;overflow:hidden;box-shadow:0 4px 18px rgba(20,38,74,0.10);">
-        <tr><td style="background:#1e3a6e;padding:28px 30px;color:#C9A84C;font-family:Georgia,serif;font-size:24px;font-weight:700;letter-spacing:0.02em;">
+        <tr><td style="background:${th.primaryHex};padding:28px 30px;color:${th.accentHex};font-family:Georgia,serif;font-size:24px;font-weight:700;letter-spacing:0.02em;">
           ${spaName}
         </td></tr>
         <tr><td style="padding:32px;line-height:1.65;color:#1c1c1c;">
           <p style="font-size:15px;margin:0 0 18px;">Hi ${safeName}, thank you for coming in today.</p>
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#1e3a6e;border-radius:12px;margin:0 0 24px;">
-            <tr><td style="padding:26px 28px;text-align:center;color:white;">
-              <div style="font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:rgba(255,255,255,0.55);">Loyalty card</div>
-              <div style="font-size:28px;font-weight:700;color:#C9A84C;margin:8px 0 2px;">${headline}</div>
-              <div style="color:rgba(255,255,255,0.85);font-size:14px;">${subline}</div>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${th.primaryHex};border-radius:12px;margin:0 0 24px;">
+            <tr><td style="padding:26px 28px;text-align:center;color:${th.textOnPrimaryHex};">
+              <div style="font-size:11px;letter-spacing:0.18em;text-transform:uppercase;color:${th.softOnPrimary};">Loyalty card</div>
+              <div style="font-size:28px;font-weight:700;color:${th.accentHex};margin:8px 0 2px;">${headline}</div>
+              <div style="color:${th.softOnPrimary};font-size:14px;">${subline}</div>
               ${progressBlock}
             </td></tr>
           </table>
@@ -470,7 +476,7 @@ async function sendLoyaltyProgress({ client, visitNumber, rolled, status }) {
           ${walletBlock}
         </td></tr>
         <tr><td style="padding:18px 30px;background:#faf7f2;border-top:1px solid #e8e3d8;font-size:11px;color:#6b6b6b;line-height:1.55;">
-          <div style="margin-bottom:6px;"><strong style="color:#1e3a6e;">${spaName}</strong>${spaAddress ? ' · ' + spaAddress : ''}</div>
+          <div style="margin-bottom:6px;"><strong style="color:${th.primaryHex};">${spaName}</strong>${spaAddress ? ' · ' + spaAddress : ''}</div>
           ${status.terms ? `
           <div style="margin:0 0 8px;">
             <div style="font-weight:700;color:#4a4a4a;margin-bottom:2px;">Terms &amp; Conditions</div>

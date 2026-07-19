@@ -18,6 +18,7 @@
 const fs   = require('fs');
 const path = require('path');
 const { PKPass } = require('passkit-generator');
+const { getBrandTheme } = require('./brandTheme'); // SPA-BRAND-VOUCHER-001
 
 const MODEL_DIR = path.join(__dirname, 'wallet', 'voucher.pass');
 const WWDR_PATH = path.join(__dirname, 'wallet', 'wwdr.pem');
@@ -108,6 +109,11 @@ async function buildVoucherPass(voucher, opts = {}) {
   const toName     = voucher.purchased_for || '';
   const treatment  = voucher.treatment_name || '';
 
+  // SPA-BRAND-VOUCHER-001 — the pass wears the SPA'S brand colours (Settings →
+  // Branding), not SiamEPOS's. Text on the primary colour auto-flips
+  // white/dark for contrast.
+  const theme = await getBrandTheme();
+
   // serialNumber must be unique per pass — the voucher code already is unique
   // + stable. Apple uses this as the Wallet-side identity.
   // SPA-LOYALTY-001 L2 — when the caller supplies webServiceURL +
@@ -125,6 +131,9 @@ async function buildVoucherPass(voucher, opts = {}) {
     serialNumber:     code,
     description:      `${SPA_NAME} Gift Voucher`,
     organizationName: SPA_NAME,
+    backgroundColor:  theme.primaryRgb,
+    foregroundColor:  theme.textOnPrimaryRgb,
+    labelColor:       theme.accentRgb,
     ...(expIso ? { expirationDate: expIso } : {}),
     ...(opts.webServiceURL && opts.authenticationToken
       ? { webServiceURL: opts.webServiceURL, authenticationToken: opts.authenticationToken }
