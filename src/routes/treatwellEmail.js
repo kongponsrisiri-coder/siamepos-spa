@@ -31,14 +31,27 @@ function inboundSecret() {
 }
 
 // Pull subject + plaintext + sender out of whatever inbound-parse provider posted.
+// SPA-INGEST-EMAIL-ROUTING-001 fix (2026-07-19): Brevo wraps each email in
+// {items:[{Subject, RawTextBody, ExtractedMarkdownMessage, From:{Address}}]} —
+// the flat-field read alone meant every real Brevo delivery 400'd "no email
+// body" (including the Gmail forwarding-confirmation on 07-16).
 function extractEmail(body) {
   const b = body || {};
   const subject = b.subject || b.Subject || (b.headers && b.headers.subject) || '';
   const text = b.text || b.plain || b['body-plain'] || b['stripped-text'] ||
-               b.TextBody || b.plaintext || b.bodyPlain || '';
-  const from = b.from || b.From || b.sender || b['from-email'] ||
-               (b.headers && (b.headers.from || b.headers.From)) || '';
+               b.TextBody || b.plaintext || b.bodyPlain ||
+               b.RawTextBody || b.ExtractedMarkdownMessage ||
+               (b.RawHtmlBody ? String(b.RawHtmlBody).replace(/<[^>]+>/g, ' ') : '');
+  let from = b.from || b.From || b.sender || b['from-email'] ||
+             (b.headers && (b.headers.from || b.headers.From)) || '';
+  if (from && typeof from === 'object') from = from.Address || from.address || from.email || '';
   return { subject: String(subject || ''), text: String(text || ''), from: String(from || '') };
+}
+
+// One request can carry several emails (Brevo batches into items[]).
+function inboundEmails(body) {
+  if (body && Array.isArray(body.items) && body.items.length) return body.items;
+  return [body];
 }
 
 // SPA-BOOKING-INGEST — which marketplace an inbound email is from. Scans the
@@ -85,8 +98,19 @@ router.post('/inbound', async (req, res) => {
   const provided = req.get('x-inbound-secret') || (req.query && req.query.secret);
   if (provided !== secret) return res.status(401).json({ error: 'unauthorised' });
 
-  const { subject, text, from } = extractEmail(req.body);
-  if (!text) return res.status(400).json({ error: 'no email body' });
+  const emails = inboundEmails(req.body);
+  const outcomes = [];
+  for (const em of emails) {
+    outcomes.push(await processInboundEmail(em, req, res));
+  }
+  const processed = outcomes.filter(Boolean);
+  if (!processed.length) return res.status(400).json({ error: 'no email body' });
+  return res.json(processed.length === 1 ? processed[0] : { ok: true, results: processed });
+});
+
+async function processInboundEmail(raw, req) {
+  const { subject, text, from } = extractEmail(raw);
+  if (!text) return null;
 
   try {
     const source = detectSource({ subject, text, from });
@@ -103,18 +127,21 @@ router.post('/inbound', async (req, res) => {
       parsed = await extractBookingWithAI({ subject, text, source });
     } else {
       // Not a recognised marketplace booking email (marketing / statements /
-      // random mail) — ignore quietly, no AI spend, kept out of the review queue.
-      return res.json({ ok: true, action: 'ignore', status: 'ignored', reason: 'not a Treatwell/Fresha booking email' });
+      // random mail) — no AI spend, kept out of the review queue. LOGGED so
+      // service emails (e.g. Gmail's forwarding-confirmation CODE) are
+      // readable in railway logs instead of vanishing.
+      console.log(`[treatwell-email] ignored non-marketplace email from=${from} subject="${subject.slice(0, 120)}" body="${text.slice(0, 200).replace(/\s+/g, ' ')}"`);
+      return { ok: true, action: 'ignore', status: 'ignored', reason: 'not a Treatwell/Fresha booking email' };
     }
     const result = await ingestBooking(parsed, text, req.app.get('io'), { source });
     // Always 200 to the provider so it doesn't retry-storm; the real outcome is
     // in the body + ingestion_log.
-    return res.json({ ok: true, ...result, source, ref: parsed && parsed.ref, confidence: parsed && parsed.confidence });
+    return { ok: true, ...result, source, ref: parsed && parsed.ref, confidence: parsed && parsed.confidence };
   } catch (err) {
     console.error('[treatwell-email] inbound error', err);
-    return res.status(500).json({ error: 'server error' });
+    return { ok: false, error: 'server error' };
   }
-});
+}
 
 // ── Review queue (staff) ─────────────────────────────────────────────────────
 router.get('/review-queue', requireAuth, async (req, res) => {
