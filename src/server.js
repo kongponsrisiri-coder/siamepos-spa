@@ -35,6 +35,8 @@ const syncRoutes        = require('./routes/sync');     // SEPOS-SPA-PRO-001 Pha
 const paymentLinkRoutes = require('./routes/paymentLinks'); // SEPOS-SPA-PAYLINK-001
 const conciergeRoutes   = require('./routes/concierge');    // SPA-WHATSAPP-AI-001 — AI booking tools
 const whatsappRoutes    = require('./routes/whatsapp');     // SPA-WHATSAPP-AI-001 Stage 2 — Twilio inbound
+const webchatRoutes     = require('./routes/webchat');      // SPA-WEBCHAT-AI-001 — website chat (same orchestrator)
+const conciergeAdminRoutes = require('./routes/conciergeAdmin'); // SPA-WEBCHAT-AI-001 — Admin chat inbox
 const conciergeTools    = require('./services/conciergeTools');
 const { router: licenseRoutes, requireValidLicense } = require('./routes/license'); // SEPOS-SPA-LICENSE-001
 const licenseClient     = require('./services/licenseClient');
@@ -156,6 +158,7 @@ app.get('/pay-thanks', (req, res) => {
 app.use('/api/widget',    widgetRoutes);
 app.use('/api/concierge', conciergeRoutes); // SPA-WHATSAPP-AI-001 — secret-gated (X-Concierge-Secret)
 app.use('/api/whatsapp',  whatsappRoutes);  // SPA-WHATSAPP-AI-001 Stage 2 — Twilio inbound (signature-gated)
+app.use('/api/webchat',   webchatRoutes);   // SPA-WEBCHAT-AI-001 — public website chat (CORS-whitelisted + rate-limited)
 app.use('/api/treatwell', treatwellRoutes);
 app.use('/api/treatwell-email', treatwellEmailRoutes); // public /inbound (secret-gated) + staff review queue
 app.use('/api/booking',   bookingRoutes);     // public self-service via HMAC token
@@ -224,6 +227,7 @@ app.get('/api/unsubscribe', async (req, res) => {
 });
 
 // ---- Protected routes (require staff token) ------------------------------
+app.use('/api/concierge-admin', requireAuth, conciergeAdminRoutes); // SPA-WEBCHAT-AI-001 — staff chat inbox
 app.use('/api/treatments',   requireAuth, treatmentRoutes);
 app.use('/api/therapists',   requireAuth, therapistRoutes);
 app.use('/api/rooms',        requireAuth, roomRoutes);

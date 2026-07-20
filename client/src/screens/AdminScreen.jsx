@@ -20,6 +20,7 @@ import ClientsSection         from './admin/ClientsSection.jsx';
 import CampaignsSection       from './admin/CampaignsSection.jsx';
 import OnlineBookingSection   from './admin/OnlineBookingSection.jsx';
 import TreatwellSection        from './admin/TreatwellSection.jsx';
+import ChatsSection            from './admin/ChatsSection.jsx';
 
 // ── Sandy: AdminScreen — left sidebar, SiamEPOS Spa brand CI ──────
 // Slate Navy var(--navy) sidebar · Thai Gold var(--gold) active state
@@ -38,6 +39,7 @@ const GROUPS = [
   { title: 'Clients', items: [
     { k: 'bills',      label: 'Bills' },
     { k: 'clients',    label: 'Clients' },
+    { k: 'chats',      label: 'AI Chats' },
     { k: 'campaigns',  label: 'Campaigns' },
     { k: 'treatwell',  label: 'Treatwell' },
     { k: 'vouchers',   label: 'Vouchers' },
@@ -103,6 +105,7 @@ const SECTIONS = {
   clients:    ClientsSection,
   campaigns:  CampaignsSection,
   treatwell:  TreatwellSection,
+  chats:      ChatsSection,
   vouchers:   VouchersSection,
   payments:   PaymentsSection,
   menu:       TreatmentMenuSection,
