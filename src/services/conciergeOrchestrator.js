@@ -41,6 +41,15 @@ const TOOL_DEFS = [
     },
   },
   {
+    name: 'list_therapists',
+    description: "List the spa's therapists and who is working on a given date (with their hours), so the customer can choose a therapist by name. Pair with check_availability (therapist_id) to offer that therapist's actual free times.",
+    input_schema: {
+      type: 'object',
+      properties: { date: { type: 'string', description: 'date to check, YYYY-MM-DD; omit for today' } },
+      required: [],
+    },
+  },
+  {
     name: 'hold_slot',
     description: 'Hold a specific slot for the customer and get a secure payment link. Call ONLY after the customer has clearly confirmed treatment, date/time and their name. The booking is confirmed only once they pay via the link.',
     input_schema: {
@@ -112,6 +121,7 @@ async function execTool(name, input, ctx) {
     if (name === 'get_spa_info')       return { result: await tools.getSpaInfo() };
     if (name === 'check_availability') return { result: await tools.checkAvailability({
       treatment_id: input.treatment_id, date: input.date, therapist_id: input.therapist_id }) };
+    if (name === 'list_therapists')    return { result: await tools.listTherapists({ date: input.date }) };
     if (name === 'hold_slot') {
       const r = await tools.holdSlot({
         treatment_id: input.treatment_id,

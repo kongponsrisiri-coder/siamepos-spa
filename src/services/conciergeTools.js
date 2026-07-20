@@ -344,10 +344,55 @@ async function releaseExpiredHolds() {
   return { released };
 }
 
+// ── Tool: listTherapists — who's working on a date ────────────────
+// SPA-WEBCHAT-AI-001 follow-up (Korakot 2026-07-21): customers ask "who's in
+// tomorrow?" so they can pick a therapist. Same precedence as availability.js:
+// date override > weekly rota > full-day fallback when a therapist has no rota
+// rows at all. Returns display windows, not slots — pair with checkAvailability
+// (therapist_id) for actual times.
+async function listTherapists({ date } = {}) {
+  const dateStr = String(
+    date || new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/London' }),
+  ).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) throw badRequest('date must be YYYY-MM-DD');
+  const dayOfWeek = new Date(dateStr + 'T12:00:00Z').getUTCDay();
+
+  const thRes = await pool.query(
+    `SELECT id, name FROM therapists WHERE active = TRUE AND role = 'therapist' ORDER BY name`);
+  const rotaRes = await pool.query(
+    `SELECT therapist_id, day_of_week, start_time, end_time FROM therapist_availability`);
+  const ovrRes = await pool.query(
+    `SELECT therapist_id, date::text AS date, is_working, start_time, end_time
+       FROM therapist_rota_overrides WHERE date::text = $1`, [dateStr]);
+
+  const hm = (t) => String(t || '').slice(0, 5);
+  return thRes.rows.map((th) => {
+    const ovr = ovrRes.rows.find((o) => o.therapist_id === th.id);
+    if (ovr) {
+      if (!ovr.is_working) return { therapist_id: th.id, name: th.name, working: false };
+      return {
+        therapist_id: th.id, name: th.name, working: true,
+        hours: (ovr.start_time && ovr.end_time) ? `${hm(ovr.start_time)}–${hm(ovr.end_time)}` : 'usual spa hours',
+      };
+    }
+    const mine = rotaRes.rows.filter((r) => r.therapist_id === th.id);
+    if (mine.length === 0) {
+      // No rota configured for this therapist → assume working spa hours
+      return { therapist_id: th.id, name: th.name, working: true, hours: 'usual spa hours' };
+    }
+    const today = mine.filter((r) => r.day_of_week === dayOfWeek);
+    if (today.length === 0) return { therapist_id: th.id, name: th.name, working: false };
+    const start = today.map((r) => hm(r.start_time)).sort()[0];
+    const end = today.map((r) => hm(r.end_time)).sort().slice(-1)[0];
+    return { therapist_id: th.id, name: th.name, working: true, hours: `${start}–${end}` };
+  });
+}
+
 module.exports = {
   getTreatments,
   getSpaInfo,
   checkAvailability,
+  listTherapists,
   holdSlot,
   getBookingStatus,
   releaseExpiredHolds,
