@@ -15,6 +15,7 @@
 
 const express = require('express');
 const Stripe = require('stripe');
+const { gateway } = require('../services/stripeGateway'); // SIAMPAY-002
 const { pool } = require('../db/dbAdapter');
 const { computeAvailability, isTherapistWorking } = require('../services/availability');
 const {
@@ -25,10 +26,9 @@ const {
 
 const router = express.Router();
 
+// SIAMPAY-002 — own keys OR SiamPay platform mode (see services/stripeGateway).
 function stripeClient() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return null;
-  return new Stripe(key, { apiVersion: '2024-06-20' });
+  return gateway();
 }
 
 async function loadPolicy() {
@@ -95,14 +95,17 @@ router.get('/by-token/:token', async (req, res) => {
     // so the portal can render the Pay Now UI with Stripe Elements.
     let payment = null;
     if (a.payment_status === 'deposit_pending' && a.deposit_stripe_id) {
+      const gwPay = gateway();
       payment = {
         deposit_amount:  Number(a.deposit_amount || 0),
-        publishable_key: process.env.STRIPE_PUBLISHABLE_KEY || null,
+        publishable_key: gwPay ? gwPay.pk : null,
+        // SIAMPAY-002 — portal must init Stripe.js with the connected account
+        stripe_account:  gwPay && gwPay.siampay ? gwPay.account : undefined,
       };
-      const s = stripeClient();
+      const s = gwPay;
       if (s) {
         try {
-          const intent = await s.paymentIntents.retrieve(a.deposit_stripe_id);
+          const intent = await s.s.paymentIntents.retrieve(a.deposit_stripe_id, {}, s.opts);
           payment.client_secret = intent.client_secret;
           payment.intent_status = intent.status;
         } catch (e) {
@@ -155,7 +158,7 @@ router.post('/by-token/:token/confirm-payment', async (req, res) => {
     if (!cur.deposit_stripe_id) return res.status(400).json({ error: 'no payment intent on this booking' });
     const s = stripeClient();
     if (!s) return res.status(503).json({ error: 'stripe not configured' });
-    const intent = await s.paymentIntents.retrieve(cur.deposit_stripe_id);
+    const intent = await s.s.paymentIntents.retrieve(cur.deposit_stripe_id, {}, s.opts);
     if (intent.status !== 'succeeded') {
       return res.status(402).json({ error: 'payment not yet succeeded', stripe_status: intent.status });
     }
@@ -310,7 +313,7 @@ router.delete('/by-token/:token', async (req, res) => {
         const s = stripeClient();
         if (!s) return res.status(503).json({ error: 'stripe not configured — cannot refund' });
         try {
-          await s.refunds.create({ payment_intent: cur.deposit_stripe_id });
+          await s.s.refunds.create({ payment_intent: cur.deposit_stripe_id }, s.opts);
           refundAmount = depositAmount;
           nextPaymentStatus = 'refunded';
         } catch (err) {

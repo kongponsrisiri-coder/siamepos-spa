@@ -89,10 +89,10 @@ function buildReceiptHtml({ bill, client, settings }) {
   </div></body></html>`;
 }
 
+// SIAMPAY-002 — own keys OR SiamPay platform mode (see services/stripeGateway).
+const { gateway } = require('../services/stripeGateway');
 function stripeClient() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return null;
-  return new Stripe(key, { apiVersion: '2024-06-20' });
+  return gateway();
 }
 
 // SPA-BILL-ITEMS — recompute the cached aggregates on a bill from its line
@@ -806,7 +806,7 @@ router.post('/:id/refund', requireRole('admin', 'manager'), async (req, res) => 
       const s = stripeClient();
       if (s) {
         try {
-          await s.refunds.create({ payment_intent: bill.deposit_stripe_id });
+          await s.s.refunds.create({ payment_intent: bill.deposit_stripe_id }, s.opts);
           stripeRefunded = Number(bill.deposit_amount || 0);
         } catch (e) {
           await client.query('ROLLBACK').catch(() => {});

@@ -6,10 +6,10 @@ const { bookingToken, sendOwnerNewBookingEmail } = require('../services/emailSer
 const { recomputeBillTotals, loadBillWithItems } = require('./bills');
 const offlineQueue = require('../services/offlineQueue');
 
+// SIAMPAY-002 — own keys OR SiamPay platform mode (see services/stripeGateway).
+const { gateway, piFee } = require('../services/stripeGateway');
 function stripeClient() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return null;
-  return new Stripe(key, { apiVersion: '2024-06-20' });
+  return gateway();
 }
 
 // Build the rich rota-conflict 409 body. Same alternatives shape as the
@@ -810,17 +810,18 @@ router.post('/:id/payment-link', async (req, res) => {
 
     // Create a fresh PaymentIntent. Each call invalidates the previous
     // link — Stripe auto-expires unconfirmed intents.
-    const intent = await s.paymentIntents.create({
+    const intent = await s.s.paymentIntents.create({
       amount: Math.round(depositAmount * 100),
       currency: 'gbp',
       automatic_payment_methods: { enabled: true },
       receipt_email: a.client_email || undefined,
+      ...piFee(s), // SIAMPAY-002
       metadata: {
         purpose: 'spa_deposit_link',
         appointment_id: String(a.id),
         treatment_name: String(a.treatment_name || ''),
       },
-    });
+    }, s.opts);
 
     await pool.query(
       `UPDATE appointments
@@ -1004,7 +1005,7 @@ router.post('/:id/refund-deposit', async (req, res) => {
     const s = stripeClient();
     if (!s) return res.status(503).json({ error: 'stripe not configured — refund via the Stripe dashboard' });
     try {
-      await s.refunds.create({ payment_intent: a.deposit_stripe_id });
+      await s.s.refunds.create({ payment_intent: a.deposit_stripe_id }, s.opts);
     } catch (e) {
       console.error('[appointments] refund-deposit stripe', e);
       return res.status(502).json({ error: `Stripe refund failed — ${e.message || 'try the Stripe dashboard'}` });

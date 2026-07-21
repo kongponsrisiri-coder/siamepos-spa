@@ -311,7 +311,11 @@
         // Server confirmed no deposit due → book through.
         return submitBooking(null);
       }
-      state.stripeInstance  = Stripe(state.stripeConfig.publishable_key);
+      // SIAMPAY-002 — platform mode: the PaymentIntent lives ON the client's
+      // connected account, so Stripe.js must be scoped to it.
+      state.stripeInstance  = state.stripeConfig.stripe_account
+        ? Stripe(state.stripeConfig.publishable_key, { stripeAccount: state.stripeConfig.stripe_account })
+        : Stripe(state.stripeConfig.publishable_key);
       state.stripeElements  = state.stripeInstance.elements({
         clientSecret: pi.client_secret,
         appearance: { theme: 'stripe', variables: { colorPrimary: '#1e3a6e', colorBackground: '#ffffff', fontFamily: '-apple-system, BlinkMacSystemFont, sans-serif' } },

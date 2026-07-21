@@ -17,10 +17,10 @@ const Stripe = require('stripe');
 const { pool } = require('../db/dbAdapter');
 const { computeAvailability } = require('./availability');
 
+// SIAMPAY-002 — own keys OR SiamPay platform mode (see services/stripeGateway).
+const { gateway, sessionFee } = require('./stripeGateway');
 function stripeClient() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return null;
-  return new Stripe(key, { apiVersion: '2024-06-20' });
+  return gateway();
 }
 
 const publicUrl = () => (process.env.PUBLIC_API_URL || '').replace(/\/+$/, '');
@@ -225,8 +225,9 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
       // Stripe requires the session to live ≥30 min; our shorter hold is
       // enforced by the sweeper, which also expires this session on release.
       const expiresUnix = Math.floor(Date.now() / 1000) + 30 * 60;
-      const session = await s.checkout.sessions.create({
+      const session = await s.s.checkout.sessions.create({
         mode: 'payment',
+        ...sessionFee(s), // SIAMPAY-002
         expires_at: expiresUnix,
         line_items: [{
           quantity: 1,
@@ -240,7 +241,7 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
         metadata: { purpose: 'deposit', appointment_id: String(appt.id) },
         success_url: `${publicUrl()}/pay-thanks?status=paid`,
         cancel_url:  `${publicUrl()}/pay-thanks?status=cancelled`,
-      });
+      }, s.opts);
       await client.query(
         `INSERT INTO payment_links
            (purpose, amount, currency, description, status, stripe_session_id, url, customer_email, appointment_id, expires_at)
@@ -319,7 +320,7 @@ async function releaseExpiredHolds() {
       );
       if (s) {
         for (const l of links.rows) {
-          if (l.stripe_session_id) { try { await s.checkout.sessions.expire(l.stripe_session_id); } catch (_) { /* may be paid/gone */ } }
+          if (l.stripe_session_id) { try { await s.s.checkout.sessions.expire(l.stripe_session_id, {}, s.opts); } catch (_) { /* may be paid/gone */ } }
         }
       }
       await pool.query(

@@ -10,8 +10,12 @@ import { api } from '../api.js';
 
 // One-shot loader cache — Stripe insists on a single loadStripe() per page.
 let stripePromise = null;
-function getStripe(pk) {
-  if (!stripePromise && pk) stripePromise = loadStripe(pk);
+// SIAMPAY-002 — in platform mode the PI lives on the connected account, so
+// Stripe.js must be created with { stripeAccount }.
+function getStripe(pk, stripeAccount) {
+  if (!stripePromise && pk) {
+    stripePromise = stripeAccount ? loadStripe(pk, { stripeAccount }) : loadStripe(pk);
+  }
   return stripePromise;
 }
 
@@ -39,7 +43,7 @@ export default function StripePayModal({ bill, onClose, onPaid }) {
     return () => { alive = false; };
   }, [bill.id]);
 
-  const stripe = config?.publishable_key ? getStripe(config.publishable_key) : null;
+  const stripe = config?.publishable_key ? getStripe(config.publishable_key, config.stripe_account) : null;
 
   return (
     <div className="modal-backdrop" onClick={onClose}>

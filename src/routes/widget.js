@@ -3,6 +3,7 @@
 
 const express = require('express');
 const Stripe = require('stripe');
+const { gateway, piFee } = require('../services/stripeGateway'); // SIAMPAY-002
 const { pool } = require('../db/dbAdapter');
 const { computeAvailability, getTherapistWorkingWindow, londonDateString } = require('../services/availability');
 const { sendBookingConfirmation, sendVoucherGiftEmail, sendOwnerNewBookingEmail } = require('../services/emailService');
@@ -24,10 +25,9 @@ async function loadVoucherByCode(code) {
   return rows[0] || null;
 }
 
+// SIAMPAY-002 — own keys OR SiamPay platform mode (see services/stripeGateway).
 function stripeClient() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return null;
-  return new Stripe(key, { apiVersion: '2024-06-20' });
+  return gateway();
 }
 
 // Load the spa's deposit + cancellation policy from settings, with sensible
@@ -183,9 +183,13 @@ router.get('/availability', async (req, res) => {
 router.get('/stripe-config', async (_req, res) => {
   try {
     const policy = await loadDepositPolicy();
+    const gw = gateway();
     res.json({
-      publishable_key: process.env.STRIPE_PUBLISHABLE_KEY || null,
-      configured:      !!(process.env.STRIPE_PUBLISHABLE_KEY && process.env.STRIPE_SECRET_KEY),
+      publishable_key: gw ? gw.pk : null,
+      configured:      !!(gw && gw.pk),
+      // SIAMPAY-002 — platform mode: the widget must init Stripe.js WITH the
+      // connected account so the direct charge confirms in the client's context.
+      stripe_account:  gw && gw.siampay ? gw.account : undefined,
       policy,
     });
   } catch (err) {
@@ -222,18 +226,19 @@ router.post('/payment-intent', async (req, res) => {
       // Policy says no deposit — the widget should call /book directly.
       return res.json({ deposit_amount: 0, skip_payment: true });
     }
-    const intent = await s.paymentIntents.create({
+    const intent = await s.s.paymentIntents.create({
       amount: Math.round(deposit * 100),
       currency: 'gbp',
       automatic_payment_methods: { enabled: true },
       receipt_email: b.email || undefined,
+      ...piFee(s), // SIAMPAY-002 — flat fee from the client's settlement, not the customer
       metadata: {
         purpose: 'spa_deposit',
         treatment_id: String(b.treatment_id),
         treatment_name: String(tr.rows[0].name || ''),
         starts_at: String(b.starts_at),
       },
-    });
+    }, s.opts);
     res.json({
       client_secret:  intent.client_secret,
       intent_id:      intent.id,
@@ -293,7 +298,7 @@ router.post('/book', async (req, res) => {
     if (depositAmount > 0) {
       if (!b.payment_intent_id) return res.status(400).json({ error: 'payment_intent_id required (deposit due)' });
       let intent;
-      try { intent = await s.paymentIntents.retrieve(b.payment_intent_id); }
+      try { intent = await s.s.paymentIntents.retrieve(b.payment_intent_id, {}, s.opts); }
       catch (err) { return res.status(400).json({ error: 'invalid payment_intent_id' }); }
       if (intent.status !== 'succeeded') {
         return res.status(402).json({ error: 'deposit payment not completed', stripe_status: intent.status });
@@ -550,7 +555,7 @@ router.post('/vouchers', async (req, res) => {
       return res.status(400).json({ error: 'payment_intent_id required — voucher must be paid for' });
     }
     let intent;
-    try { intent = await sv.paymentIntents.retrieve(payment_intent_id); }
+    try { intent = await sv.s.paymentIntents.retrieve(payment_intent_id, {}, sv.opts); }
     catch (err) { return res.status(400).json({ error: 'invalid payment_intent_id' }); }
     if (intent.status !== 'succeeded') {
       return res.status(402).json({ error: 'voucher payment not completed', stripe_status: intent.status });

@@ -249,7 +249,10 @@
       return;
     }
     loadStripeJs().then(function (Stripe) {
-      stripeInstance = Stripe(pay.publishable_key);
+      // SIAMPAY-002 — platform mode: scope Stripe.js to the connected account.
+      stripeInstance = pay.stripe_account
+        ? Stripe(pay.publishable_key, { stripeAccount: pay.stripe_account })
+        : Stripe(pay.publishable_key);
       stripeElements = stripeInstance.elements({
         clientSecret: pay.client_secret,
         appearance: { theme: 'stripe', variables: { colorPrimary: '#1e3a6e' } },

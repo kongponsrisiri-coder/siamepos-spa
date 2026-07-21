@@ -9,17 +9,22 @@ const conciergeOrchestrator = require('../services/conciergeOrchestrator'); // S
 const router = express.Router();
 const Stripe = require('stripe');
 
+// SIAMPAY-002 — own keys OR SiamPay platform mode (see services/stripeGateway).
+// NOTE: the WEBHOOK below stays own-keys-only on purpose — in SiamPay mode
+// events fire on the connected account and this endpoint won't receive them;
+// payment links reconcile by polling and deposits verify synchronously.
+const { gateway, piFee } = require('../services/stripeGateway');
 function stripe() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return null;
-  return new Stripe(key, { apiVersion: '2024-06-20' });
+  return gateway();
 }
 
 // GET /api/stripe/config — returns the publishable key for the frontend.
 router.get('/config', (_req, res) => {
+  const gw = gateway();
   res.json({
-    publishable_key: process.env.STRIPE_PUBLISHABLE_KEY || null,
-    configured: !!(process.env.STRIPE_PUBLISHABLE_KEY && process.env.STRIPE_SECRET_KEY),
+    publishable_key: gw ? gw.pk : null,
+    configured: !!(gw && gw.pk),
+    stripe_account: gw && gw.siampay ? gw.account : undefined, // SIAMPAY-002
   });
 });
 
@@ -34,12 +39,13 @@ router.post('/create-intent', async (req, res) => {
     const bill = rows[0];
     if (!bill) return res.status(404).json({ error: 'bill not found' });
     const amount = Math.round(Number(bill.total) * 100);
-    const intent = await s.paymentIntents.create({
+    const intent = await s.s.paymentIntents.create({
       amount,
       currency: 'gbp',
       automatic_payment_methods: { enabled: true },
+      ...piFee(s), // SIAMPAY-002
       metadata: { bill_id: String(bill.id), appointment_id: String(bill.appointment_id) },
-    });
+    }, s.opts);
     await pool.query(
       'UPDATE bills SET stripe_payment_intent_id = $2 WHERE id = $1',
       [bill.id, intent.id],
@@ -59,7 +65,7 @@ async function webhookHandler(req, res) {
   if (!s || !secret) return res.status(503).json({ error: 'stripe not configured' });
   let event;
   try {
-    event = s.webhooks.constructEvent(req.body, sig, secret);
+    event = s.s.webhooks.constructEvent(req.body, sig, secret);
   } catch (err) {
     console.error('[stripe] webhook signature failed', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);

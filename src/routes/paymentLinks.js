@@ -16,10 +16,10 @@ const { requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+// SIAMPAY-002 — own keys OR SiamPay platform mode (see services/stripeGateway).
+const { gateway, sessionFee } = require('../services/stripeGateway');
 function stripe() {
-  const key = process.env.STRIPE_SECRET_KEY;
-  if (!key) return null;
-  return new Stripe(key, { apiVersion: '2024-06-20' });
+  return gateway();
 }
 
 const publicUrl = () => (process.env.PUBLIC_API_URL || '').replace(/\/+$/, '');
@@ -90,8 +90,9 @@ router.post('/', requireRole('admin', 'manager', 'reception'), async (req, res) 
 
     const expiresUnix = Math.floor(Date.now() / 1000) + 23 * 60 * 60; // Stripe caps at 24h
     const expiresIso  = new Date(expiresUnix * 1000).toISOString();
-    const session = await s.checkout.sessions.create({
+    const session = await s.s.checkout.sessions.create({
       mode: 'payment',
+      ...sessionFee(s), // SIAMPAY-002
       expires_at: expiresUnix,
       line_items: [{
         quantity: 1,
@@ -105,7 +106,7 @@ router.post('/', requireRole('admin', 'manager', 'reception'), async (req, res) 
       metadata: { purpose, appointment_id: apptId ? String(apptId) : '' },
       success_url: `${publicUrl()}/pay-thanks?status=paid`,
       cancel_url:  `${publicUrl()}/pay-thanks?status=cancelled`,
-    });
+    }, s.opts);
 
     const { rows } = await pool.query(
       `INSERT INTO payment_links
@@ -155,7 +156,7 @@ router.get('/', requireRole('admin', 'manager', 'reception'), async (_req, res) 
       for (const link of rows) {
         if (link.status !== 'pending' || !link.stripe_session_id) continue;
         try {
-          const sess = await s.checkout.sessions.retrieve(link.stripe_session_id);
+          const sess = await s.s.checkout.sessions.retrieve(link.stripe_session_id, {}, s.opts);
           let next = null;
           if (sess.payment_status === 'paid' || sess.status === 'complete') next = 'paid';
           else if (sess.status === 'expired') next = 'expired';
@@ -191,7 +192,7 @@ router.post('/:id/cancel', requireRole('admin', 'manager', 'reception'), async (
     if (link.status !== 'pending') return res.status(409).json({ error: `Link is already ${link.status}` });
     const s = stripe();
     if (s && link.stripe_session_id) {
-      try { await s.checkout.sessions.expire(link.stripe_session_id); } catch (e) { /* may already be gone */ }
+      try { await s.s.checkout.sessions.expire(link.stripe_session_id, {}, s.opts); } catch (e) { /* may already be gone */ }
     }
     await pool.query("UPDATE payment_links SET status = 'cancelled' WHERE id = $1 AND status = 'pending'", [id]);
     res.json({ ok: true });
