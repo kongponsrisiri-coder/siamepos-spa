@@ -48,6 +48,11 @@ export default function LoginScreen() {
   const [busy, setBusy]   = useState(false);
   const [error, setError] = useState('');
   const [brand, setBrand] = useState({ spa_name: '', brand_logo: '', brand_logo_size: 'large' });
+  // SPA-SEC-LOGIN — forced PIN change off the default 1234.
+  const [mustChange, setMustChange] = useState(false);
+  const [np1, setNp1] = useState('');
+  const [np2, setNp2] = useState('');
+  const [changeErr, setChangeErr] = useState('');
   const [now, setNow]     = useState(() => new Date());
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
   const navigate = useNavigate();
@@ -77,12 +82,27 @@ export default function LoginScreen() {
     if (!sel || !pin || busy) return;
     setBusy(true); setError('');
     try {
-      const { token, staff: who } = await api.post('/auth/login', { staff_id: sel.id, pin });
-      setAuth({ token, staff: who });
+      const resp = await api.post('/auth/login', { staff_id: sel.id, pin });
+      setAuth({ token: resp.token, staff: resp.staff });
+      if (resp.must_change_pin) { setMustChange(true); setBusy(false); return; }
       navigate('/', { replace: true });
     } catch (e) {
       setError(e.message === 'invalid pin' ? 'Wrong PIN — try again' : (e.message || 'Login failed'));
       setPin('');
+    } finally { setBusy(false); }
+  }
+
+  // SPA-SEC-LOGIN — submit the mandatory new PIN, then enter the till.
+  async function submitNewPin() {
+    setChangeErr('');
+    if (!/^\d{4,6}$/.test(np1)) { setChangeErr('PIN must be 4–6 digits'); return; }
+    if (np1 !== np2) { setChangeErr('The two PINs don’t match'); return; }
+    setBusy(true);
+    try {
+      await api.post('/auth/change-pin', { new_pin: np1 });
+      navigate('/', { replace: true });
+    } catch (e) {
+      setChangeErr(e.message || 'Could not set PIN');
     } finally { setBusy(false); }
   }
   function onKeyDown(e) {
@@ -158,11 +178,6 @@ export default function LoginScreen() {
               })}
             </div>
           )}
-          {staff.length === 1 && staff[0].name === 'Admin' && staff[0].role === 'admin' && (
-            <div style={{ marginTop: 18, color: MUTED, fontSize: 13, fontFamily: SANS, lineHeight: 1.6 }}>
-              First time? Tap <b>Admin</b> — the default PIN is <b>1234</b>.<br />Change it and add your team in <b>Admin → Staff</b>.
-            </div>
-          )}
           <a href="/owner-login" style={{ display: 'inline-block', marginTop: 26, color: GOLD_ON_LIGHT, fontSize: 14, textDecoration: 'none', fontWeight: 700, fontFamily: SANS }}>Sign in with email instead →</a>
         </div>
       ) : (
@@ -206,10 +221,37 @@ export default function LoginScreen() {
     </div>
   );
 
+  // SPA-SEC-LOGIN — mandatory "set a new PIN" gate shown after signing in with
+  // the default 1234. The public login page + a 4-digit PIN means the seeded
+  // default must never persist; this makes the owner replace it on first use.
+  const changePinPanel = (
+    <div style={{ flex: 1, minWidth: isMobile ? 'auto' : 380, background: PAPER, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: isMobile ? '28px 18px' : '40px 32px', borderRadius: isMobile ? 0 : '28px 0 0 28px' }}>
+      <div style={{ width: '100%', maxWidth: 340, textAlign: 'center' }}>
+        <div style={{ fontFamily: SERIF, fontSize: 28, fontWeight: 700, color: INK }}>Set your PIN</div>
+        <div style={{ color: MUTED, fontSize: 14, marginTop: 8, marginBottom: 22, fontFamily: SANS, lineHeight: 1.5 }}>
+          You’re on the default PIN. Choose a private 4–6 digit PIN before you continue.
+        </div>
+        <input type="password" inputMode="numeric" autoFocus value={np1} maxLength={6}
+          onChange={(e) => setNp1(e.target.value.replace(/\D/g, ''))} placeholder="New PIN"
+          style={{ width: '100%', height: 50, borderRadius: 12, border: `1px solid #E6E0D2`, textAlign: 'center', fontSize: 20, letterSpacing: 6, marginBottom: 12, fontFamily: SANS }} />
+        <input type="password" inputMode="numeric" value={np2} maxLength={6}
+          onChange={(e) => setNp2(e.target.value.replace(/\D/g, ''))} placeholder="Confirm PIN"
+          onKeyDown={(e) => { if (e.key === 'Enter') submitNewPin(); }}
+          style={{ width: '100%', height: 50, borderRadius: 12, border: `1px solid #E6E0D2`, textAlign: 'center', fontSize: 20, letterSpacing: 6, marginBottom: 14, fontFamily: SANS }} />
+        {changeErr && <div style={{ color: '#b3261e', fontSize: 13, marginBottom: 12, fontFamily: SANS }}>{changeErr}</div>}
+        <button onClick={submitNewPin} disabled={busy || !np1 || !np2} style={{
+          width: '100%', height: 52, borderRadius: 14, border: 'none',
+          background: (np1 && np2 && !busy) ? NAVY : '#e7e1d3', color: (np1 && np2 && !busy) ? '#fff' : '#b3ab98',
+          fontSize: 16, fontWeight: 800, cursor: (np1 && np2 && !busy) ? 'pointer' : 'default', fontFamily: SANS,
+        }}>{busy ? 'Saving…' : 'Set PIN & continue'}</button>
+      </div>
+    </div>
+  );
+
   return (
     <div onKeyDown={onKeyDown} tabIndex={0} style={{ minHeight: '100dvh', display: 'flex', flexDirection: isMobile ? 'column' : 'row', background: NAVY, outline: 'none' }}>
       {brandPanel}
-      {rightPanel}
+      {mustChange ? changePinPanel : rightPanel}
     </div>
   );
 }

@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { pool } = require('../db/dbAdapter');
-const { signStaffToken } = require('../middleware/auth');
+const { signStaffToken, requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -30,10 +30,8 @@ if (!SETUP_SECRET || SETUP_SECRET === 'dev-only-change-me') {
   SETUP_SECRET = crypto.randomBytes(32).toString('hex');
 }
 
-// SEPOS-SPA-BUGHUNT — PIN login bcrypt-compares against every staff row, so a
-// flood of concurrent logins pegs the CPU (a stress test hit 10s p95 at 20
-// concurrent). Cap it per IP: ~30 attempts / 60s — plenty for a busy till, but
-// it stops a login flood from DoS-ing the spa.
+// SEPOS-SPA-BUGHUNT — DoS cap: PIN login bcrypt-compares, so a flood of
+// concurrent logins pegs the CPU. Cap ~30 attempts / 60s per IP.
 const loginHits = new Map();
 function loginThrottled(ip) {
   const now = Date.now(), win = 60 * 1000, max = 30;
@@ -41,6 +39,36 @@ function loginThrottled(ip) {
   if (arr.length >= max) { loginHits.set(ip, arr); return true; }
   arr.push(now); loginHits.set(ip, arr); return false;
 }
+
+// SPA-SEC-LOGIN — brute-force lockout. The till login is a PUBLIC page and the
+// PIN is only 4 digits, so a slow guesser could otherwise walk the ~10k space.
+// Failure-based: 8 WRONG pins in 15 min from one IP → that IP is locked for
+// 15 min. Successful logins clear the counter, so legit staff who know their
+// PIN are unaffected (a busy till fat-fingers rarely and resets on the next
+// good login); an attacker gets ~8 tries per 15 min → 10k combos ≈ weeks.
+const loginFails = new Map(); // ip → [timestamps of failures]
+const FAIL_MAX = 8, FAIL_WIN = 15 * 60 * 1000;
+function lockedOut(ip) {
+  const now = Date.now();
+  const arr = (loginFails.get(ip) || []).filter((t) => now - t < FAIL_WIN);
+  loginFails.set(ip, arr);
+  if (loginFails.size > 5000) loginFails.clear();
+  return arr.length >= FAIL_MAX;
+}
+function recordFail(ip) {
+  const arr = loginFails.get(ip) || [];
+  arr.push(Date.now());
+  loginFails.set(ip, arr);
+}
+function clearFails(ip) { loginFails.delete(ip); }
+
+// Weak/guessable PINs an operator must not keep (the seeded default + repeats +
+// obvious sequences). Used to force a change off the '1234' default on login.
+const WEAK_PINS = new Set([
+  '1234', '0000', '1111', '2222', '3333', '4444', '5555', '6666', '7777',
+  '8888', '9999', '4321', '1212', '2580', '0123', '123456', '000000', '111111',
+]);
+function isWeakPin(p) { return WEAK_PINS.has(String(p || '')); }
 
 // POST /api/auth/login  body: { pin: '1234' }
 // PINs are stored as bcrypt hashes — we compare against every active staff
@@ -70,7 +98,11 @@ router.post('/login', async (req, res) => {
   if (!pin || typeof pin !== 'string') {
     return res.status(400).json({ error: 'pin required' });
   }
-  if (loginThrottled('ip:' + (req.ip || ''))) {
+  const ip = 'ip:' + (req.ip || '');
+  if (lockedOut(ip)) {
+    return res.status(429).json({ error: 'Too many wrong PINs — locked for a few minutes. Try again shortly, or use “Sign in with email”.' });
+  }
+  if (loginThrottled(ip)) {
     return res.status(429).json({ error: 'Too many sign-in attempts — please wait a moment and try again.' });
   }
   try {
@@ -89,12 +121,43 @@ router.post('/login', async (req, res) => {
       const { rows } = await pool.query('SELECT id, name, pin, role FROM therapists WHERE active = TRUE');
       match = rows.find((row) => bcrypt.compareSync(pin, row.pin));
     }
-    if (!match) return res.status(401).json({ error: 'invalid pin' });
+    if (!match) { recordFail(ip); return res.status(401).json({ error: 'invalid pin' }); }
+    clearFails(ip); // good login — reset the brute-force counter for this IP
     const staff = { id: match.id, name: match.name, role: match.role };
-    return res.json({ staff, token: signStaffToken(staff) });
+    // SPA-SEC-LOGIN — an operator still on a weak/default PIN (e.g. the seeded
+    // 1234) must set a real one before using the till, so the public default
+    // can never persist into live operation.
+    const mustChangePin = isWeakPin(pin) && ['admin', 'manager', 'reception'].includes(match.role);
+    return res.json({ staff, token: signStaffToken(staff), must_change_pin: mustChangePin });
   } catch (err) {
     console.error('[auth/login] error', err);
     return res.status(500).json({ error: 'server error' });
+  }
+});
+
+// SPA-SEC-LOGIN — POST /api/auth/change-pin  body: { new_pin }
+// The signed-in user sets their OWN new PIN. Used by the forced change off the
+// default 1234, and available any time from Admin. 4–6 digits, not a weak PIN,
+// and not already in use by another active operator (PINs must stay unique so
+// the name-then-PIN login resolves one row).
+router.post('/change-pin', requireAuth, async (req, res) => {
+  const newPin = String((req.body || {}).new_pin || '').trim();
+  if (!/^\d{4,6}$/.test(newPin)) return res.status(400).json({ error: 'PIN must be 4–6 digits' });
+  if (isWeakPin(newPin)) return res.status(400).json({ error: 'That PIN is too easy to guess — pick another' });
+  try {
+    const me = req.staff || req.user; // set by requireAuth
+    const myId = me && (me.id || me.staff_id);
+    if (!myId) return res.status(401).json({ error: 'not authenticated' });
+    // Uniqueness: reject if another active operator already uses this PIN.
+    const { rows } = await pool.query('SELECT id, pin FROM therapists WHERE active = TRUE AND id <> $1', [myId]);
+    if (rows.some((r) => r.pin && bcrypt.compareSync(newPin, r.pin))) {
+      return res.status(409).json({ error: 'That PIN is already in use — choose another' });
+    }
+    await pool.query('UPDATE therapists SET pin = $1 WHERE id = $2', [bcrypt.hashSync(newPin, 10), myId]);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[auth/change-pin]', err);
+    res.status(500).json({ error: 'server error' });
   }
 });
 
