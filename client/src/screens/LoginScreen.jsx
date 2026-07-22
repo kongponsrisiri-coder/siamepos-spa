@@ -134,7 +134,9 @@ export default function LoginScreen() {
           <div style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 700, color: INK }}>Welcome back</div>
           <div style={{ color: MUTED, fontSize: 14, marginTop: 6, marginBottom: 26, fontFamily: SANS }}>Tap your name to sign in</div>
           {staff.length === 0 ? (
-            <div style={{ color: MUTED, fontSize: 14, fontFamily: SANS }}>No staff found.</div>
+            <div style={{ color: MUTED, fontSize: 14, fontFamily: SANS, lineHeight: 1.6 }}>
+              No till staff set up yet.<br />Use <b>“Sign in with email instead”</b> below, then add staff in Admin → Staff.
+            </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 12 }}>
               {staff.map((s) => {
@@ -154,6 +156,11 @@ export default function LoginScreen() {
                   </button>
                 );
               })}
+            </div>
+          )}
+          {staff.length === 1 && staff[0].name === 'Admin' && staff[0].role === 'admin' && (
+            <div style={{ marginTop: 18, color: MUTED, fontSize: 13, fontFamily: SANS, lineHeight: 1.6 }}>
+              First time? Tap <b>Admin</b> — the default PIN is <b>1234</b>.<br />Change it and add your team in <b>Admin → Staff</b>.
             </div>
           )}
           <a href="/owner-login" style={{ display: 'inline-block', marginTop: 26, color: GOLD_ON_LIGHT, fontSize: 14, textDecoration: 'none', fontWeight: 700, fontFamily: SANS }}>Sign in with email instead →</a>
