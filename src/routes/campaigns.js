@@ -135,12 +135,14 @@ router.post('/send', async (req, res) => {
     return res.status(500).json({ error: err.message || 'server error' });
   }
 
+  const th = await require('../services/brandTheme').getBrandTheme(); // spa brand — fetched once for the whole send
   let sent = 0, failed = 0;
   for (const c of recipients) {
     const html = buildCampaignEmail({
       subject, body,
       client_name:  c.name,
       client_email: c.email,
+      th,
     });
     try {
       const result = await sendBrevoEmail({

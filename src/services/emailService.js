@@ -137,9 +137,10 @@ async function sendBookingConfirmation({ client, appointment, treatment, cancell
     ? `<tr><td style="padding:6px 12px;"><strong>Deposit paid</strong></td><td>£${dep.toFixed(2)}</td></tr>
        <tr><td style="padding:6px 12px;"><strong>Balance on arrival</strong></td><td>£${balance.toFixed(2)}</td></tr>`
     : '';
+  const th = await getBrandTheme(); // spa's own brand colours (matches vouchers/campaigns + the till)
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width:560px; margin:0 auto; color:#1c1c1c;">
-      <div style="background:#1e3a6e; color:#C9A84C; padding:24px 28px; border-radius:12px 12px 0 0; font-family:Georgia,serif; font-size:22px; font-weight:700;">
+      <div style="background:${th.primaryHex}; color:${th.accentHex}; padding:24px 28px; border-radius:12px 12px 0 0; font-family:Georgia,serif; font-size:22px; font-weight:700;">
         ${spaName} — booking confirmed
       </div>
       <div style="background:white; border:1px solid #e8e3d8; border-top:none; padding:24px 28px; border-radius:0 0 12px 12px;">
@@ -155,10 +156,10 @@ async function sendBookingConfirmation({ client, appointment, treatment, cancell
           <tr><td style="padding:6px 12px 6px 0;"><strong>Reference</strong></td><td>#${appointment.id}</td></tr>
         </table>
         <p style="margin:0 0 20px;">
-          <a href="${manageUrl}" style="display:inline-block;background:#C9A84C;color:#1e3a6e;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:700;">Manage your booking</a>
+          <a href="${manageUrl}" style="display:inline-block;background:${th.accentHex};color:${th.primaryHex};padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:700;">Manage your booking</a>
         </p>
         ${cancellationPolicy ? `<p style="font-size:13px; color:#666; margin:0 0 12px;">${String(cancellationPolicy).replace(/[<>]/g,'')}</p>` : ''}
-        <p style="margin:0; color:#1e3a6e;">We look forward to seeing you.<br><strong>${spaName}</strong></p>
+        <p style="margin:0; color:${th.primaryHex};">We look forward to seeing you.<br><strong>${spaName}</strong></p>
       </div>
     </div>
   `;
@@ -177,9 +178,10 @@ async function sendBookingRescheduled({ client, appointment, treatment, oldStart
   const oldWhen = oldStartsAt ? formatStarts(oldStartsAt) : '';
   const apiBase = process.env.PUBLIC_API_URL || 'https://spa-api.siamepos.co.uk';
   const manageUrl = `${apiBase}/my-booking.html?token=${encodeURIComponent(bookingToken(appointment.id))}`;
+  const th = await getBrandTheme(); // spa's own brand colours
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width:560px; margin:0 auto; color:#1c1c1c;">
-      <div style="background:#1e3a6e; color:#C9A84C; padding:24px 28px; border-radius:12px 12px 0 0; font-family:Georgia,serif; font-size:22px; font-weight:700;">
+      <div style="background:${th.primaryHex}; color:${th.accentHex}; padding:24px 28px; border-radius:12px 12px 0 0; font-family:Georgia,serif; font-size:22px; font-weight:700;">
         ${spaName} — booking rescheduled
       </div>
       <div style="background:white; border:1px solid #e8e3d8; border-top:none; padding:24px 28px; border-radius:0 0 12px 12px;">
@@ -190,7 +192,7 @@ async function sendBookingRescheduled({ client, appointment, treatment, oldStart
           <tr><td style="padding:4px 12px 4px 0;"><strong>To</strong></td><td style="color:#16a34a;font-weight:700;">${newWhen}</td></tr>
           <tr><td style="padding:4px 12px 4px 0;"><strong>Reference</strong></td><td>#${appointment.id}</td></tr>
         </table>
-        <p style="margin:14px 0 4px;"><a href="${manageUrl}" style="display:inline-block;background:#C9A84C;color:#1e3a6e;padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:700;">Manage your booking</a></p>
+        <p style="margin:14px 0 4px;"><a href="${manageUrl}" style="display:inline-block;background:${th.accentHex};color:${th.primaryHex};padding:10px 20px;border-radius:6px;text-decoration:none;font-weight:700;">Manage your booking</a></p>
       </div>
     </div>
   `;
@@ -211,16 +213,17 @@ async function sendBookingCancelled({ client, appointment, treatment, refundAmou
     : refundReason
       ? `<p style="background:#fef3c7;border:1px solid #fcd34d;color:#92400e;padding:12px;border-radius:6px;font-size:14px;">⚠️ ${String(refundReason).replace(/[<>]/g,'')}</p>`
       : '';
+  const th = await getBrandTheme(); // spa's own brand colours
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, sans-serif; max-width:560px; margin:0 auto; color:#1c1c1c;">
-      <div style="background:#1e3a6e; color:#C9A84C; padding:24px 28px; border-radius:12px 12px 0 0; font-family:Georgia,serif; font-size:22px; font-weight:700;">
+      <div style="background:${th.primaryHex}; color:${th.accentHex}; padding:24px 28px; border-radius:12px 12px 0 0; font-family:Georgia,serif; font-size:22px; font-weight:700;">
         ${spaName} — booking cancelled
       </div>
       <div style="background:white; border:1px solid #e8e3d8; border-top:none; padding:24px 28px; border-radius:0 0 12px 12px;">
         <p>Hi ${(client.name || 'there').replace(/[<>]/g,'')},</p>
         <p>Your booking for <strong>${(treatment?.name || '').replace(/[<>]/g,'')}</strong> on <strong>${when}</strong> has been cancelled.</p>
         ${refundLine}
-        <p style="margin-top:18px;color:#1e3a6e;">We're sorry to miss you — book again any time at our website.</p>
+        <p style="margin-top:18px;color:${th.primaryHex};">We're sorry to miss you — book again any time at our website.</p>
       </div>
     </div>
   `;
@@ -235,7 +238,9 @@ async function sendBookingCancelled({ client, appointment, treatment, refundAmou
 // Lotus-branded campaign template: navy header with the spa wordmark, body
 // content unchanged from the operator's text (HTML allowed), GDPR footer
 // with a one-click unsubscribe link. {{name}} merges the client's name.
-function buildCampaignEmail({ subject, body, client_name, client_email }) {
+function buildCampaignEmail({ subject, body, client_name, client_email, th }) {
+  const primaryHex = (th && th.primaryHex) || '#1e3a6e'; // spa brand, navy fallback
+  const accentHex  = (th && th.accentHex)  || '#C9A84C';
   const spaName    = process.env.SPA_NAME    || 'SiamEPOS Spa';
   const spaAddress = process.env.SPA_ADDRESS || '';
   const safeName = String(client_name || 'there').replace(/[<>]/g, '');
@@ -248,10 +253,10 @@ function buildCampaignEmail({ subject, body, client_name, client_email }) {
   <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#faf7f2;padding:24px 0;">
     <tr><td align="center">
       <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width:600px;background:white;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(20,38,74,0.08);">
-        <tr><td style="background:#1e3a6e;padding:28px 30px;color:#C9A84C;font-family:Georgia,serif;font-size:24px;font-weight:700;letter-spacing:0.02em;">${spaName.replace(/[<>]/g, '')}</td></tr>
+        <tr><td style="background:${primaryHex};padding:28px 30px;color:${accentHex};font-family:Georgia,serif;font-size:24px;font-weight:700;letter-spacing:0.02em;">${spaName.replace(/[<>]/g, '')}</td></tr>
         <tr><td style="padding:32px;line-height:1.65;font-size:15px;color:#1c1c1c;">${personalisedBody}</td></tr>
         <tr><td style="padding:18px 30px;background:#faf7f2;border-top:1px solid #e8e3d8;font-size:11px;color:#6b6b6b;line-height:1.55;">
-          <div style="margin-bottom:6px;"><strong style="color:#1e3a6e;">${spaName.replace(/[<>]/g, '')}</strong>${spaAddress ? ' · ' + spaAddress.replace(/[<>]/g, '') : ''}</div>
+          <div style="margin-bottom:6px;"><strong style="color:${primaryHex};">${spaName.replace(/[<>]/g, '')}</strong>${spaAddress ? ' · ' + spaAddress.replace(/[<>]/g, '') : ''}</div>
           <div>You're receiving this because you opted in to occasional offers when booking with us.
             <a href="${unsubUrl}" style="color:#6b6b6b;text-decoration:underline;">Unsubscribe</a> at any time.</div>
         </td></tr>
