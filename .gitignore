@@ -7,3 +7,6 @@ client/dist/
 npm-debug.log*
 *.log
 client-setups/
+
+# Local Netlify folder
+.netlify
