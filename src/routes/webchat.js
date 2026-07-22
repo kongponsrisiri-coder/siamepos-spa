@@ -18,6 +18,7 @@ const router = express.Router();
 // Origins allowed to embed the chat widget. Extend per client site.
 const ORIGIN_WHITELIST = [
   'https://jinta-massage.netlify.app',
+  'https://highbury-sandy.netlify.app',
   'http://localhost:8888',
 ];
 
