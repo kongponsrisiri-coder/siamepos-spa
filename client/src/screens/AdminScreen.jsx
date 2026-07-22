@@ -21,6 +21,7 @@ import CampaignsSection       from './admin/CampaignsSection.jsx';
 import OnlineBookingSection   from './admin/OnlineBookingSection.jsx';
 import TreatwellSection        from './admin/TreatwellSection.jsx';
 import ChatsSection            from './admin/ChatsSection.jsx';
+import CertificatesSection     from './admin/CertificatesSection.jsx'; // SPA-CERTS-001
 
 // ── Sandy: AdminScreen — left sidebar, SiamEPOS Spa brand CI ──────
 // Slate Navy var(--navy) sidebar · Thai Gold var(--gold) active state
@@ -51,6 +52,7 @@ const GROUPS = [
     { k: 'staff',      label: 'Staff' },
     { k: 'rota',       label: 'Rota' },
     { k: 'rooms',      label: 'Rooms' },
+    { k: 'certs',      label: 'Certificates' },
   ] },
   { title: 'Settings', items: [
     { k: 'booking',    label: 'Booking' },
@@ -113,6 +115,7 @@ const SECTIONS = {
   staff:      StaffSection,
   rota:       RotaSection,
   rooms:      RoomSection,
+  certs:      CertificatesSection,
   booking:    BookingSettingsSection,
   online:     OnlineBookingSection,
   embed:      EmbedCodesSection,

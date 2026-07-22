@@ -669,6 +669,23 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_concierge_conv_updated ON concierge_conversations (updated_at);
   `);
 
+  // ── SPA-CERTS-001 — qualification certificates ─────────────────────────
+  // The spa's credentials (massage qualifications, insurance, etc) stored so
+  // reception can show them full-screen whenever a customer asks. Files kept
+  // as base64 in the DB (same pattern as ops transaction_attachments) — a
+  // handful of images/PDFs, no external storage needed.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS certificates (
+      id          SERIAL PRIMARY KEY,
+      title       TEXT NOT NULL,
+      holder      TEXT,
+      filename    TEXT,
+      mimetype    TEXT,
+      file_data   TEXT NOT NULL,
+      uploaded_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+  `);
+
   // ── Petty cash (SPA-PETTYCASH-001) ──────────────────────────────────────
   // Cash paid OUT of the till drawer during the day for small expenses
   // (milk, taxi, supplies…). It is NOT a sale — it does not touch revenue or

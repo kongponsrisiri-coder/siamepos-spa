@@ -83,4 +83,59 @@ router.post('/message', async (req, res) => {
   }
 });
 
+// SPA-CHAT-REPLY-001 — GET /api/webchat/poll?session_id=…&after=N
+// The widget polls while open so staff replies (sent from Admin AI Chats)
+// reach the visitor. `after` = how many messages the widget has already
+// rendered from THIS endpoint's numbering (assistant-visible messages only).
+// Same CORS whitelist; polling has its own (gentler) rate budget.
+const pollHits = new Map();
+function allowPoll(ip) {
+  const now = Date.now();
+  const arr = (pollHits.get(ip) || []).filter((t) => now - t < 60_000);
+  if (arr.length >= 30) { pollHits.set(ip, arr); return false; }
+  arr.push(now); pollHits.set(ip, arr);
+  if (pollHits.size > 5000) pollHits.clear();
+  return true;
+}
+
+function visibleText(m) {
+  if (!m) return null;
+  if (typeof m.content === 'string') return m.content.trim() || null;
+  if (Array.isArray(m.content)) {
+    const t = m.content.filter((b) => b && b.type === 'text').map((b) => b.text).join('\n').trim();
+    return t || null;
+  }
+  return null;
+}
+
+router.get('/poll', async (req, res) => {
+  try {
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip;
+    if (!allowPoll(ip)) return res.status(429).json({ error: 'too fast' });
+    const sid = String(req.query.session_id || '');
+    if (!/^[a-z0-9-]{8,64}$/i.test(sid)) return res.status(400).json({ error: 'invalid session' });
+    const after = Math.max(0, parseInt(req.query.after, 10) || 0);
+    const { rows } = await pool.query(
+      'SELECT messages, handoff FROM concierge_conversations WHERE phone = $1', ['web:' + sid]);
+    if (!rows[0]) return res.json({ messages: [], handoff: false, total: 0 });
+    let msgs;
+    try { msgs = Array.isArray(rows[0].messages) ? rows[0].messages : JSON.parse(rows[0].messages || '[]'); }
+    catch { msgs = []; }
+    // Number ONLY assistant-visible messages so the widget's `after` cursor
+    // is stable regardless of hidden tool traffic.
+    const visible = msgs
+      .filter((m) => m.role === 'assistant')
+      .map((m) => visibleText(m))
+      .filter(Boolean);
+    res.json({
+      total: visible.length,
+      messages: visible.slice(after),
+      handoff: !!rows[0].handoff,
+    });
+  } catch (err) {
+    console.error('[webchat] poll error:', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 module.exports = router;

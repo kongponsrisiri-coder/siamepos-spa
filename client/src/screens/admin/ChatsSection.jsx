@@ -43,6 +43,21 @@ export default function ChatsSection() {
   }, [open, loadThread]);
   useEffect(() => { bottomRef.current?.scrollIntoView({ block: 'end' }); }, [thread?.messages?.length]);
 
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+
+  // SPA-CHAT-REPLY-001 — staff reply. Sending auto-takes-over server-side.
+  async function sendReply() {
+    const text = draft.trim();
+    if (!text || !thread || sending) return;
+    setSending(true);
+    try {
+      await api.post(`/concierge-admin/conversations/${encodeURIComponent(thread.phone)}/reply`, { text });
+      setDraft('');
+      await loadThread(thread.phone); load();
+    } finally { setSending(false); }
+  }
+
   async function toggleHandoff() {
     if (!thread || busy) return;
     setBusy(true);
@@ -79,9 +94,22 @@ export default function ChatsSection() {
           ))}
           <div ref={bottomRef} />
         </div>
+        <div style={{ display: 'flex', gap: 8, paddingTop: 8 }}>
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply(); } }}
+            placeholder={thread.handoff ? 'Reply as the spa…' : 'Reply as the spa (sending takes over from the AI)…'}
+            style={{ flex: 1, minWidth: 0, padding: '12px 14px', borderRadius: 22, border: '1px solid var(--border)', fontSize: 15 }}
+          />
+          <button className="btn primary" disabled={sending || !draft.trim()} onClick={sendReply} style={{ minWidth: 74 }}>
+            {sending ? '…' : 'Send'}
+          </button>
+        </div>
         {thread.channel !== 'web' ? null : (
           <div className="muted" style={{ fontSize: 12, padding: '6px 2px' }}>
             Website visitors are anonymous until they share contact details in the chat.
+            {thread.handoff ? ' Your replies reach them while their chat window stays open.' : ''}
           </div>
         )}
       </div>

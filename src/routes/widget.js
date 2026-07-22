@@ -6,7 +6,7 @@ const Stripe = require('stripe');
 const { gateway, piFee } = require('../services/stripeGateway'); // SIAMPAY-002
 const { pool } = require('../db/dbAdapter');
 const { computeAvailability, getTherapistWorkingWindow, londonDateString } = require('../services/availability');
-const { sendBookingConfirmation, sendVoucherGiftEmail, sendOwnerNewBookingEmail } = require('../services/emailService');
+const { sendBookingConfirmation, sendVoucherGiftEmail, sendOwnerNewBookingEmail, sendBookingSms } = require('../services/emailService');
 const voucherWalletPass   = require('../services/voucherWalletPass');   // Apple Wallet .pkpass
 const voucherGoogleWallet = require('../services/voucherGoogleWallet'); // Google Wallet save link
 
@@ -467,6 +467,9 @@ router.post('/book', async (req, res) => {
         cancellationPolicy: policy.cancel_policy_text,
       }).catch((e) => console.error('[widget] email send failed', e));
     }
+    // SPA-SMS-001 — confirmation text alongside the email (dormant without TWILIO_* env).
+    sendBookingSms({ client: cli, appointment: ap.rows[0], treatment: tr.rows[0] })
+      .catch((e) => console.error('[widget] sms send failed', e));
     // SPA-OWNER-NOTIFY — alert the spa owner of every new booking.
     sendOwnerNewBookingEmail({
       appointment:   ap.rows[0],

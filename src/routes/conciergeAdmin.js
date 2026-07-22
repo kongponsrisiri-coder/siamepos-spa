@@ -74,6 +74,38 @@ router.get('/conversations/:phone', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// SPA-CHAT-REPLY-001 — POST /api/concierge-admin/conversations/:phone/reply { text }
+// Staff send a message INTO the thread. Sending auto-enables handoff (the AI
+// must not talk over a human). Delivery: web threads are picked up by the
+// widget's poll endpoint; WhatsApp threads go out via Twilio when configured.
+router.post('/conversations/:phone/reply', async (req, res) => {
+  try {
+    const text = String(req.body?.text || '').trim();
+    if (!text) return res.status(400).json({ error: 'text required' });
+    if (text.length > 2000) return res.status(400).json({ error: 'message too long' });
+    const phone = req.params.phone;
+    const { rows } = await pool.query(
+      'SELECT phone, messages, handoff FROM concierge_conversations WHERE phone = $1', [phone]);
+    if (!rows[0]) return res.status(404).json({ error: 'conversation not found' });
+    const msgs = parseMessages(rows[0].messages);
+    msgs.push({ role: 'assistant', content: text, operator: true, ts: new Date().toISOString() });
+    await pool.query(
+      'UPDATE concierge_conversations SET messages = $2, handoff = TRUE, updated_at = now() WHERE phone = $1',
+      [phone, JSON.stringify(msgs)]);
+    // WhatsApp threads: push the reply out on WhatsApp too.
+    if (!phone.startsWith('web:')) {
+      try {
+        const twilio = require('../services/twilioWhatsapp');
+        if (twilio.isConfigured()) await twilio.sendWhatsApp(phone, text);
+      } catch (e) { console.error('[concierge-admin] whatsapp reply send', e.message); }
+    }
+    res.json({ ok: true, handoff: true });
+  } catch (err) {
+    console.error('[concierge-admin] reply', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 // POST /api/concierge-admin/conversations/:phone/handoff  { handoff: true|false }
 router.post('/conversations/:phone/handoff', async (req, res) => {
   try {

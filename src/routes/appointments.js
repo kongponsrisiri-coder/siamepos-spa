@@ -2,7 +2,7 @@ const express = require('express');
 const Stripe = require('stripe');
 const { pool } = require('../db/dbAdapter');
 const { computeAvailability, isTherapistWorking, buildAt, londonDateString } = require('../services/availability');
-const { bookingToken, sendOwnerNewBookingEmail } = require('../services/emailService');
+const { bookingToken, sendOwnerNewBookingEmail, sendBookingSms } = require('../services/emailService');
 const { recomputeBillTotals, loadBillWithItems } = require('./bills');
 const offlineQueue = require('../services/offlineQueue');
 
@@ -369,6 +369,12 @@ router.post('/', async (req, res) => {
           therapistName: n.therapist_name,
           source:        validSource,
         });
+        // SPA-SMS-001 — confirmation text for operator-created bookings too.
+        sendBookingSms({
+          client:      { phone: n.client_phone },
+          appointment: appt,
+          treatment:   { name: n.treatment_name },
+        }).catch((e) => console.error('[appointments] sms send failed', e));
       } catch (e) { console.error('[appointments] owner notify failed', e); }
     })();
 

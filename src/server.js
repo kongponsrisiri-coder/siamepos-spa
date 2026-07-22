@@ -228,6 +228,7 @@ app.get('/api/unsubscribe', async (req, res) => {
 
 // ---- Protected routes (require staff token) ------------------------------
 app.use('/api/concierge-admin', requireAuth, conciergeAdminRoutes); // SPA-WEBCHAT-AI-001 — staff chat inbox
+app.use('/api/certificates', requireAuth, require('./routes/certificates')); // SPA-CERTS-001 — qualification certificates
 app.use('/api/treatments',   requireAuth, treatmentRoutes);
 app.use('/api/therapists',   requireAuth, therapistRoutes);
 app.use('/api/rooms',        requireAuth, roomRoutes);

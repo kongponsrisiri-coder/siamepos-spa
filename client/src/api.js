@@ -2,6 +2,13 @@
 
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
+// SPA-CERTS-001 — raw-fetch helpers for auth-gated binary endpoints (files).
+export function apiBase() { return API_BASE; }
+export function authHeader() {
+  const t = localStorage.getItem('spa_token');
+  return t ? { authorization: `Bearer ${t}` } : {};
+}
+
 export function getToken() {
   return localStorage.getItem('spa_token');
 }

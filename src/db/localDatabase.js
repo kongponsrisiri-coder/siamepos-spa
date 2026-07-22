@@ -832,6 +832,18 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_concierge_conv_updated ON concierge_conversations (updated_at);
 
+    -- SPA-CERTS-001 — qualification certificates (mirrors cloud database.js;
+    -- SERIAL→INTEGER PK, TIMESTAMPTZ→TEXT per this file's dialect).
+    CREATE TABLE IF NOT EXISTS certificates (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      title       TEXT NOT NULL,
+      holder      TEXT,
+      filename    TEXT,
+      mimetype    TEXT,
+      file_data   TEXT NOT NULL,
+      uploaded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- SPA-LOYALTY-001 — loyalty events (earn/redeem/revoke/unredeem audit).
     -- Mirrors cloud database.js; cloud_id is LOCAL-ONLY (sync push mapping,
     -- like bills/appointments). Client counters live on clients

@@ -582,6 +582,62 @@ async function sendOwnerLoginLink({ to, url, spaName }) {
   return sendBrevoEmail({ to, subject: `Your ${safe} sign-in link`, html });
 }
 
+// ─── SPA-SMS-001 — booking-confirmation SMS via Twilio ─────────────────
+// Ported from the restaurant side (SEPOS-027). Dormant unless
+// TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN are set on the tenant Railway.
+// TWILIO_FROM should be the platform's bought number (+447861932999).
+const https = require('https');
+const TWILIO_SID   = process.env.TWILIO_ACCOUNT_SID || '';
+const TWILIO_TOKEN = process.env.TWILIO_AUTH_TOKEN  || '';
+const TWILIO_FROM  = process.env.TWILIO_FROM        || 'SiamEPOS';
+
+function toE164Uk(phone) {
+  if (!phone) return null;
+  let p = String(phone).replace(/[^\d+]/g, '');
+  if (p.startsWith('+')) return /^\+\d{10,15}$/.test(p) ? p : null;
+  if (p.startsWith('00')) p = p.slice(2);
+  if (p.startsWith('44')) return /^\d{11,13}$/.test(p) ? '+' + p : null;
+  if (p.startsWith('07') && p.length === 11) return '+44' + p.slice(1);
+  return null;
+}
+
+function sendBookingSms({ client, appointment, treatment }) {
+  return new Promise((resolve) => {
+    if (!TWILIO_SID || !TWILIO_TOKEN) return resolve();
+    const to = toE164Uk(client?.phone);
+    if (!to) return resolve();
+    const spaName = process.env.SPA_NAME || 'SiamEPOS Spa';
+    const text = spaName + ': booking confirmed — ' + (treatment?.name || 'your treatment') +
+      ', ' + formatStarts(appointment.starts_at) + '. Ref #' + appointment.id +
+      '. We look forward to seeing you!';
+    const body = new URLSearchParams({ To: to, From: TWILIO_FROM, Body: text }).toString();
+    const req = https.request({
+      hostname: 'api.twilio.com',
+      path:     '/2010-04-01/Accounts/' + TWILIO_SID + '/Messages.json',
+      method:   'POST',
+      auth:     TWILIO_SID + ':' + TWILIO_TOKEN,
+      headers: {
+        'Content-Type':   'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          console.log('✅ Booking SMS sent to ' + to + ' (appointment #' + appointment.id + ')');
+        } else {
+          console.error('❌ Twilio error ' + res.statusCode + ':', data);
+        }
+        resolve(); // best-effort — never fail the booking
+      });
+    });
+    req.on('error', (err) => { console.error('❌ Twilio request error:', err.message); resolve(); });
+    req.write(body);
+    req.end();
+  });
+}
+
 module.exports = {
   sendBrevoEmail,
   sendOwnerLoginLink,
@@ -596,4 +652,5 @@ module.exports = {
   parseBookingToken,
   sendVoucherGiftEmail,
   sendLoyaltyProgress,   // SPA-LOYALTY-001
+  sendBookingSms,        // SPA-SMS-001
 };
