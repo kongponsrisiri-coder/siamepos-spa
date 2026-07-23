@@ -114,7 +114,7 @@
 
   function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
   function fmtTime(iso) {
-    return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
   }
   function todayISO() { return new Date().toISOString().slice(0, 10); }
   function initialsOf(name) {
@@ -717,7 +717,7 @@
     var c = state.confirmation;
     var ap = c && c.appointment;
     var when = ap ? new Date(ap.starts_at).toLocaleString('en-GB', {
-      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit',
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
     }) : '';
     return h('div', {}, [
       h('div', { style: 'text-align:center;padding:20px 0;' }, [

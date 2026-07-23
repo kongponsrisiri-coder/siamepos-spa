@@ -114,6 +114,8 @@ async function sendBrevoEmail({ to, subject, html, replyTo }) {
 
 function formatStarts(starts_at) {
   const d = new Date(starts_at);
+  // MUST pin to Europe/London — Railway runs in UTC, so without this a 12:00 BST
+  // booking (stored 11:00Z) rendered as 11:00 in the confirmation. (SPA-TZ-001)
   return d.toLocaleString('en-GB', {
     weekday: 'long',
     day: 'numeric',
@@ -121,6 +123,7 @@ function formatStarts(starts_at) {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: 'Europe/London',
   });
 }
 

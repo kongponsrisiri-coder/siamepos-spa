@@ -151,10 +151,10 @@
   }
   function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
   function fmtWhen(iso) {
-    return new Date(iso).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+    return new Date(iso).toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
   }
   function fmtTime(iso) {
-    return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+    return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
   }
 
   function loadStripeJs() {
@@ -214,7 +214,7 @@
         var hrs = Math.floor(msLeft / 3600000);
         var days = Math.floor(hrs / 24);
         var disp = days > 0 ? days + ' day' + (days === 1 ? '' : 's') + ', ' + (hrs % 24) + 'h' : hrs + ' hour' + (hrs === 1 ? '' : 's');
-        document.getElementById('deadline-line').textContent = 'Free changes until ' + dl.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) + ' (' + disp + ' left).';
+        document.getElementById('deadline-line').textContent = 'Free changes until ' + dl.toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) + ' (' + disp + ' left).';
       } else {
         document.getElementById('deadline-line').textContent = 'The free-change window has passed.';
       }

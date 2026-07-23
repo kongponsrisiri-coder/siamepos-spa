@@ -33,7 +33,7 @@ function buildReceiptHtml({ bill, client, settings }) {
   const goodsGross = +(total - tip).toFixed(2);            // VATable portion (excl. tip)
   const net        = isVat ? +(goodsGross / (1 + rate / 100)).toFixed(2) : goodsGross;
   const vat        = isVat ? +(goodsGross - net).toFixed(2) : 0;
-  const when       = bill.closed_at ? new Date(bill.closed_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' }) : '';
+  const when       = bill.closed_at ? new Date(bill.closed_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/London' }) : '';
   const method     = bill.payment_method === 'split' && Array.isArray(bill.split_payments)
     ? bill.split_payments.map((p) => `${esc(p.method)} ${gbp(p.amount)}`).join(', ')
     : esc(bill.payment_method || '—');
