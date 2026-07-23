@@ -19,6 +19,7 @@ const router = express.Router();
 const ORIGIN_WHITELIST = [
   'https://jinta-massage.netlify.app',
   'https://highbury-sandy.netlify.app',
+  'https://true-thai-sandy.netlify.app', // prospect pitch demo → shared demo till (spa-api)
   'http://localhost:8888',
 ];
 
