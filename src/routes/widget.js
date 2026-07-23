@@ -6,11 +6,36 @@ const Stripe = require('stripe');
 const { gateway, piFee } = require('../services/stripeGateway'); // SIAMPAY-002
 const { pool } = require('../db/dbAdapter');
 const { computeAvailability, getTherapistWorkingWindow, londonDateString } = require('../services/availability');
-const { sendBookingConfirmation, sendVoucherGiftEmail, sendOwnerNewBookingEmail, sendBookingSms } = require('../services/emailService');
+const { sendBookingConfirmation, sendVoucherGiftEmail, sendOwnerNewBookingEmail, sendBookingSms, parseBookingToken } = require('../services/emailService');
 const voucherWalletPass   = require('../services/voucherWalletPass');   // Apple Wallet .pkpass
 const voucherGoogleWallet = require('../services/voucherGoogleWallet'); // Google Wallet save link
+const bookingWalletPass   = require('../services/bookingWalletPass');   // Apple Wallet — appointments
+const bookingGoogleWallet = require('../services/bookingGoogleWallet'); // Google Wallet — appointments
 
 const router = express.Router();
+
+// Load an appointment by its HMAC booking token (the same token used in the
+// confirmation email's manage-link). Returns { appt, manageUrl } or null.
+// Shared by both booking wallet endpoints. Mirrors booking.js loadAppointment
+// but kept local so the public widget router stays self-contained.
+async function loadAppointmentByToken(token) {
+  const id = parseBookingToken(token);
+  if (!id) return null;
+  const { rows } = await pool.query(
+    `SELECT a.id, a.starts_at, a.ends_at, a.status,
+            t.name AS treatment_name, t.duration_minutes,
+            th.name AS therapist_name
+       FROM appointments a
+       LEFT JOIN treatments  t  ON t.id  = a.treatment_id
+       LEFT JOIN therapists  th ON th.id = a.therapist_id
+      WHERE a.id = $1`,
+    [id],
+  );
+  if (!rows[0]) return null;
+  const apiBase = (process.env.PUBLIC_API_URL || 'https://spa-api.siamepos.co.uk').replace(/\/$/, '');
+  const manageUrl = `${apiBase}/my-booking.html?token=${encodeURIComponent(token)}`;
+  return { appt: rows[0], manageUrl };
+}
 
 // Look up a voucher by code with its treatment name — shared by both wallet
 // endpoints. Returns null if not found.
@@ -711,6 +736,51 @@ router.get('/voucher/:code/google-wallet', async (req, res) => {
       return res.status(503).json({ error: 'Google Wallet not configured' });
     }
     console.error('[voucher] google-wallet', err);
+    res.status(500).json({ error: 'Could not build Google Wallet link' });
+  }
+});
+
+// ── Booking (appointment) wallet passes ────────────────────────────────
+// SPA-WALLET-BOOKING-001 — bearer token is the HMAC booking token from the
+// confirmation email (same trust model as the manage-link). Both return 503
+// until the relevant credentials are set on Railway.
+
+// GET /api/widget/booking/:token/wallet-pass  → Apple Wallet .pkpass
+router.get('/booking/:token/wallet-pass', async (req, res) => {
+  try {
+    if (!bookingWalletPass.isConfigured()) {
+      return res.status(503).json({ error: 'Apple Wallet not configured' });
+    }
+    const found = await loadAppointmentByToken(req.params.token);
+    if (!found) return res.status(404).json({ error: 'Booking not found' });
+    const buf = await bookingWalletPass.buildBookingPass(found.appt, { manageUrl: found.manageUrl });
+    res.set('Content-Type', 'application/vnd.apple.pkpass');
+    res.set('Content-Disposition', `attachment; filename="booking-${found.appt.id}.pkpass"`);
+    res.send(buf);
+  } catch (err) {
+    if (err.code === 'PASS_NOT_CONFIGURED') {
+      return res.status(503).json({ error: 'Apple Wallet not configured' });
+    }
+    console.error('[booking] wallet-pass', err);
+    res.status(500).json({ error: 'Could not build wallet pass' });
+  }
+});
+
+// GET /api/widget/booking/:token/google-wallet  → redirect to Save URL
+router.get('/booking/:token/google-wallet', async (req, res) => {
+  try {
+    if (!bookingGoogleWallet.isConfigured()) {
+      return res.status(503).json({ error: 'Google Wallet not configured' });
+    }
+    const found = await loadAppointmentByToken(req.params.token);
+    if (!found) return res.status(404).json({ error: 'Booking not found' });
+    const url = bookingGoogleWallet.buildSaveUrl(found.appt, { manageUrl: found.manageUrl });
+    res.redirect(302, url);
+  } catch (err) {
+    if (err.code === 'GWALLET_NOT_CONFIGURED') {
+      return res.status(503).json({ error: 'Google Wallet not configured' });
+    }
+    console.error('[booking] google-wallet', err);
     res.status(500).json({ error: 'Could not build Google Wallet link' });
   }
 });

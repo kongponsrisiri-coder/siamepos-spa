@@ -5,6 +5,8 @@ const crypto = require('crypto');
 const { pool } = require('../db/dbAdapter');
 const voucherWalletPass   = require('./voucherWalletPass');   // Apple Wallet (isConfigured)
 const voucherGoogleWallet = require('./voucherGoogleWallet'); // Google Wallet (isConfigured)
+const bookingWalletPass   = require('./bookingWalletPass');   // Apple Wallet — appointments (isConfigured)
+const bookingGoogleWallet = require('./bookingGoogleWallet'); // Google Wallet — appointments (isConfigured)
 const { getBrandTheme }   = require('./brandTheme');          // SPA-BRAND-VOUCHER-001 — per-spa colours
 
 const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
@@ -141,6 +143,25 @@ async function sendBookingConfirmation({ client, appointment, treatment, cancell
        <tr><td style="padding:6px 12px;"><strong>Balance on arrival</strong></td><td>£${balance.toFixed(2)}</td></tr>`
     : '';
   const th = await getBrandTheme(); // spa's own brand colours (matches vouchers/campaigns + the till)
+
+  // SPA-WALLET-BOOKING-001 — "Add to Wallet" buttons for the appointment.
+  // Only rendered for platforms whose credentials are set on Railway, so the
+  // email never links to a 503 endpoint. Bearer = the HMAC booking token.
+  const walletAppleOn  = bookingWalletPass.isConfigured();
+  const walletGoogleOn = bookingGoogleWallet.isConfigured();
+  const bTokenEnc = encodeURIComponent(bookingToken(appointment.id));
+  const walletBlock = (walletAppleOn || walletGoogleOn)
+    ? `<div style="text-align:center;margin:2px 0 18px;">
+         <div style="font-size:12px;color:#6b6b6b;margin-bottom:10px;">Save this appointment to your phone</div>
+         ${walletAppleOn ? `<a href="${apiBase}/api/widget/booking/${bTokenEnc}/wallet-pass"
+            style="display:inline-block;margin:4px 6px;padding:11px 20px;background:#000;color:#fff;text-decoration:none;border-radius:9px;font-weight:600;font-size:14px;">
+            &#63743;&nbsp; Add to Apple Wallet</a>` : ''}
+         ${walletGoogleOn ? `<a href="${apiBase}/api/widget/booking/${bTokenEnc}/google-wallet"
+            style="display:inline-block;margin:4px 6px;padding:11px 20px;background:${th.primaryHex};color:${th.textOnPrimaryHex};text-decoration:none;border-radius:9px;font-weight:600;font-size:14px;">
+            &#128179;&nbsp; Add to Google Wallet</a>` : ''}
+         <div style="font-size:11px;color:#9a9a9a;margin-top:9px;">Open this email on your phone to add it to your wallet</div>
+       </div>`
+    : '';
   const html = `
     <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width:560px; margin:0 auto; color:#1c1c1c;">
       <div style="background:${th.primaryHex}; color:${th.accentHex}; padding:24px 28px; border-radius:12px 12px 0 0; font-family:Georgia,serif; font-size:22px; font-weight:700;">
@@ -161,6 +182,7 @@ async function sendBookingConfirmation({ client, appointment, treatment, cancell
         <p style="margin:0 0 20px;">
           <a href="${manageUrl}" style="display:inline-block;background:${th.accentHex};color:${th.primaryHex};padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:700;">Manage your booking</a>
         </p>
+        ${walletBlock}
         ${cancellationPolicy ? `<p style="font-size:13px; color:#666; margin:0 0 12px;">${String(cancellationPolicy).replace(/[<>]/g,'')}</p>` : ''}
         <p style="margin:0; color:${th.primaryHex};">We look forward to seeing you.<br><strong>${spaName}</strong></p>
       </div>
