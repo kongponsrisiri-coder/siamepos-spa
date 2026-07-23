@@ -60,6 +60,11 @@
       cursor:pointer; transition:border-color .1s; display:flex; gap:10px; align-items:center; }
     .ses-card:hover { border-color:#7a4f1e; }
     .ses-card.selected { border-color:#7a4f1e; background:#fdf6ec; }
+    .ses-durs { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+    .ses-dur { padding:7px 13px; border:1px solid #e5e7eb; background:#fff; border-radius:999px;
+      font-size:13px; font-weight:600; cursor:pointer; color:#333; white-space:nowrap; transition:all .1s; }
+    .ses-dur:hover { border-color:#7a4f1e; }
+    .ses-dur.on { background:#7a4f1e; color:#fff; border-color:#7a4f1e; }
     .ses-avatar { width:40px; height:40px; border-radius:50%; background:#fdf6ec; color:#7a4f1e;
       display:flex; align-items:center; justify-content:center; font-weight:600; font-size:14px;
       flex-shrink:0; border:1px solid #f0e0c8; }
@@ -416,20 +421,26 @@
       });
       Object.keys(byCat).forEach(function (cat) {
         wrap.appendChild(h('div', { className: 'ses-muted', style: 'margin-top:8px;font-weight:600' }, [cat]));
-        byCat[cat].forEach(function (t) {
-          var selected = state.treatmentId === t.id;
-          var card = h('div', {
-            className: 'ses-card' + (selected ? ' selected' : ''),
-            onClick: function () { state.treatmentId = t.id; render(); },
-          }, [
-            h('div', { style: 'flex:1;display:flex;justify-content:space-between;align-items:center' }, [
-              h('div', {}, [
-                h('div', { style: 'font-weight:600' }, [t.name]),
-                h('div', { className: 'ses-muted' }, [t.duration_minutes + ' min']),
-                t.description ? h('div', { className: 'ses-muted', style: 'margin-top:4px' }, [t.description]) : null,
-              ]),
-              h('div', { style: 'font-weight:600' }, [fmtMoney(t.price)]),
-            ]),
+        // Group this category's rows by treatment NAME → ONE card per treatment,
+        // with each duration shown as a tap-pill (min · price). Fixes the
+        // "5 identical cards for one massage" scroll problem.
+        var byName = {};
+        byCat[cat].forEach(function (t) { (byName[t.name] = byName[t.name] || []).push(t); });
+        Object.keys(byName).forEach(function (name) {
+          var variants = byName[name].slice().sort(function (a, b) {
+            return (a.duration_minutes || 0) - (b.duration_minutes || 0);
+          });
+          var anyOn = variants.some(function (v) { return state.treatmentId === v.id; });
+          var card = h('div', { className: 'ses-card' + (anyOn ? ' selected' : ''), style: 'display:block' }, [
+            h('div', { style: 'font-weight:600' }, [name]),
+            variants[0].description ? h('div', { className: 'ses-muted', style: 'margin-top:2px' }, [variants[0].description]) : null,
+            h('div', { className: 'ses-durs' }, variants.map(function (v) {
+              var on = state.treatmentId === v.id;
+              return h('button', {
+                className: 'ses-dur' + (on ? ' on' : ''),
+                onClick: function () { state.treatmentId = v.id; render(); },
+              }, [v.duration_minutes + ' min · ' + fmtMoney(v.price)]);
+            })),
           ]);
           wrap.appendChild(card);
         });
