@@ -668,6 +668,41 @@ function sendBookingSms({ client, appointment, treatment }) {
   });
 }
 
+// SPA-CHAT-NOTIFY-001 — generic best-effort SMS to an arbitrary number (used to
+// alert the spa owner when a new website chat starts). Reuses the same Twilio
+// creds + UK E.164 normalisation as sendBookingSms. Resolves true/false, never
+// throws — the caller must never fail its request because an alert didn't send.
+function sendOwnerSms(phone, text) {
+  return new Promise((resolve) => {
+    if (!TWILIO_SID || !TWILIO_TOKEN) return resolve(false);
+    const to = toE164Uk(phone);
+    if (!to) return resolve(false);
+    const body = new URLSearchParams({ To: to, From: TWILIO_FROM, Body: String(text || '') }).toString();
+    const req = https.request({
+      hostname: 'api.twilio.com',
+      path:     '/2010-04-01/Accounts/' + TWILIO_SID + '/Messages.json',
+      method:   'POST',
+      auth:     TWILIO_SID + ':' + TWILIO_TOKEN,
+      headers: {
+        'Content-Type':   'application/x-www-form-urlencoded',
+        'Content-Length': Buffer.byteLength(body),
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (c) => { data += c; });
+      res.on('end', () => {
+        const ok = res.statusCode >= 200 && res.statusCode < 300;
+        if (ok) console.log('✅ Owner chat-alert SMS sent to ' + to);
+        else    console.error('❌ Twilio owner-alert error ' + res.statusCode + ':', data);
+        resolve(ok);
+      });
+    });
+    req.on('error', (err) => { console.error('❌ Twilio owner-alert request error:', err.message); resolve(false); });
+    req.write(body);
+    req.end();
+  });
+}
+
 module.exports = {
   sendBrevoEmail,
   sendOwnerLoginLink,
@@ -683,4 +718,5 @@ module.exports = {
   sendVoucherGiftEmail,
   sendLoyaltyProgress,   // SPA-LOYALTY-001
   sendBookingSms,        // SPA-SMS-001
+  sendOwnerSms,          // SPA-CHAT-NOTIFY-001
 };

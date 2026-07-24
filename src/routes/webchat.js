@@ -12,8 +12,28 @@
 const express = require('express');
 const { pool } = require('../db/dbAdapter');
 const orchestrator = require('../services/conciergeOrchestrator');
+const { sendOwnerSms } = require('../services/emailService'); // SPA-CHAT-NOTIFY-001
 
 const router = express.Router();
+
+// SPA-CHAT-NOTIFY-001 — one SMS to the spa owner when a NEW website chat
+// conversation starts, so they can jump in from Admin → AI Chats. The owner's
+// mobile lives in settings.owner_notify_phone (empty/unset = feature off).
+// Deduped by the caller (fires only on a brand-new session). Best-effort — an
+// alert failure must never affect the visitor's reply.
+async function notifyOwnerNewChat(firstMessage) {
+  try {
+    const { rows } = await pool.query("SELECT value FROM settings WHERE key = 'owner_notify_phone'");
+    const phone = (rows[0] && rows[0].value ? String(rows[0].value) : '').trim();
+    if (!phone) return;
+    const spaName = process.env.SPA_NAME || 'your spa';
+    const snippet = firstMessage.length > 120 ? firstMessage.slice(0, 117) + '…' : firstMessage;
+    const text = `💬 New website chat on ${spaName}: "${snippet}" — open Admin → AI Chats to read or take over.`;
+    await sendOwnerSms(phone, text);
+  } catch (e) {
+    console.error('[webchat] owner new-chat alert failed:', e.message);
+  }
+}
 
 // Origins allowed to embed the chat widget. Extend per client site.
 const ORIGIN_WHITELIST = [
@@ -59,7 +79,18 @@ router.post('/message', async (req, res) => {
     if (!text) return res.status(400).json({ error: 'empty message' });
 
     const key = 'web:' + session_id;
+    // SPA-CHAT-NOTIFY-001 — brand-new conversation? Check BEFORE the orchestrator
+    // runs (it creates the row), so we alert the owner exactly once per chat.
+    let isNewConversation = false;
+    try {
+      const ex = await pool.query('SELECT 1 FROM concierge_conversations WHERE phone = $1', [key]);
+      isNewConversation = ex.rowCount === 0;
+    } catch (e) { /* best-effort — skip the alert if the check fails */ }
+
     const out = await orchestrator.handleInboundMessage({ from: key, body: text });
+
+    // Fire-and-forget owner SMS on the first message of a new chat (deduped).
+    if (isNewConversation) notifyOwnerNewChat(text).catch(() => {});
 
     if (out.skipped && out.reason === 'handoff') {
       // A human owns this thread — still record what the visitor said so staff
