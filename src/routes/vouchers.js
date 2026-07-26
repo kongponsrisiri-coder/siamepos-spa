@@ -44,7 +44,9 @@ router.get('/', async (req, res) => {
     const params = [];
     if (q) {
       params.push(`%${q}%`);
-      where += ` AND (v.code ILIKE $${params.length} OR v.purchased_by ILIKE $${params.length} OR v.purchased_for ILIKE $${params.length})`;
+      // SPA-VOUCHER-CONTACT — recipient_email included so staff can find an
+      // online buyer by the email the system already holds ("Terry" case).
+      where += ` AND (v.code ILIKE $${params.length} OR v.purchased_by ILIKE $${params.length} OR v.purchased_for ILIKE $${params.length} OR v.recipient_email ILIKE $${params.length})`;
     }
     if (status) { params.push(status); where += ` AND v.status = $${params.length}`; }
     const { rows } = await pool.query(

@@ -650,6 +650,54 @@ router.post('/vouchers', async (req, res) => {
     );
     const voucher = rows[0];
 
+    // SPA-VOUCHER-CONTACT — make the online buyer findable in the till.
+    // Before this, an online voucher/session sale created NO client record,
+    // so staff searching Clients for the buyer found nothing (Highbury's
+    // "Terry" case: needed to contact a session buyer, no contact anywhere
+    // in Client Search even though we held his email). Find-or-create by
+    // email (exact, case-insensitive) → else exact name → else create, then
+    // link vouchers.client_id so the voucher card shows the linked client.
+    // The record is deliberately minimal (name + email; no GDPR/marketing
+    // flags claimed) — it's an operational contact record, same as a phone
+    // booking. Failure here must never break the paid purchase → try/catch.
+    try {
+      const buyerEmail = String(recipient_email || '').trim().toLowerCase();
+      // For a gift the person who'll come IN is the recipient; for a
+      // self-purchase widgets send purchased_for = purchaser (or blank).
+      const buyerName = String(purchased_for || purchased_by || '').trim();
+      let clientId = null;
+      if (buyerEmail) {
+        const byEmail = await pool.query(
+          'SELECT id FROM clients WHERE lower(email) = $1 ORDER BY id LIMIT 1', [buyerEmail]);
+        clientId = byEmail.rows[0]?.id || null;
+      }
+      if (!clientId && buyerName) {
+        const byName = await pool.query(
+          'SELECT id FROM clients WHERE lower(name) = lower($1) ORDER BY id LIMIT 1', [buyerName]);
+        clientId = byName.rows[0]?.id || null;
+        // Existing client matched by name but missing an email → backfill it,
+        // so the contact detail from this sale isn't lost.
+        if (clientId && buyerEmail) {
+          await pool.query(
+            "UPDATE clients SET email = $1 WHERE id = $2 AND (email IS NULL OR email = '')",
+            [buyerEmail, clientId]);
+        }
+      }
+      if (!clientId && buyerName) {
+        const ins = await pool.query(
+          `INSERT INTO clients (name, email, notes)
+           VALUES ($1, $2, 'Auto-created from online voucher purchase') RETURNING id`,
+          [buyerName, buyerEmail || null]);
+        clientId = ins.rows[0].id;
+      }
+      if (clientId) {
+        await pool.query('UPDATE vouchers SET client_id = $1 WHERE id = $2', [clientId, voucher.id]);
+        voucher.client_id = clientId;
+      }
+    } catch (e) {
+      console.error('[widget/vouchers] client link failed (purchase unaffected)', e);
+    }
+
     // Fire-and-forget gift email
     if (voucher.recipient_email) {
       const tName = treatment_id

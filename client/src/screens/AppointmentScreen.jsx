@@ -136,7 +136,7 @@ function toLocalMins(iso) { const d = new Date(iso); return d.getHours() * 60 + 
 // ── Mobile action sheet ───────────────────────────────────────────────────────
 // Slides up from bottom when owner taps an appointment on their phone.
 // Shows full details + tap-to-call + action buttons.
-function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout }) {
+function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwapRequest }) {
   const s = apptStyle(appt);
   return (
     <>
@@ -241,6 +241,16 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout }) {
             style={{ flex: 1, minWidth: 80, minHeight: 52, borderRadius: 12, border: '1px solid var(--border)', background: 'white', fontWeight: 600, fontSize: 14, color: '#374151' }}>
             ✏️ Edit
           </button>
+
+          {/* SPA-TOUCH-001 — swap therapist between two bookings. On touch this
+              picker is the ONLY swap path (HTML5 drag never fires on touch). */}
+          {onSwapRequest && !['completed', 'cancelled', 'no_show'].includes(appt.status) && (
+            <button
+              onClick={() => { onSwapRequest(appt); onClose(); }}
+              style={{ flex: 1, minWidth: 80, minHeight: 52, borderRadius: 12, border: '1px solid var(--border)', background: 'white', fontWeight: 600, fontSize: 14, color: '#374151' }}>
+              ⇄ Swap
+            </button>
+          )}
 
           {appt.status === 'booked' && (
             <>
@@ -811,6 +821,11 @@ export default function AppointmentScreen() {
   const [columnOrder, setColumnOrder]     = useState(null);
   const [turnOrder,    setTurnOrder]      = useState([]);   // SPA-TURN-ORDER — backend-saved order
   const [showTurnModal, setShowTurnModal] = useState(false);
+  // SPA-TOUCH-001 — tap-to-swap. HTML5 drag (the only swap gesture) doesn't
+  // fire on touch screens, so touch devices get a picker instead: tap a
+  // booking → "⇄ Swap" → tap the other booking. Also available on desktop
+  // (some prefer it to drag). Holds the appointment being swapped, or null.
+  const [swapFor, setSwapFor] = useState(null);
   const [, setColorsVer] = useState(0); // bumped after custom timetable colours load
 
   // SPA-COLOR-CODES — load the spa's custom timetable colours once, then
@@ -1008,6 +1023,18 @@ export default function AppointmentScreen() {
               style={{ flex: 1, minHeight: 44, fontSize: 13 }}>
               ☰ List
             </button>
+            {/* SPA-TOUCH-001 — turn order was desktop-toolbar-only, so phones
+                had NO way to open it (and column drag is disabled on mobile).
+                Compact icon button keeps the row fitting a 390px screen. */}
+            {view === 'timeline' && (
+              <button
+                onClick={() => setShowTurnModal(true)}
+                title="Set today's turn order"
+                aria-label="Set today's turn order"
+                style={{ minWidth: 48, minHeight: 44, fontSize: 17, padding: 0, flexShrink: 0 }}>
+                🔢
+              </button>
+            )}
             <button
               className="gold"
               onClick={() => setModal({})}
@@ -1169,6 +1196,14 @@ export default function AppointmentScreen() {
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 7, padding: '7px 14px', cursor: 'pointer' }}
                     onClick={() => setModal({ appointment: selected })}>✏️ Edit</button>
+                  {/* SPA-TOUCH-001 — tap-to-swap. iPads (≥768px) get this desktop
+                      bar but HTML5 drag doesn't fire on touch, so the drag-to-swap
+                      gesture is dead there; this button is the touch-safe path
+                      (and a nice explicit alternative for mouse users too). */}
+                  {!['completed', 'cancelled', 'no_show'].includes(selected.status) && (
+                    <button style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 7, padding: '7px 14px', cursor: 'pointer' }}
+                      onClick={() => setSwapFor(selected)}>⇄ Swap</button>
+                  )}
                   {selected.status === 'booked' && (
                     <>
                       <button style={{ background: '#22c55e', color: 'white', border: 'none', borderRadius: 7, padding: '7px 16px', fontWeight: 600, cursor: 'pointer' }}
@@ -1264,6 +1299,7 @@ export default function AppointmentScreen() {
           onEdit={appt => setModal({ appointment: appt })}
           onStatus={setStatus}
           onCheckout={startCheckout}
+          onSwapRequest={appt => setSwapFor(appt)}
         />
       )}
 
@@ -1289,6 +1325,27 @@ export default function AppointmentScreen() {
           onSaved={() => { setShowTurnModal(false); refreshRota(month); }}
         />
       )}
+
+      {/* SPA-TOUCH-001 — tap-to-swap picker (touch-safe replacement for the
+          drag-to-swap gesture, which HTML5 never fires on touch screens) ── */}
+      {swapFor && (
+        <SwapPickerModal
+          appt={swapFor}
+          candidates={appointments.filter(a =>
+            a.id !== swapFor.id && !['completed', 'cancelled', 'no_show'].includes(a.status))}
+          onClose={() => setSwapFor(null)}
+          onPick={async (target) => {
+            try {
+              await api.post('/appointments/swap', { id_a: swapFor.id, id_b: target.id });
+              setSwapFor(null);
+              setSelected(null);
+              load();
+            } catch (e) {
+              alert(e.message || 'Swap failed');
+            }
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1297,6 +1354,67 @@ export default function AppointmentScreen() {
 // the day's working order. Saves to the server so all tablets see it
 // (unlike the per-tablet drag-on-column-header behaviour, which stays
 // as a one-off override).
+// SPA-TOUCH-001 — tap-to-swap picker. The only swap gesture used to be HTML5
+// drag-and-drop, which never fires on touch screens (dead on Android, long-
+// press-flaky on iPad) — so tablets/phones simply could not swap therapists.
+// This modal lists today's other active bookings; tapping one fires the same
+// /appointments/swap endpoint the desktop drag uses. Rows are ≥56px targets.
+function SwapPickerModal({ appt, candidates, onClose, onPick }) {
+  const [busy, setBusy] = useState(false);
+  const sorted = candidates.slice().sort((a, b) => new Date(a.starts_at) - new Date(b.starts_at));
+  return (
+    <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <h3 style={{ margin: 0 }}>⇄ Swap therapist</h3>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)', minWidth: 44, minHeight: 44 }}>✕</button>
+        </div>
+        <p className="muted" style={{ fontSize: 13, margin: '0 0 12px' }}>
+          Swapping <strong>{appt.client_name || 'Walk-in'}</strong> ({fmtTime(appt.starts_at)}
+          {appt.therapist_name ? ` · ${appt.therapist_name}` : ''}).
+          Tap the booking to swap with — both keep their time slot, the therapists change over.
+        </p>
+        <div className="col" style={{ gap: 6, maxHeight: '55vh', overflowY: 'auto' }}>
+          {sorted.length === 0 && (
+            <div className="muted" style={{ padding: '14px 4px' }}>
+              No other active bookings today to swap with.
+            </div>
+          )}
+          {sorted.map(a => (
+            <button
+              key={a.id}
+              disabled={busy}
+              onClick={async () => {
+                if (busy) return;
+                setBusy(true);
+                try { await onPick(a); } finally { setBusy(false); }
+              }}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+                minHeight: 56, padding: '10px 12px', textAlign: 'left',
+                background: 'white', border: '1px solid var(--border)',
+                borderRadius: 10, cursor: 'pointer', opacity: busy ? 0.6 : 1,
+              }}>
+              <span style={{ fontWeight: 700, color: 'var(--navy)', minWidth: 52 }}>{fmtTime(a.starts_at)}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {a.client_name || 'Walk-in'}
+                </span>
+                <span className="muted" style={{ display: 'block', fontSize: 12, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {a.treatment_name || '—'}
+                </span>
+              </span>
+              {a.therapist_name && (
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--gold)', whiteSpace: 'nowrap' }}>👤 {a.therapist_name}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TurnOrderModal({ date, therapists, currentOrder, onClose, onSaved }) {
   const initial = currentOrder && currentOrder.length > 0
     ? [
@@ -1387,8 +1505,11 @@ function TurnOrderModal({ date, therapists, currentOrder, onClose, onSaved }) {
                 <span style={{ color: 'var(--gold)', fontWeight: 800, fontSize: 16, minWidth: 24, textAlign: 'right' }}>{i + 1}.</span>
                 <span style={{ color: 'var(--muted)', fontSize: 14 }}>⠿</span>
                 <span style={{ flex: 1, fontWeight: 600 }}>{t.name}</span>
-                <button onClick={() => moveUp(i)}   disabled={i === 0}                   style={{ padding: '3px 9px', fontSize: 12 }}>↑</button>
-                <button onClick={() => moveDown(i)} disabled={i === order.length - 1}    style={{ padding: '3px 9px', fontSize: 12 }}>↓</button>
+                {/* SPA-TOUCH-001 — HTML5 drag doesn't fire on touch screens, so on
+                    tablets/phones these arrows ARE the reorder control. 44px min
+                    hit area per Apple/Google touch guidelines (was ~24px). */}
+                <button onClick={() => moveUp(i)}   disabled={i === 0}                   aria-label={`Move ${t.name} up`}   style={{ minWidth: 44, minHeight: 44, padding: 0, fontSize: 17 }}>↑</button>
+                <button onClick={() => moveDown(i)} disabled={i === order.length - 1}    aria-label={`Move ${t.name} down`} style={{ minWidth: 44, minHeight: 44, padding: 0, fontSize: 17 }}>↓</button>
               </div>
             );
           })}

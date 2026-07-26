@@ -505,6 +505,15 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
           <div className="card col" style={{ padding: 12, gap: 6 }}>
             {v.purchased_by && <div style={{ fontSize: 13 }}><span className="muted">Bought by </span><strong>{v.purchased_by}</strong></div>}
             {v.purchased_for && <div style={{ fontSize: 13 }}><span className="muted">Gift for </span><strong>{v.purchased_for}</strong></div>}
+            {/* SPA-VOUCHER-CONTACT — the buyer's email was stored (we even
+                email the voucher to it) but never displayed anywhere, so staff
+                couldn't contact an online buyer ("Terry" case, Highbury). */}
+            {v.recipient_email && (
+              <div style={{ fontSize: 13 }}>
+                <span className="muted">Email </span>
+                <a href={`mailto:${v.recipient_email}`} style={{ color: 'var(--navy)', fontWeight: 600 }}>{v.recipient_email}</a>
+              </div>
+            )}
             {v.sold_by_name && <div style={{ fontSize: 13 }}><span className="muted">Sold by </span>{v.sold_by_name}</div>}
             <div style={{ fontSize: 13 }}><span className="muted">Sold </span>{fmtDate(v.purchased_at)}</div>
             {v.expires_at && <div style={{ fontSize: 13, color: new Date(v.expires_at) < new Date() ? 'var(--danger)' : 'inherit' }}><span className="muted">Expires </span>{fmtDate(v.expires_at)}</div>}
