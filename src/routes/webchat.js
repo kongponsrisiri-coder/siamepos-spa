@@ -39,6 +39,8 @@ async function notifyOwnerNewChat(firstMessage) {
 const ORIGIN_WHITELIST = [
   'https://jinta-massage.netlify.app',
   'https://highbury-sandy.netlify.app',
+  'https://highburythaimassage.com',      // Highbury go-live domain (their own)
+  'https://www.highburythaimassage.com',  // www variant
   'https://true-thai-sandy.netlify.app', // prospect pitch demo → shared demo till (spa-api)
   'http://localhost:8888',
 ];
