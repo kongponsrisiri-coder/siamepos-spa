@@ -35,7 +35,13 @@ function gateway() {
     return {
       mode: 'own',
       s: new Stripe(own, { apiVersion: '2024-06-20' }),
-      opts: {},
+      // MUST be undefined, NOT {} — stripe-node v16 rejects an empty object as
+      // the request-options arg ("Unknown arguments ([object Object])"), because
+      // isOptionsHash({}) is false. undefined is correctly treated as "no
+      // options", so create(params, opts) / retrieve(id, {}, opts) both work.
+      // (Only surfaced with Highbury — the first own-keys spa taking a deposit;
+      // Jinta's deposit policy is 'none' so it never calls paymentIntents.create.)
+      opts: undefined,
       siampay: null,
       pk: process.env.STRIPE_PUBLISHABLE_KEY || null,
       account: null,
