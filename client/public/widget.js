@@ -338,7 +338,14 @@
 
   function confirmPayment() {
     if (!state.stripeInstance || !state.stripeElements) return;
-    state.busy = true; state.error = ''; render();
+    state.busy = true; state.error = '';
+    // DO NOT render() here. render() does modal.innerHTML='' which UNMOUNTS the
+    // Stripe PaymentElement — confirmPayment then fails with "could not retrieve
+    // data from the specified Element" (the card iframe is gone). Update the pay
+    // button in place instead; only re-render AFTER confirm (error/success),
+    // when the Element is no longer needed.
+    var payBtn = modal && modal.querySelector('.ses-btn.primary');
+    if (payBtn) { payBtn.disabled = true; payBtn.textContent = 'Processing…'; }
     state.stripeInstance.confirmPayment({
       elements: state.stripeElements,
       // return_url is REQUIRED for redirect-based authentication (UK live
