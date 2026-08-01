@@ -341,6 +341,12 @@
     state.busy = true; state.error = ''; render();
     state.stripeInstance.confirmPayment({
       elements: state.stripeElements,
+      // return_url is REQUIRED for redirect-based authentication (UK live
+      // cards almost always trigger 3-D Secure). Without it, confirmPayment
+      // can never complete and the widget hangs on "processing card" forever.
+      // 'if_required' keeps card + inline-3DS on-page; a full redirect returns
+      // here, where Stripe.js re-reads the intent status from the URL.
+      confirmParams: { return_url: window.location.href },
       redirect: 'if_required',
     }).then(function (result) {
       if (result.error) {
@@ -351,6 +357,11 @@
       }
       var intentId = (result.paymentIntent && result.paymentIntent.id) || state.paymentIntentId;
       submitBooking(intentId);
+    }).catch(function (err) {
+      // Never leave the customer stuck on "processing" — surface any rejection.
+      state.error = (err && err.message) || 'Payment could not be completed — please try again.';
+      state.busy = false;
+      render();
     });
   }
 
