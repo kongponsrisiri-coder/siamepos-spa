@@ -58,6 +58,9 @@ export default function ClientsSection() {
   const [search, setSearch]             = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [sourceFilter, setSourceFilter] = useState('All');
+  // SPA-CLIENT-MERGE — the duplicate row picked first (null = not merging)
+  const [mergeFrom, setMergeFrom] = useState(null);
+  const [merging,   setMerging]   = useState(false);
   const navigate = useNavigate();
 
   async function load() {
@@ -113,6 +116,28 @@ export default function ClientsSection() {
       // Optimistic local update, then reload to keep sort + stats in sync.
       setClients((list) => list.map((c) => c.id === client.id ? { ...c, marketing_consent: next } : c));
     } catch (e) { alert(e.message); }
+  }
+
+  // SPA-CLIENT-MERGE — two-tap merge for duplicate records (receptionist
+  // typos create twins). Tap 🔗 Merge on the WRONG/duplicate row, then
+  // "Keep this one" on the correct client: everything (appointments,
+  // vouchers, history) moves onto the kept client and the duplicate is
+  // removed.
+  async function doMerge(keep) {
+    if (!mergeFrom || merging) return;
+    const ok = window.confirm(
+      `Merge "${mergeFrom.name}" into "${keep.name}"?\n\n` +
+      `All appointments, vouchers and history from "${mergeFrom.name}" move to "${keep.name}", ` +
+      `and "${mergeFrom.name}" is removed. This cannot be undone.`
+    );
+    if (!ok) return;
+    setMerging(true);
+    try {
+      await api.post(`/clients/${keep.id}/merge`, { duplicate_id: mergeFrom.id });
+      setMergeFrom(null);
+      await load();
+    } catch (e) { alert(e.message || 'Merge failed'); }
+    finally { setMerging(false); }
   }
 
   function exportCsv() {
@@ -213,6 +238,15 @@ export default function ClientsSection() {
           </div>
         ) : (
           <div style={{ overflowX: 'auto' }}>
+            {/* SPA-CLIENT-MERGE — merge-mode banner */}
+            {mergeFrom && (
+              <div style={{ background: '#fff8e6', border: '1px solid #f0c36d', borderRadius: 8, padding: '10px 14px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: '#8a6100' }}>
+                  🔗 Merging duplicate “{mergeFrom.name}” — now tap “✓ Keep this one” on the CORRECT client. Their history moves there.
+                </span>
+                <button onClick={() => setMergeFrom(null)} style={{ fontSize: 12 }}>Cancel</button>
+              </div>
+            )}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
@@ -299,8 +333,24 @@ export default function ClientsSection() {
                           >+ Opt in</button>
                         )}
                       </td>
-                      <td style={{ padding: '10px 6px', textAlign: 'right' }}>
-                        <button onClick={() => navigate(`/clients/${c.id}`)} style={{ fontSize: 12 }}>Open →</button>
+                      <td style={{ padding: '10px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {/* SPA-CLIENT-MERGE — merge actions */}
+                        {mergeFrom ? (
+                          mergeFrom.id === c.id ? (
+                            <span style={{ fontSize: 11, fontWeight: 700, color: '#8a6100' }}>duplicate ⤴</span>
+                          ) : (
+                            <button onClick={() => doMerge(c)} disabled={merging}
+                              style={{ fontSize: 12, background: '#16a34a', color: 'white', border: 'none', borderRadius: 6, padding: '4px 10px', fontWeight: 700, cursor: 'pointer' }}>
+                              {merging ? '…' : '✓ Keep this one'}
+                            </button>
+                          )
+                        ) : (
+                          <>
+                            <button onClick={() => setMergeFrom(c)} title="This row is a duplicate — merge it into the correct client"
+                              style={{ fontSize: 12, marginRight: 6 }}>🔗 Merge</button>
+                            <button onClick={() => navigate(`/clients/${c.id}`)} style={{ fontSize: 12 }}>Open →</button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   );

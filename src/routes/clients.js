@@ -261,6 +261,81 @@ router.put('/:id/medical', async (req, res) => {
 
 // DELETE /api/clients/:id  — GDPR erasure (permanent). Admin only.
 // Logs to console for audit; in production we'd write to an audit table.
+// POST /api/clients/:id/merge  { duplicate_id }
+// SPA-CLIENT-MERGE (Highbury request) — receptionist typos create duplicate
+// client records, splitting one person's history/spend across rows. Merge
+// moves EVERYTHING from the duplicate onto the kept client, fills the kept
+// record's blank contact fields from the duplicate, then deletes the duplicate
+// with a sync tombstone (same pattern as GDPR delete) so tills drop it too.
+// Reception-level on purpose: they're the ones who spot dupes day-to-day, and
+// merge preserves history (unlike delete, which stays admin-only).
+router.post('/:id/merge', requireRole('admin', 'manager', 'reception'), async (req, res) => {
+  const keepId = Number(req.params.id);
+  const dupId  = Number(req.body?.duplicate_id);
+  if (!keepId || !dupId) return res.status(400).json({ error: 'duplicate_id required' });
+  if (keepId === dupId)  return res.status(400).json({ error: 'cannot merge a client into itself' });
+  // Cloud-only: on a local till the reassigns would need per-row cloud_id
+  // translation through the sync queue. Highbury runs the cloud admin; keep
+  // the till path honest rather than half-synced.
+  if (offlineQueue.isLocal) {
+    return res.status(501).json({ error: 'Merging clients is done in the cloud admin (your online dashboard), not on the till.' });
+  }
+  const client = await pool.connect();
+  try {
+    const both = await client.query('SELECT * FROM clients WHERE id = ANY($1)', [[keepId, dupId]]);
+    const keep = both.rows.find((r) => r.id === keepId);
+    const dup  = both.rows.find((r) => r.id === dupId);
+    if (!keep || !dup) { client.release(); return res.status(404).json({ error: 'client not found' }); }
+
+    await client.query('BEGIN');
+    // Fill the kept record's blanks from the duplicate (never overwrite what
+    // the kept record already has). Consent: the person consented under either
+    // identity → OR the flags; but an unsubscribe on either record sticks.
+    await client.query(
+      `UPDATE clients SET
+         phone         = COALESCE(NULLIF(phone, ''), $2),
+         email         = COALESCE(NULLIF(email, ''), $3),
+         date_of_birth = COALESCE(date_of_birth, $4),
+         gdpr_consent      = (gdpr_consent OR $5),
+         marketing_consent = (marketing_consent OR $6),
+         unsubscribed_at   = COALESCE(unsubscribed_at, $7)
+       WHERE id = $1`,
+      [keepId, dup.phone || null, dup.email || null, dup.date_of_birth || null,
+       !!dup.gdpr_consent, !!dup.marketing_consent, dup.unsubscribed_at || null],
+    );
+    // Reassign every record that points at the duplicate.
+    const moved = {};
+    for (const [table, col] of [
+      ['appointments', 'client_id'], ['vouchers', 'client_id'],
+      ['loyalty_events', 'client_id'], ['wallet_passes', 'client_id'],
+    ]) {
+      const r = await client.query(`UPDATE ${table} SET ${col} = $1 WHERE ${col} = $2`, [keepId, dupId]);
+      moved[table] = r.rowCount || 0;
+    }
+    // client_medical is UNIQUE per client: move the duplicate's form over only
+    // if the kept client has none; otherwise the kept client's form wins.
+    const keptMed = await client.query('SELECT id FROM client_medical WHERE client_id = $1', [keepId]);
+    if (keptMed.rows.length) {
+      await client.query('DELETE FROM client_medical WHERE client_id = $1', [dupId]);
+    } else {
+      const r = await client.query('UPDATE client_medical SET client_id = $1 WHERE client_id = $2', [keepId, dupId]);
+      moved.client_medical = r.rowCount || 0;
+    }
+    // Delete the duplicate + tombstone so every till's next pull drops it.
+    await client.query('DELETE FROM clients WHERE id = $1', [dupId]);
+    await client.query('INSERT INTO deleted_records (entity, cloud_id) VALUES ($1, $2)', ['client', dupId]);
+    await client.query('COMMIT');
+    console.log(`[client-merge] #${dupId} ("${dup.name}") merged into #${keepId} ("${keep.name}") by staff id=${req.staff.id} — moved ${JSON.stringify(moved)}`);
+    res.json({ ok: true, kept_id: keepId, merged_id: dupId, moved });
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch { /* already rolled back */ }
+    console.error('[clients] merge', err);
+    res.status(500).json({ error: 'server error' });
+  } finally {
+    client.release();
+  }
+});
+
 router.delete('/:id', requireRole('admin'), async (req, res) => {
   const id = Number(req.params.id);
   try {

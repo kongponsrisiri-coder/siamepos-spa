@@ -465,6 +465,11 @@ export default function NewAppointmentModal({
   });
   const setNew = (k, v) => setNewClient((s) => ({ ...s, [k]: v }));
   const [showNewClient, setShowNewClient] = useState(false);
+  // SPA-CLIENT-MERGE — duplicate guard on the NEW-CLIENT form. Typo'd
+  // re-entries were creating duplicate client records; as the receptionist
+  // types a name or phone here we look for existing matches and offer one
+  // tap to USE the existing client instead of creating a twin.
+  const [dupMatches, setDupMatches] = useState([]);
 
   const [treatmentId, setTreatmentId] = useState(appointment?.treatment_id || null);
   // SPA-DURATION-FILTER — duration picker above the treatment select.
@@ -553,6 +558,21 @@ export default function NewAppointmentModal({
     }, 250);
     return () => clearTimeout(id);
   }, [clientQuery]);
+
+  // ── SPA-CLIENT-MERGE — duplicate guard while typing the NEW-CLIENT form ──
+  useEffect(() => {
+    if (!showNewClient) { setDupMatches([]); return; }
+    const name  = newClient.name.trim();
+    const phone = newClient.phone.trim();
+    const q = phone.length >= 5 ? phone : (name.length >= 2 ? name : '');
+    if (!q) { setDupMatches([]); return; }
+    const id = setTimeout(() => {
+      api.get(`/clients?q=${encodeURIComponent(q)}`)
+        .then(r => setDupMatches((r.clients || []).slice(0, 5)))
+        .catch(() => setDupMatches([]));
+    }, 300);
+    return () => clearTimeout(id);
+  }, [showNewClient, newClient.name, newClient.phone]);
 
   // ── Slot picker (create mode) ─────────────────────────────────────────────
   useEffect(() => {
@@ -789,6 +809,27 @@ export default function NewAppointmentModal({
                         <input type="email" value={newClient.email} onChange={e => setNew('email', e.target.value)} />
                       </div>
                     </div>
+                    {/* SPA-CLIENT-MERGE — possible existing clients while typing.
+                        One tap uses the existing record instead of creating a twin. */}
+                    {dupMatches.length > 0 && (
+                      <div style={{ background: '#fff8e6', border: '1px solid #f0c36d', borderRadius: 8, padding: '8px 10px' }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#8a6100', marginBottom: 6 }}>
+                          ⚠️ Already a client? Tap to use the existing record:
+                        </div>
+                        {dupMatches.map(c => (
+                          <div key={c.id}
+                            onClick={() => {
+                              setClientId(c.id); setClientName(c.name);
+                              setShowNewClient(false); setDupMatches([]);
+                              setNewClient(s => ({ ...s, name: '', phone: '', email: '' }));
+                            }}
+                            style={{ padding: '6px 8px', borderRadius: 6, cursor: 'pointer', fontSize: 13, display: 'flex', justifyContent: 'space-between', gap: 8, background: 'white', border: '1px solid #eee', marginBottom: 4 }}>
+                            <span style={{ fontWeight: 600 }}>{c.name}</span>
+                            <span style={{ color: 'var(--muted)' }}>{[c.phone, c.email].filter(Boolean).join(' · ')}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     <div>
                       <label style={{ fontSize: 12 }}>Date of birth</label>
                       <input type="date" value={newClient.date_of_birth} onChange={e => setNew('date_of_birth', e.target.value)} />
