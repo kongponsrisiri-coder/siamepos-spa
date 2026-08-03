@@ -81,16 +81,21 @@ export default function ReportsSection() {
   const [therapistData, setTherapistData] = useState(null);
   const [trading,       setTrading]       = useState(null);
   const [loading,       setLoading]       = useState(true);
+  // SPA-VS-REPORT — Voucher & Session sales tab (Highbury request)
+  const [tab,    setTab]    = useState('overview'); // 'overview' | 'sales'
+  const [vsData, setVsData] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [t, td] = await Promise.all([
+      const [t, td, vs] = await Promise.all([
         api.get(`/reports/therapist?from=${from}&to=${to}`),
         api.get(`/reports/trading?date=${to}`),
+        api.get(`/reports/voucher-session-sales?from=${from}&to=${to}`).catch(() => null),
       ]);
       setTherapistData(t);
       setTrading(td);
+      setVsData(vs);
     } finally { setLoading(false); }
   }, [from, to]);
   useEffect(() => { load(); }, [load]);
@@ -98,6 +103,31 @@ export default function ReportsSection() {
   function setRange(f, t2) { setFrom(f); setTo(t2); }
 
   function exportCsv() {
+    // SPA-VS-REPORT — on the sales tab, export THAT tab's data.
+    if (tab === 'sales') {
+      if (!vsData) return;
+      const rows = [];
+      const id = vsData.identity;
+      if (id?.spa_name) rows.push([id.spa_name]);
+      rows.push([`Voucher & Session sales ${from} → ${to}`]);
+      rows.push([]);
+      rows.push([`Gift vouchers sold: ${vsData.vouchers.count}`, `Total £${Number(vsData.vouchers.total).toFixed(2)}`]);
+      rows.push(['Date', 'Code', 'Value £', 'Bought by', 'For', 'Paid', 'Sold by', 'Status']);
+      vsData.vouchers.rows.forEach((v) => rows.push([
+        String(v.purchased_at).slice(0, 10), v.code, Number(v.initial_value).toFixed(2),
+        v.purchased_by || '', v.purchased_for || '', v.payment_method, v.sold_by_name || '', v.status,
+      ]));
+      rows.push([]);
+      rows.push([`Session packages sold: ${vsData.sessions.count}`, `Total £${Number(vsData.sessions.total).toFixed(2)}`]);
+      rows.push(['Date', 'Code', 'Treatment', 'Sessions', 'Price £', 'Bought by', 'Paid', 'Sold by', 'Status']);
+      vsData.sessions.rows.forEach((v) => rows.push([
+        String(v.purchased_at).slice(0, 10), v.code, v.treatment_name || 'Any treatment',
+        v.total_sessions ?? '', Number(v.initial_value).toFixed(2),
+        v.purchased_by || '', v.payment_method, v.sold_by_name || '', v.status,
+      ]));
+      downloadCsv(`${ukDate(from)}_to_${ukDate(to)}_voucher-session-sales.csv`, rows);
+      return;
+    }
     if (!therapistData) return;
     const rows = [];
     // Shop identity header for the CSV
@@ -195,8 +225,115 @@ export default function ReportsSection() {
         </div>
       </div>
 
+      {/* SPA-VS-REPORT — tab bar */}
+      <div className="row" style={{ gap: 8 }}>
+        {[['overview', '📊 Overview'], ['sales', '🎁 Voucher & Session sales']].map(([k, label]) => (
+          <button key={k} onClick={() => setTab(k)}
+            style={{
+              fontWeight: 700,
+              background: tab === k ? 'var(--navy, #0D1B3E)' : 'transparent',
+              color: tab === k ? 'white' : 'inherit',
+              border: tab === k ? 'none' : '1px solid var(--border)',
+            }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       {loading && <div className="muted">Loading…</div>}
 
+      {/* SPA-VS-REPORT — Voucher & Session sales tab (what was SOLD in the range) */}
+      {tab === 'sales' && (
+        <>
+          <div className="card col">
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0 }}>🎁 Gift vouchers sold — {vsData?.vouchers?.count ?? 0} · £{Number(vsData?.vouchers?.total ?? 0).toFixed(2)}</h3>
+              <span className="muted" style={{ fontSize: 12 }}>{from === to ? from : `${from} → ${to}`}</span>
+            </div>
+            {!vsData?.vouchers?.rows?.length ? (
+              <div className="muted">No gift vouchers sold in this range.</div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      <th style={{ padding: '8px 6px' }}>Date</th>
+                      <th style={{ padding: '8px 6px' }}>Code</th>
+                      <th style={{ padding: '8px 6px', textAlign: 'right' }}>Value</th>
+                      <th style={{ padding: '8px 6px' }}>Bought by</th>
+                      <th style={{ padding: '8px 6px' }}>For</th>
+                      <th style={{ padding: '8px 6px' }}>Paid</th>
+                      <th style={{ padding: '8px 6px' }}>Sold by</th>
+                      <th style={{ padding: '8px 6px' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vsData.vouchers.rows.map((v) => (
+                      <tr key={v.id} style={{ borderTop: '1px solid var(--border)' }}>
+                        <td style={{ padding: '10px 6px' }}>{String(v.purchased_at).slice(0, 10).split('-').reverse().join('/')}</td>
+                        <td style={{ padding: '10px 6px', fontFamily: 'monospace', fontWeight: 600 }}>{v.code}</td>
+                        <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>{fmtMoney(v.initial_value)}</td>
+                        <td style={{ padding: '10px 6px' }}>{v.purchased_by || <span className="muted">—</span>}</td>
+                        <td style={{ padding: '10px 6px' }}>{v.purchased_for || <span className="muted">—</span>}</td>
+                        <td style={{ padding: '10px 6px', textTransform: 'capitalize' }}>{v.payment_method}</td>
+                        <td style={{ padding: '10px 6px' }}>{v.sold_by_name || <span className="muted">—</span>}</td>
+                        <td style={{ padding: '10px 6px', textTransform: 'capitalize' }}>{v.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="card col">
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0 }}>📦 Session packages sold — {vsData?.sessions?.count ?? 0} · £{Number(vsData?.sessions?.total ?? 0).toFixed(2)}</h3>
+              <span className="muted" style={{ fontSize: 12 }}>Prepaid course/session bundles</span>
+            </div>
+            {!vsData?.sessions?.rows?.length ? (
+              <div className="muted">No session packages sold in this range.</div>
+            ) : (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      <th style={{ padding: '8px 6px' }}>Date</th>
+                      <th style={{ padding: '8px 6px' }}>Code</th>
+                      <th style={{ padding: '8px 6px' }}>Treatment</th>
+                      <th style={{ padding: '8px 6px', textAlign: 'right' }}>Sessions</th>
+                      <th style={{ padding: '8px 6px', textAlign: 'right' }}>Left</th>
+                      <th style={{ padding: '8px 6px', textAlign: 'right' }}>Price</th>
+                      <th style={{ padding: '8px 6px' }}>Bought by</th>
+                      <th style={{ padding: '8px 6px' }}>Paid</th>
+                      <th style={{ padding: '8px 6px' }}>Sold by</th>
+                      <th style={{ padding: '8px 6px' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vsData.sessions.rows.map((v) => (
+                      <tr key={v.id} style={{ borderTop: '1px solid var(--border)' }}>
+                        <td style={{ padding: '10px 6px' }}>{String(v.purchased_at).slice(0, 10).split('-').reverse().join('/')}</td>
+                        <td style={{ padding: '10px 6px', fontFamily: 'monospace', fontWeight: 600 }}>{v.code}</td>
+                        <td style={{ padding: '10px 6px' }}>{v.treatment_name || 'Any treatment'}</td>
+                        <td style={{ padding: '10px 6px', textAlign: 'right' }}>{v.total_sessions ?? '—'}</td>
+                        <td style={{ padding: '10px 6px', textAlign: 'right', color: 'var(--muted)' }}>{v.sessions_remaining ?? '—'}</td>
+                        <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>{fmtMoney(v.initial_value)}</td>
+                        <td style={{ padding: '10px 6px' }}>{v.purchased_by || <span className="muted">—</span>}</td>
+                        <td style={{ padding: '10px 6px', textTransform: 'capitalize' }}>{v.payment_method}</td>
+                        <td style={{ padding: '10px 6px' }}>{v.sold_by_name || <span className="muted">—</span>}</td>
+                        <td style={{ padding: '10px 6px', textTransform: 'capitalize' }}>{v.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {tab === 'overview' && (<>
       {/* Payment method breakdown for the range */}
       <div className="card col">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
@@ -333,6 +470,7 @@ export default function ReportsSection() {
           </div>
         )}
       </div>
+      </>)}
     </div>
   );
 }

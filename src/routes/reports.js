@@ -246,6 +246,44 @@ router.get('/trading', async (req, res) => {
   }
 });
 
+// GET /api/reports/voucher-session-sales?from=&to=
+// SPA-VS-REPORT (Highbury request) — what was SOLD in the range, split into
+// gift vouchers (voucher_type='monetary') and prepaid session packages
+// (voucher_type='sessions'). Both live in `vouchers`; initial_value is the
+// sale price for either type. Itemised rows + totals; aggregation in JS so
+// it runs identically on PG (cloud) and SQLite (till).
+router.get('/voucher-session-sales', async (req, res) => {
+  const from = req.query.from || today();
+  const to   = req.query.to   || today();
+  try {
+    const rowsQ = await pool.query(
+      `SELECT v.id, v.code, v.voucher_type, v.initial_value, v.remaining_value,
+              v.total_sessions, v.sessions_remaining, v.status,
+              v.purchased_at, v.purchased_by, v.purchased_for,
+              COALESCE(v.payment_method, 'unknown') AS payment_method,
+              th.name AS sold_by_name, t.name AS treatment_name
+       FROM vouchers v
+       LEFT JOIN therapists th ON th.id = v.sold_by
+       LEFT JOIN treatments  t ON t.id  = v.treatment_id
+       WHERE v.purchased_at::date >= $1::date AND v.purchased_at::date <= $2::date
+       ORDER BY v.purchased_at DESC`,
+      [from, to],
+    );
+    const sum = (list) => +list.reduce((s, r) => s + Number(r.initial_value || 0), 0).toFixed(2);
+    const monetary = rowsQ.rows.filter((r) => r.voucher_type !== 'sessions');
+    const sessions = rowsQ.rows.filter((r) => r.voucher_type === 'sessions');
+    res.json({
+      identity: await loadIdentity(),
+      from, to,
+      vouchers: { count: monetary.length, total: sum(monetary), rows: monetary },
+      sessions: { count: sessions.length, total: sum(sessions), rows: sessions },
+    });
+  } catch (err) {
+    console.error('[reports] voucher-session-sales', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 // GET /api/reports/therapist?from=&to=
 router.get('/therapist', async (req, res) => {
   const { from, to } = req.query;
