@@ -421,7 +421,7 @@ router.post('/book', async (req, res) => {
     const slot = av.find((s) => new Date(s.starts_at).getTime() === new Date(b.starts_at).getTime());
     if (!slot) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'slot no longer available' }); }
     if (!therapist_id) therapist_id = slot.therapists[0];
-    const room_id = slot.rooms[0];
+    const room_id = slot.rooms[0] || null; // null when no rooms configured (therapist-led spa)
 
     // SEPOS-SPA-BUGHUNT H5 — race-safe insert (mirror the staff route in
     // appointments.js). computeAvailability above runs against a READ COMMITTED

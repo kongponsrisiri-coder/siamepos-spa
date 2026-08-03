@@ -170,7 +170,7 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
     const slot = av.find((s) => new Date(s.starts_at).getTime() === startsAt.getTime());
     if (!slot) { await client.query('ROLLBACK'); const e = badRequest('That slot is no longer available'); e.status = 409; throw e; }
     if (!therapistId) therapistId = slot.therapists[0];
-    const roomId = slot.rooms[0];
+    const roomId = slot.rooms[0] || null; // null when no rooms configured (therapist-led spa)
 
     // Race-safe insert (same advisory-lock keys as /book so the two paths
     // serialise against each other).

@@ -109,9 +109,14 @@ async function computeAvailability({ treatment_id, date, therapist_id }) {
   const allTherapists = therapistsRes.rows.map((r) => r.id);
   if (!allTherapists.length) return [];
 
+  // Rooms are OPTIONAL. A therapist-led spa (e.g. Highbury) may run no rooms at
+  // all — then the therapist is the only capacity constraint (one treatment
+  // each at a time). If rooms ARE configured, we respect bed capacity too.
+  // Previously `if (!rooms.length) return []` meant deleting the last room
+  // silently killed every slot on every day. Now: no rooms → therapist-only.
   const roomsRes = await pool.query('SELECT id FROM rooms WHERE active = TRUE');
   const rooms = roomsRes.rows.map((r) => r.id);
-  if (!rooms.length) return [];
+  const roomsConfigured = rooms.length > 0;
 
   // SPA-ROTA-001 — load weekly rota for all therapists
   const rotaRes = await pool.query(
@@ -177,7 +182,9 @@ async function computeAvailability({ treatment_id, date, therapist_id }) {
       (id) => !busy.some((b) => b.room_id === id && b.start < endMs && b.end > startMs),
     );
 
-    if (freeTherapists.length && freeRooms.length) {
+    // Room capacity only applies when rooms are configured; with none, the
+    // therapist is the sole constraint and rooms stays [] (booking → room_id null).
+    if (freeTherapists.length && (!roomsConfigured || freeRooms.length)) {
       slots.push({
         starts_at:  new Date(startMs).toISOString(),
         ends_at:    new Date(endMs).toISOString(),

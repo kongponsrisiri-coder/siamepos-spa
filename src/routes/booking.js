@@ -225,7 +225,7 @@ router.put('/by-token/:token', async (req, res) => {
   // Honour the requested therapist (rota+conflict already passed); otherwise let the
   // engine pick a free one.
   const newTherapistId = requestedTherapistId || slot.therapists[0];
-  const newRoomId = slot.rooms[0];
+  const newRoomId = slot.rooms[0] || null; // null when no rooms configured (therapist-led spa)
 
   try {
     const oldStarts = cur.starts_at;
