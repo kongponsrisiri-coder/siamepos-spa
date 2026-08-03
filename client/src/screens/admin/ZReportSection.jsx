@@ -33,6 +33,9 @@ function downloadCsv(filename, rows) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+// yyyy-mm-dd → dd-mm-yyyy for filenames (UK day-first — client request;
+// "/" isn't valid in filenames so "-" separates).
+function ukDate(iso) { return String(iso).slice(0, 10).split('-').reverse().join('-'); }
 
 export default function ZReportSection() {
   const [date, setDate] = useState(todayISO());
@@ -228,7 +231,7 @@ export default function ZReportSection() {
       }
     }
 
-    downloadCsv(`z-report_${date}.csv`, rows);
+    downloadCsv(`${ukDate(date)}_z-report.csv`, rows);
   }
 
   if (!data) return <div className="muted">Loading…</div>;

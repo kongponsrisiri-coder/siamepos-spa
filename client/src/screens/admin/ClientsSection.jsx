@@ -132,9 +132,11 @@ export default function ClientsSection() {
         c.gdpr_consent      ? 'Yes' : 'No',
       ]);
     }
+    // Filename leads with dd-mm-yyyy (UK day-first — client request; "/" isn't
+    // valid in filenames so "-" separates).
     const td = new Date();
-    const stamp = `${td.getFullYear()}-${String(td.getMonth()+1).padStart(2,'0')}-${String(td.getDate()).padStart(2,'0')}`;
-    downloadCsv(`spa-clients_${stamp}.csv`, rows);
+    const stamp = `${String(td.getDate()).padStart(2,'0')}-${String(td.getMonth()+1).padStart(2,'0')}-${td.getFullYear()}`;
+    downloadCsv(`${stamp}_spa-clients.csv`, rows);
   }
 
   const inputStyle = { padding: '10px 12px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 13, fontFamily: 'inherit' };

@@ -68,6 +68,9 @@ function downloadCsv(filename, rows) {
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
 }
+// yyyy-mm-dd → dd-mm-yyyy for filenames (UK day-first — client request;
+// "/" isn't valid in filenames so "-" separates).
+function ukDate(iso) { return String(iso).slice(0, 10).split('-').reverse().join('-'); }
 
 export default function ReportsSection() {
   // SPA-REPORTS-V2 — default to today, not 30 days back. Korakot wants
@@ -133,7 +136,7 @@ export default function ReportsSection() {
         rows.push([(AP_LABEL[m.payment_method] || m.payment_method).replace(/^\S+\s/, ''), m.n, Number(m.amount).toFixed(2)]);
       });
     }
-    downloadCsv(`reports_${from}_to_${to}.csv`, rows);
+    downloadCsv(`${ukDate(from)}_to_${ukDate(to)}_reports.csv`, rows);
   }
 
   const total = therapistData?.by_payment_method?.reduce((s, m) => s + Number(m.revenue || 0), 0) || 0;
