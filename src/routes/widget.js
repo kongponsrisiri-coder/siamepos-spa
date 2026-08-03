@@ -413,6 +413,12 @@ router.post('/book', async (req, res) => {
     // Pick a free therapist + room. If a therapist was requested, honour it
     // (computeAvailability will only return slots where that therapist is free).
     let therapist_id = b.therapist_id ? Number(b.therapist_id) : null;
+    // SPA-REQ-BADGE — the customer explicitly chose this therapist (vs "Any
+    // available"). Captured BEFORE the auto-assign below overwrites null, and
+    // stored so the board shows a "Requested" badge — the staff route already
+    // sets this flag; online bookings never did, so requests looked identical
+    // to auto-assignments.
+    const therapistRequested = !!b.therapist_id;
     const av = await computeAvailability({
       treatment_id: b.treatment_id,
       date: String(b.starts_at).slice(0, 10),
@@ -442,8 +448,8 @@ router.post('/book', async (req, res) => {
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
           status, source, notes,
           deposit_amount, deposit_stripe_id, payment_status,
-          price_at_booking)
-       SELECT $1,$2,$3,$4,$5,$6,'booked','online',$7,$8,$9,$10,$11
+          price_at_booking, therapist_requested)
+       SELECT $1,$2,$3,$4,$5,$6,'booked','online',$7,$8,$9,$10,$11,$12
        WHERE NOT EXISTS (
          SELECT 1 FROM appointments a
          WHERE a.status NOT IN ('cancelled','no_show')
@@ -458,6 +464,7 @@ router.post('/book', async (req, res) => {
         depositStripeId,
         depositAmount > 0 ? 'deposit_paid' : 'none',
         priceAtBooking,
+        therapistRequested,
       ],
     );
     // 0 rows inserted → the overlap re-check fired: another booking took this

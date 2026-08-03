@@ -185,6 +185,11 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwap
         {(appt.therapist_name || appt.room_name) && (
           <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             {appt.therapist_name && <span>👤 {appt.therapist_name}</span>}
+            {Boolean(appt.therapist_requested) && (
+              <span style={{ background: 'var(--gold, #C9A84C)', color: '#3a2c05', borderRadius: 4, padding: '0 8px', fontWeight: 800 }}>
+                ⭐ Requested by client
+              </span>
+            )}
             {appt.room_name      && <span>🚪 {appt.room_name}</span>}
           </div>
         )}
@@ -661,15 +666,23 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                         WebkitTapHighlightColor: 'transparent',
                         touchAction: 'manipulation',
                       }}>
-                      {/* Client name */}
+                      {/* Client name — SPA-REQ-BADGE: full-size star when the
+                          client asked for THIS therapist by name (was a 9px
+                          speck nobody noticed; the whole point is awareness). */}
                       <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: 700, color: isSel ? 'white' : s.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.3 }}>
-                        {isReq && <span style={{ marginRight: 2, fontSize: 9 }}>⭐</span>}
+                        {isReq && <span style={{ marginRight: 3 }}>⭐</span>}
                         {a.client_name || 'Walk-in'}
                       </div>
                       {/* Treatment — show if enough vertical space */}
                       {height > 36 && (
                         <div style={{ fontSize: 10, color: isSel ? 'rgba(255,255,255,0.85)' : s.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', opacity: 0.9, lineHeight: 1.3 }}>
                           {a.treatment_name}
+                        </div>
+                      )}
+                      {/* SPA-REQ-BADGE — unmissable chip on taller blocks */}
+                      {isReq && height > 50 && (
+                        <div style={{ display: 'inline-block', marginTop: 2, padding: '1px 6px', borderRadius: 999, background: isSel ? 'rgba(255,255,255,0.25)' : 'var(--gold, #C9A84C)', color: isSel ? 'white' : '#3a2c05', fontSize: 9, fontWeight: 800, letterSpacing: 0.4 }}>
+                          ⭐ REQUESTED
                         </div>
                       )}
                       {/* Time — only on desktop or taller blocks */}
@@ -1187,6 +1200,11 @@ export default function AppointmentScreen() {
                   <div style={{ fontSize: 12, color: 'var(--gold)' }}>
                     {fmtTime(selected.starts_at)} – {fmtTime(selected.ends_at)}
                     {selected.therapist_name && ` · ${selected.therapist_name}`}
+                    {Boolean(selected.therapist_requested) && (
+                      <span style={{ marginLeft: 6, background: 'var(--gold)', color: '#3a2c05', borderRadius: 4, padding: '1px 8px', fontWeight: 800 }}>
+                        ⭐ Requested by client
+                      </span>
+                    )}
                     {selected.room_name && ` · ${selected.room_name}`}
                     <span style={{ marginLeft: 8, background: 'rgba(201,168,76,0.2)', borderRadius: 4, padding: '1px 8px', textTransform: 'capitalize', color: 'var(--gold)' }}>
                       {selected.status.replace('_', ' ')}
