@@ -679,12 +679,10 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                           {a.treatment_name}
                         </div>
                       )}
-                      {/* SPA-REQ-BADGE — unmissable chip on taller blocks */}
-                      {isReq && height > 50 && (
-                        <div style={{ display: 'inline-block', marginTop: 2, padding: '1px 6px', borderRadius: 999, background: isSel ? 'rgba(255,255,255,0.25)' : 'var(--gold, #C9A84C)', color: isSel ? 'white' : '#3a2c05', fontSize: 9, fontWeight: 800, letterSpacing: 0.4 }}>
-                          ⭐ REQUESTED
-                        </div>
-                      )}
+                      {/* SPA-REQ-BADGE — the ⭐ next to the client name is the
+                          single marker (Korakot 2026-08-04: star only, the
+                          extra REQUESTED chip was double-marking). The detail
+                          bar / mobile sheet still spell out what the star means. */}
                       {/* Time — only on desktop or taller blocks */}
                       {!isMobile && height > 54 && (
                         <div style={{ fontSize: 10, color: isSel ? 'rgba(255,255,255,0.7)' : s.text, opacity: 0.75 }}>
