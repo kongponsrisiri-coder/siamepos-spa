@@ -1,5 +1,7 @@
 // Tiny fetch wrapper. Reads token from localStorage, kicks back to /login on 401.
 
+import { toast } from './toast.js'; // SPA-SAVE-TOAST — app-wide save/error feedback
+
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 // SPA-CERTS-001 — raw-fetch helpers for auth-gated binary endpoints (files).
@@ -49,8 +51,16 @@ async function request(method, path, body) {
     const err = new Error(data.error || res.statusText);
     err.status = res.status;
     err.data   = data;  // full body — lets callers read conflict details, alternatives etc.
+    // SPA-SAVE-TOAST — a failed WRITE must never be silent, even if the calling
+    // screen swallows the throw (the "nothing told them" class of complaint).
+    if (method !== 'GET') toast(`⚠ Not saved — ${err.message}`, 'error');
     throw err;
   }
+  // SPA-SAVE-TOAST (Highbury request) — every successful update confirms
+  // itself. PUT = "save/update" semantics app-wide (medical records, settings,
+  // rota, client edits…). POST/DELETE flows keep their own richer feedback
+  // (bookings show cards, deletes confirm first), so they aren't auto-toasted.
+  if (method === 'PUT') toast('✓ Saved');
   return data;
 }
 
