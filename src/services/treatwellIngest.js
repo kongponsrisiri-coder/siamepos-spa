@@ -99,16 +99,34 @@ async function findOrCreateClient(db, parsed) {
   return ins.rows[0];
 }
 
-// Exact name, then loose ILIKE. Returns { id, duration_minutes } | null.
-async function matchTreatment(db, name) {
-  if (!name) return null;
-  const exact = await db.query(
-    `SELECT id, duration_minutes FROM treatments WHERE active = TRUE AND LOWER(name) = LOWER($1) LIMIT 1`, [name]);
-  if (exact.rows[0]) return exact.rows[0];
-  const loose = await db.query(
-    `SELECT id, duration_minutes FROM treatments WHERE active = TRUE AND name ILIKE $1 ORDER BY LENGTH(name) ASC LIMIT 1`,
-    [`%${name}%`]);
-  return loose.rows[0] || null;
+// Exact name, then loose ILIKE, then the venue's marketplace catch-all rows.
+// Returns { id, duration_minutes, catchAll? } | null.
+async function matchTreatment(db, name, { durationMin = null, prepaid = false } = {}) {
+  if (name) {
+    const exact = await db.query(
+      `SELECT id, duration_minutes FROM treatments WHERE active = TRUE AND LOWER(name) = LOWER($1) LIMIT 1`, [name]);
+    if (exact.rows[0]) return exact.rows[0];
+    const loose = await db.query(
+      `SELECT id, duration_minutes FROM treatments WHERE active = TRUE AND name ILIKE $1 ORDER BY LENGTH(name) ASC LIMIT 1`,
+      [`%${name}%`]);
+    if (loose.rows[0]) return loose.rows[0];
+  }
+  // Catch-all fallback — venues keep generic "TW 60 mins prepaid £75"-style
+  // treatments precisely for marketplace bookings whose names don't match the
+  // till menu (word order: Treatwell "Traditional Thai Massage" vs till "Thai
+  // massage 60 mins" — found live on Highbury booking T2189843008, 2026-08-05).
+  // Match by duration; prefer a paid-status match, take any TW row otherwise.
+  if (durationMin) {
+    const paidCond = prepaid ? `name ILIKE '%prepaid%'` : `name NOT ILIKE '%prepaid%'`;
+    for (const cond of [`AND ${paidCond}`, '']) {
+      const ca = await db.query(
+        `SELECT id, duration_minutes FROM treatments
+         WHERE active = TRUE AND name ILIKE 'tw %' AND duration_minutes = $1 ${cond}
+         ORDER BY LENGTH(name) ASC LIMIT 1`, [durationMin]);
+      if (ca.rows[0]) return { ...ca.rows[0], catchAll: true };
+    }
+  }
+  return null;
 }
 
 async function autoAssign(treatmentId, startIso) {
@@ -140,7 +158,8 @@ async function createBooking(parsed, raw, io) {
     return { action: 'create', status: 'duplicate', appointment_id: dup.rows[0].id };
   }
 
-  const treatment = await matchTreatment(pool, parsed.treatment);
+  const treatment = await matchTreatment(pool, parsed.treatment,
+    { durationMin: parsed.durationMin, prepaid: !!parsed.prepaid });
   const treatmentId = treatment ? treatment.id : null;
   const durationMin = parsed.durationMin || (treatment && treatment.duration_minutes) || 60;
   const endIso = new Date(new Date(startIso).getTime() + durationMin * 60000).toISOString();
@@ -150,7 +169,10 @@ async function createBooking(parsed, raw, io) {
   const srcLabel = src.charAt(0).toUpperCase() + src.slice(1);
   const notes = [
     conflict,
-    treatmentId ? null : `[unmatched treatment: ${parsed.treatment || 'unknown'}]`,
+    // Catch-all match points at a generic "TW …" row — keep the real name visible.
+    treatmentId
+      ? (treatment.catchAll && parsed.treatment ? `[${srcLabel} treatment: ${parsed.treatment}]` : null)
+      : `[unmatched treatment: ${parsed.treatment || 'unknown'}]`,
     parsed.room ? `${srcLabel} room: ${parsed.room}` : null,
   ].filter(Boolean).join(' ') || null;
 
