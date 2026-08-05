@@ -130,7 +130,12 @@ async function processInboundEmail(raw, req) {
       // random mail) — no AI spend, kept out of the review queue. LOGGED so
       // service emails (e.g. Gmail's forwarding-confirmation CODE) are
       // readable in railway logs instead of vanishing.
-      console.log(`[treatwell-email] ignored non-marketplace email from=${from} subject="${subject.slice(0, 120)}" body="${text.slice(0, 200).replace(/\s+/g, ' ')}"`);
+      // Full body for service emails (Gmail's forwarding-confirmation CODE sits
+      // ~250 chars in — the old 200-char slice cut it off right before the code,
+      // discovered live during the Highbury forwarding setup 2026-08-05).
+      const isServiceMail = /forwarding-noreply@google\.com|mail-noreply@google\.com/.test(from);
+      const bodySlice = isServiceMail ? text.slice(0, 2000) : text.slice(0, 200);
+      console.log(`[treatwell-email] ignored non-marketplace email from=${from} subject="${subject.slice(0, 200)}" body="${bodySlice.replace(/\s+/g, ' ')}"`);
       return { ok: true, action: 'ignore', status: 'ignored', reason: 'not a Treatwell/Fresha booking email' };
     }
     const result = await ingestBooking(parsed, text, req.app.get('io'), { source });
