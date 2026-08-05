@@ -52,6 +52,22 @@ async function logIngestion(row) {
 // Email-first, then phone. Top up missing fields without overwriting good data.
 // Tag source='treatwell' on creation.
 async function findOrCreateClient(db, parsed) {
+  // SPA-TW-NAME-CLEAN (found on Highbury's FIRST live booking, 2026-08-05):
+  // the live email format runs the customer name into the next line, so the
+  // parsed name arrived as "Kate Welsher New Open appointment in Treatwell
+  // Connect ( https://… )". Sanitize whatever the parser/AI produced: cut at
+  // known trailer phrases, strip URLs/parens, collapse whitespace, cap length.
+  if (parsed.name) {
+    parsed.name = String(parsed.name)
+      .replace(/\bNew Open appointment\b[\s\S]*$/i, '')
+      .replace(/\bin Treatwell Connect\b[\s\S]*$/i, '')
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/\([^)]*\)/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 80);
+  }
+
   let cli = null;
   if (parsed.email) {
     const r = await db.query(
