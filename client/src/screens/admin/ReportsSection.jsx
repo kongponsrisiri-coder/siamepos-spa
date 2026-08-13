@@ -84,18 +84,22 @@ export default function ReportsSection() {
   // SPA-VS-REPORT — Voucher & Session sales tab (Highbury request)
   const [tab,    setTab]    = useState('overview'); // 'overview' | 'sales'
   const [vsData, setVsData] = useState(null);
+  // SPA-PETTYCASH-001 — expenses for the range (Highbury 2026-08-13 request)
+  const [pcData, setPcData] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [t, td, vs] = await Promise.all([
+      const [t, td, vs, pc] = await Promise.all([
         api.get(`/reports/therapist?from=${from}&to=${to}`),
         api.get(`/reports/trading?date=${to}`),
         api.get(`/reports/voucher-session-sales?from=${from}&to=${to}`).catch(() => null),
+        api.get(`/reports/petty-cash?from=${from}&to=${to}`).catch(() => null),
       ]);
       setTherapistData(t);
       setTrading(td);
       setVsData(vs);
+      setPcData(pc);
     } finally { setLoading(false); }
   }, [from, to]);
   useEffect(() => { load(); }, [load]);
@@ -165,6 +169,16 @@ export default function ReportsSection() {
       pb.already_paid.forEach((m) => {
         rows.push([(AP_LABEL[m.payment_method] || m.payment_method).replace(/^\S+\s/, ''), m.n, Number(m.amount).toFixed(2)]);
       });
+    }
+    // SPA-PETTYCASH-001 — expenses paid out of the drawer in the range.
+    if (pcData?.entries?.length) {
+      rows.push([]);
+      rows.push(['Expenses (petty cash) — cash paid out of the drawer']);
+      rows.push(['Date', 'Reason', 'Staff', 'Amount £']);
+      pcData.entries.forEach((p) => {
+        rows.push([ukDate(String(p.created_at).slice(0, 10)), p.reason, p.staff_name || '', '-' + Number(p.amount).toFixed(2)]);
+      });
+      rows.push(['Total expenses', '', '', '-' + Number(pcData.total).toFixed(2)]);
     }
     downloadCsv(`${ukDate(from)}_to_${ukDate(to)}_reports.csv`, rows);
   }
@@ -385,6 +399,44 @@ export default function ReportsSection() {
           <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
             This money came in earlier (voucher sold, paid online, or before SiamEPOS), so it isn't added to revenue again.
           </div>
+        </div>
+      )}
+
+      {/* SPA-PETTYCASH-001 — expenses paid out of the drawer in the range.
+          Read-only; entries are added/removed on the Z-Report tab. */}
+      {pcData?.entries?.length > 0 && (
+        <div className="card col">
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <h3 style={{ margin: 0 }}>💸 Expenses (petty cash) — {from === to ? from : `${from} → ${to}`}</h3>
+            <span className="muted" style={{ fontSize: 12 }}>Cash paid out of the drawer — not in revenue</span>
+          </div>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ textAlign: 'left', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  <th style={{ padding: '8px 6px' }}>Date</th>
+                  <th style={{ padding: '8px 6px' }}>Reason</th>
+                  <th style={{ padding: '8px 6px' }}>Staff</th>
+                  <th style={{ padding: '8px 6px', textAlign: 'right' }}>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pcData.entries.map((p) => (
+                  <tr key={p.id} style={{ borderTop: '1px solid var(--border)' }}>
+                    <td style={{ padding: '10px 6px' }}>{String(p.created_at).slice(0, 10).split('-').reverse().join('/')}</td>
+                    <td style={{ padding: '10px 6px' }}>{p.reason}</td>
+                    <td style={{ padding: '10px 6px' }}>{p.staff_name || <span className="muted">—</span>}</td>
+                    <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700, color: '#ef4444' }}>− {fmtMoney(p.amount)}</td>
+                  </tr>
+                ))}
+                <tr style={{ borderTop: '1px solid var(--border)', fontWeight: 700 }}>
+                  <td style={{ padding: '10px 6px' }} colSpan={3}>Total expenses ({pcData.count})</td>
+                  <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'monospace', color: '#ef4444' }}>− {fmtMoney(pcData.total)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="muted" style={{ fontSize: 11 }}>Add or remove expense entries on the Z-Report tab.</div>
         </div>
       )}
 

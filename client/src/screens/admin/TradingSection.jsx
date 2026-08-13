@@ -192,6 +192,38 @@ export default function TradingSection() {
         );
       })()}
 
+      {/* ── Expenses / petty cash (SPA-PETTYCASH-001) ──────────────
+          Cash paid OUT of the drawer today. Read-only here — entries are
+          added/removed on the Z-Report tab. Net cash mirrors the Z report:
+          cash physically taken − expenses paid out. */}
+      {data.petty_cash && data.petty_cash.count > 0 && (
+        <div className="card col">
+          <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <h3 style={{ margin: 0 }}>💸 Expenses (petty cash)</h3>
+            <span className="muted" style={{ fontSize: 12 }}>Cash paid out of the drawer</span>
+          </div>
+          {data.petty_cash.entries.map((p) => (
+            <div key={p.id} className="row" style={{ justifyContent: 'space-between', padding: '4px 0' }}>
+              <span>{p.reason}{p.staff_name ? <span className="muted" style={{ fontSize: 11 }}> · {p.staff_name}</span> : null}</span>
+              <span style={{ fontWeight: 600, color: '#ef4444' }}>− {fmtMoney(p.amount)}</span>
+            </div>
+          ))}
+          <div className="row" style={{ justifyContent: 'space-between', borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 2, fontWeight: 700 }}>
+            <span>Total expenses{data.petty_cash.count > 1 ? ` (${data.petty_cash.count})` : ''}</span>
+            <span style={{ color: '#ef4444' }}>− {fmtMoney(data.petty_cash.total)}</span>
+          </div>
+          {data.cash_reconciliation && (
+            <div className="row" style={{ justifyContent: 'space-between', fontSize: 13 }}>
+              <span className="muted">Net cash in drawer (cash taken {fmtMoney(data.cash_reconciliation.cash_taken)} − expenses)</span>
+              <span style={{ fontWeight: 700 }}>{fmtMoney(data.cash_reconciliation.net_cash)}</span>
+            </div>
+          )}
+          <div className="muted" style={{ fontSize: 11 }}>
+            Add or remove expense entries on the Z-Report tab.
+          </div>
+        </div>
+      )}
+
       {/* ── Online deposits (SPA-PAY-001) ──────────────────────────
           Money landed in the spa's Stripe account when customers booked
           online today. Pending = deposit attached to upcoming booking.

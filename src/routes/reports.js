@@ -216,11 +216,27 @@ router.get('/trading', async (req, res) => {
       [date],
     );
 
+    // SPA-PETTYCASH-001 — the day's expenses (cash paid out of the drawer).
+    // Same block the Z report shows; surfaced here too because Trading is the
+    // report owners actually read day-to-day (Highbury 2026-08-13 request).
+    const pettyCash = await pool.query(
+      `SELECT p.id, p.amount, p.reason, p.created_at, t.name AS staff_name
+       FROM petty_cash p
+       LEFT JOIN therapists t ON t.id = p.created_by
+       WHERE p.created_at::date = $1::date
+       ORDER BY p.created_at ASC`,
+      [date],
+    );
+
     // Cash-basis revenue + the clear two-group payment breakdown.
     const od = onlineDeposits.rows[0];
     const prepayCount = Number(od.count_pending) + Number(od.count_consumed) + Number(od.count_forfeit);
     const pb = buildPaymentBreakdown(byMethod.rows, voucherSalesByMethod.rows, { total: Number(od.total_taken || 0), count: prepayCount });
     const billMoneyIn = byMethod.rows.filter((r) => MONEY_IN_METHODS.has(r.payment_method)).reduce((s, r) => s + Number(r.revenue || 0), 0);
+    // Cash-drawer reconciliation, mirroring the Z report: net cash = cash
+    // physically taken today − expenses paid out of the drawer.
+    const pettyTotal = pettyCash.rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+    const cashTaken = Number((pb.money_taken.find((m) => m.payment_method === 'cash') || {}).revenue || 0);
 
     res.json({
       date,
@@ -239,6 +255,22 @@ router.get('/trading', async (req, res) => {
         by_payment_method: voucherSalesByMethod.rows,
       },
       online_deposits: od,
+      petty_cash: {
+        total: +pettyTotal.toFixed(2),
+        count: pettyCash.rows.length,
+        entries: pettyCash.rows.map((r) => ({
+          id: r.id,
+          amount: Number(r.amount),
+          reason: r.reason,
+          staff_name: r.staff_name || null,
+          created_at: r.created_at,
+        })),
+      },
+      cash_reconciliation: {
+        cash_taken: +cashTaken.toFixed(2),
+        petty_cash: +pettyTotal.toFixed(2),
+        net_cash: +(cashTaken - pettyTotal).toFixed(2),
+      },
     });
   } catch (err) {
     console.error('[reports] trading', err);
@@ -544,21 +576,26 @@ router.post('/z-report/close', async (req, res) => {
 // Cash removed from the drawer for expenses. Shown on the Z report where it is
 // subtracted from cash taken to give net cash (see /z-report cash_reconciliation).
 
-// GET /api/reports/petty-cash?date=   — the day's petty-cash entries + total.
+// GET /api/reports/petty-cash?date=          — the day's entries + total.
+// GET /api/reports/petty-cash?from=&to=      — a date range (Reports tab).
 router.get('/petty-cash', async (req, res) => {
+  const { from, to } = req.query;
   const date = req.query.date || today();
+  const range = Boolean(from || to);
   try {
     const { rows } = await pool.query(
       `SELECT p.id, p.amount, p.reason, p.created_at, t.name AS staff_name
        FROM petty_cash p
        LEFT JOIN therapists t ON t.id = p.created_by
-       WHERE p.created_at::date = $1::date
+       WHERE p.created_at::date >= $1::date AND p.created_at::date <= $2::date
        ORDER BY p.created_at ASC`,
-      [date],
+      range ? [from || to, to || from] : [date, date],
     );
     const total = rows.reduce((s, r) => s + Number(r.amount || 0), 0);
     res.json({
-      date,
+      date: range ? undefined : date,
+      from: range ? (from || to) : undefined,
+      to:   range ? (to || from) : undefined,
       total: +total.toFixed(2),
       count: rows.length,
       entries: rows.map((r) => ({
@@ -572,8 +609,11 @@ router.get('/petty-cash', async (req, res) => {
   }
 });
 
-// POST /api/reports/petty-cash  body: { amount, reason }
+// POST /api/reports/petty-cash  body: { amount, reason, date? }
 // Records cash taken out of the drawer. Staff (not therapists) only.
+// `date` (YYYY-MM-DD, optional) backdates the entry so it lands on that
+// day's Z report — the Z screen sends the date being viewed, so an expense
+// typed in while reviewing a past day no longer lands on "today".
 router.post('/petty-cash', requireRole('admin', 'manager', 'reception'), async (req, res) => {
   const amount = Number(req.body?.amount);
   const reason = String(req.body?.reason || '').trim();
@@ -581,12 +621,25 @@ router.post('/petty-cash', requireRole('admin', 'manager', 'reception'), async (
     return res.status(400).json({ error: 'amount must be a positive number' });
   }
   if (!reason) return res.status(400).json({ error: 'reason is required' });
+  const dateArg = req.body?.date ? String(req.body.date).trim() : '';
+  let createdAt = null; // null → DB default now()
+  if (dateArg) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateArg) || Number.isNaN(Date.parse(dateArg))) {
+      return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+    }
+    if (dateArg > today()) {
+      return res.status(400).json({ error: 'date cannot be in the future' });
+    }
+    // Reports bucket entries by created_at's calendar date, so stamp the
+    // requested date + the current clock time (keeps same-day ordering).
+    createdAt = `${dateArg}T${new Date().toISOString().slice(11)}`;
+  }
   try {
     const { rows } = await pool.query(
-      `INSERT INTO petty_cash (amount, reason, created_by)
-       VALUES ($1, $2, $3)
+      `INSERT INTO petty_cash (amount, reason, created_by, created_at)
+       VALUES ($1, $2, $3, COALESCE($4, now()))
        RETURNING id, amount, reason, created_at`,
-      [+amount.toFixed(2), reason, req.staff?.id || null],
+      [+amount.toFixed(2), reason, req.staff?.id || null, createdAt],
     );
     const r = rows[0];
     res.status(201).json({ ok: true, entry: { ...r, amount: Number(r.amount) } });
