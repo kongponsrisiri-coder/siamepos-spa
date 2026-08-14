@@ -57,26 +57,28 @@
     .ses-input:focus, .ses-select:focus { outline:none; border-color:#7a4f1e;
       box-shadow:0 0 0 3px rgba(122,79,30,.12); }
     .ses-card { border:1px solid #e5e7eb; border-radius:8px; padding:10px; margin-bottom:6px;
-      cursor:pointer; transition:border-color .1s; display:flex; gap:10px; align-items:center; }
+      cursor:pointer; transition:border-color .1s; display:flex; gap:10px; align-items:center;
+      color:#1f2937; }
     .ses-card:hover { border-color:#7a4f1e; }
     .ses-card.selected { border-color:#7a4f1e; background:#fdf6ec; }
     .ses-durs { display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
-    .ses-dur { padding:7px 13px; border:1px solid #e5e7eb; background:#fff; border-radius:999px;
-      font-size:13px; font-weight:600; cursor:pointer; color:#333; white-space:nowrap; transition:all .1s; }
+    .ses-dur { padding:7px 13px; border:1px solid #e5e7eb; background:#fff !important; border-radius:999px;
+      font-size:13px; font-weight:600; cursor:pointer; color:#333 !important; white-space:nowrap; transition:all .1s;
+      text-transform:none !important; }
     .ses-dur:hover { border-color:#7a4f1e; }
-    .ses-dur.on { background:#7a4f1e; color:#fff; border-color:#7a4f1e; }
+    .ses-dur.on { background:#7a4f1e !important; color:#fff !important; border-color:#7a4f1e; }
     .ses-avatar { width:40px; height:40px; border-radius:50%; background:#fdf6ec; color:#7a4f1e;
       display:flex; align-items:center; justify-content:center; font-weight:600; font-size:14px;
       flex-shrink:0; border:1px solid #f0e0c8; }
     .ses-avatar.any { background:#7a4f1e; color:#fff; border-color:#7a4f1e; }
     .ses-slot-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; max-height:200px; overflow:auto; }
     .ses-slot { padding:8px 0; text-align:center; border:1px solid #e5e7eb; border-radius:6px;
-      cursor:pointer; background:#fff; }
+      cursor:pointer; background:#fff !important; color:#333 !important; }
     .ses-slot:hover { border-color:#7a4f1e; }
-    .ses-slot.selected { background:#7a4f1e; color:#fff; border-color:#7a4f1e; }
-    .ses-btn { padding:10px 16px; border:1px solid #e5e7eb; background:#fff; border-radius:8px;
-      cursor:pointer; font:inherit; }
-    .ses-btn.primary { background:#7a4f1e; color:#fff; border-color:#7a4f1e; }
+    .ses-slot.selected { background:#7a4f1e !important; color:#fff !important; border-color:#7a4f1e; }
+    .ses-btn { padding:10px 16px; border:1px solid #e5e7eb; background:#fff !important; border-radius:8px;
+      cursor:pointer; font:inherit; color:#333 !important; text-transform:none !important; line-height:1.3; }
+    .ses-btn.primary { background:#7a4f1e !important; color:#fff !important; border-color:#7a4f1e; }
     .ses-btn:disabled { opacity:.5; cursor:not-allowed; }
     .ses-actions { display:flex; justify-content:space-between; margin-top:16px; gap:8px; }
     .ses-error { color:#dc2626; font-size:13px; margin-top:8px; }
@@ -449,14 +451,27 @@
             return (a.duration_minutes || 0) - (b.duration_minutes || 0);
           });
           var anyOn = variants.some(function (v) { return state.treatmentId === v.id; });
-          var card = h('div', { className: 'ses-card' + (anyOn ? ' selected' : ''), style: 'display:block' }, [
+          var card = h('div', {
+            className: 'ses-card' + (anyOn ? ' selected' : ''),
+            style: 'display:block',
+            // Whole card is the tap target (Highbury ask): anywhere on the card
+            // selects the treatment — its first duration when none of this
+            // card's variants is picked yet. The pills still pick an exact
+            // duration; stopPropagation keeps a pill tap from double-firing.
+            onClick: function () {
+              if (!variants.some(function (v) { return state.treatmentId === v.id; })) {
+                state.treatmentId = variants[0].id;
+                render();
+              }
+            },
+          }, [
             h('div', { style: 'font-weight:600' }, [name]),
             variants[0].description ? h('div', { className: 'ses-muted', style: 'margin-top:2px' }, [variants[0].description]) : null,
             h('div', { className: 'ses-durs' }, variants.map(function (v) {
               var on = state.treatmentId === v.id;
               return h('button', {
                 className: 'ses-dur' + (on ? ' on' : ''),
-                onClick: function () { state.treatmentId = v.id; render(); },
+                onClick: function (e) { e.stopPropagation(); state.treatmentId = v.id; render(); },
               }, [v.duration_minutes + ' min · ' + fmtMoney(v.price)]);
             })),
           ]);
