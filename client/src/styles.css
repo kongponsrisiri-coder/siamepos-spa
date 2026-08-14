@@ -214,7 +214,10 @@ label {
   background: rgba(14,28,55,0.55);
   backdrop-filter: blur(3px);
   display: flex; align-items: center; justify-content: center;
-  z-index: 50; padding: 16px;
+  /* Above the mobile bottom-nav (z-index 100) so a bottom-sheet modal's
+     action buttons (Book appointment / Cancel) are never hidden behind it.
+     Stays below transient overlays (dropdowns z-150+, toasts). */
+  z-index: 120; padding: 16px;
   animation: fadeIn 0.15s ease;
 }
 .modal {
@@ -379,8 +382,10 @@ tbody tr:hover td { background: var(--navy-muted); }
   /* Tables: allow horizontal scroll */
   table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
-  /* Modal: full screen on mobile */
-  .modal { max-width: 100%; border-radius: 16px 16px 0 0; padding: 20px 16px; }
+  /* Modal: full-width bottom sheet on mobile. Extra bottom padding clears
+     the phone's home indicator so the action buttons sit comfortably above
+     the screen edge (the modal now renders above the bottom-nav). */
+  .modal { max-width: 100%; border-radius: 16px 16px 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px)); }
   .modal-backdrop { align-items: flex-end; padding: 0; }
 }
 
