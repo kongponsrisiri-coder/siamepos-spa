@@ -20,11 +20,36 @@ function fmtShortDate(d) {
   return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: '2-digit' });
 }
 
+// SPA-CLIENT-SORT-001 (Highbury ask) — sort orders for the client list.
+const SORTS = [
+  { key: 'name',   label: 'A–Z' },
+  { key: 'recent', label: 'Recent visit' },
+  { key: 'visits', label: 'Most visits' },
+  { key: 'spend',  label: 'Top spend' },
+];
+function sortClients(list, sort) {
+  const arr = list.slice();
+  if (sort === 'recent') {
+    // Most recent visit first; never-visited at the bottom.
+    arr.sort((a, b) => (b.last_visit ? new Date(b.last_visit).getTime() : -1)
+                     - (a.last_visit ? new Date(a.last_visit).getTime() : -1));
+  } else if (sort === 'visits') {
+    arr.sort((a, b) => Number(b.total_visits || 0) - Number(a.total_visits || 0));
+  } else if (sort === 'spend') {
+    arr.sort((a, b) => Number(b.total_spend || 0) - Number(a.total_spend || 0));
+  } else {
+    arr.sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+  }
+  return arr;
+}
+
 export default function ClientSearchScreen() {
   const [q, setQ]             = useState('');
   const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showNew, setShowNew] = useState(false);
+  const [sort, setSort]       = useState('name');    // SPA-CLIENT-SORT-001
+  const [showTop, setShowTop] = useState(false);     // back-to-top FAB
   const navigate              = useNavigate();
 
   async function load(query) {
@@ -41,6 +66,14 @@ export default function ClientSearchScreen() {
     return () => clearTimeout(id);
   }, [q]);
 
+  // Back-to-top appears once the list is scrolled a screen or so down.
+  useEffect(() => {
+    const onScroll = () => setShowTop(window.scrollY > 400);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   return (
     <div className="col">
       <div className="row" style={{ justifyContent: 'space-between' }}>
@@ -55,10 +88,28 @@ export default function ClientSearchScreen() {
         autoFocus
       />
 
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span className="muted" style={{ fontSize: 13 }}>Sort:</span>
+        {SORTS.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => setSort(s.key)}
+            style={{
+              padding: '6px 12px', borderRadius: 999, fontSize: 13, fontWeight: 600,
+              border: '1px solid ' + (sort === s.key ? 'var(--navy, #1e3a6e)' : '#e5e7eb'),
+              background: sort === s.key ? 'var(--navy, #1e3a6e)' : '#fff',
+              color: sort === s.key ? '#fff' : '#333',
+            }}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
       {loading && <div className="muted">Loading…</div>}
 
       <div className="col" style={{ gap: 6 }}>
-        {clients.map((c) => {
+        {sortClients(clients, sort).map((c) => {
           const visits = Number(c.total_visits || 0);
           const spend  = Number(c.total_spend  || 0);
           const daysSinceLast = c.last_visit
@@ -115,6 +166,22 @@ export default function ClientSearchScreen() {
           onClose={() => setShowNew(false)}
           onCreated={(c) => navigate(`/clients/${c.id}`)}
         />
+      )}
+
+      {/* Back-to-top — sits above the mobile bottom-nav (hence bottom 84). */}
+      {showTop && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          aria-label="Back to top"
+          style={{
+            position: 'fixed', right: 16, bottom: 84, zIndex: 500,
+            width: 48, height: 48, borderRadius: '50%',
+            background: 'var(--navy, #1e3a6e)', color: '#fff', border: 'none',
+            fontSize: 20, cursor: 'pointer', boxShadow: '0 4px 12px rgba(0,0,0,.25)',
+          }}
+        >
+          ↑
+        </button>
       )}
     </div>
   );
