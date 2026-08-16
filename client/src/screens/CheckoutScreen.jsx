@@ -420,7 +420,7 @@ export default function CheckoutScreen() {
           {depositPaid > 0 && (
             <>
               <div className="row" style={{ justifyContent: 'space-between', marginTop: 8, color: '#16a34a', fontSize: 14 }}>
-                <span>💳 Deposit paid online</span>
+                <span>💳 Deposit paid online <span style={{ color: 'var(--muted, #64748b)', fontSize: 12 }}>(already in Stripe — collected when they booked)</span></span>
                 <span>− {fmtMoney(depositPaid)}</span>
               </div>
               <div className="row" style={{ justifyContent: 'space-between', marginTop: 10, fontWeight: 700, fontSize: 20, background: '#fdf6ec', border: '1px solid #e0c884', borderRadius: 8, padding: '10px 14px', color: '#1e3a6e' }}>

@@ -398,6 +398,7 @@ export default function ReportsSection() {
           ))}
           <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
             This money came in earlier (voucher sold, paid online, or before SiamEPOS), so it isn't added to revenue again.
+            Online deposits count in the report of the day the customer <strong>booked</strong>, not the visit day — see the Trading tab's "Online deposit money" card for the day-by-day picture.
           </div>
         </div>
       )}

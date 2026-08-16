@@ -45,6 +45,14 @@ function StatCard({ label, value, color }) {
 const PM_LABEL = { card: '💳 Card', cash: '💵 Cash', treatwell: '🌐 Treatwell', online: '🌐 Online prepayment', split: '⇄ Split', voucher: '🎁 Voucher' };
 const AP_LABEL = { voucher: '🎁 Voucher redeemed', external: '🧾 Already paid (external)', deposit: '🌐 Deposit (prepaid online)' };
 
+// SPA-DEPOSIT-CLARITY-001 — status chip per deposit row on the Trading card.
+const DEP_CHIP = {
+  deposit_paid: { label: 'visit upcoming',              bg: '#dbeafe', color: '#1e40af' },
+  fully_paid:   { label: 'visited · settled',           bg: '#dcfce7', color: '#166534' },
+  forfeit:      { label: 'late cancel · deposit kept',  bg: '#fef3c7', color: '#92400e' },
+  refunded:     { label: 'refunded',                    bg: '#e2e8f0', color: '#475569' },
+};
+
 // Brand-CI colour palette for each metric
 const COLORS = {
   revenue:      'var(--gold)',   /* gold */
@@ -224,48 +232,70 @@ export default function TradingSection() {
         </div>
       )}
 
-      {/* ── Online deposits (SPA-PAY-001) ──────────────────────────
-          Money landed in the spa's Stripe account when customers booked
-          online today. Pending = deposit attached to upcoming booking.
-          Consumed = customer arrived + paid the balance at the till.
-          Tracked separately because Stripe settles to the spa's bank
-          on its own cycle, not via the till. */}
-      {data.online_deposits && (Number(data.online_deposits.count_pending) + Number(data.online_deposits.count_consumed) + Number(data.online_deposits.count_forfeit) > 0) && (
+      {/* ── Online deposit money (SPA-PAY-001 + SPA-DEPOSIT-CLARITY-001) ──
+          Money lands in the spa's Stripe account on the day the customer
+          BOOKS; the visit is often a different day. This card tells both
+          halves of that story — deposits RECEIVED this day (each tied to
+          its visit date) and deposits already attached to this day's diary
+          that were paid earlier — so a prepaid visit never reads as
+          missing money (the Highbury 15 Aug scare). */}
+      {data.online_deposits && (
+        Number(data.online_deposits.total_taken) > 0 ||
+        Number(data.online_deposits.total_refunded) > 0 ||
+        Number(data.online_deposits.diary_prepaid?.count || 0) > 0) && (
         <div className="card col">
           <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <h3 style={{ margin: 0 }}>🌐 Online deposits</h3>
-            <span className="muted" style={{ fontSize: 12 }}>Settled to Stripe, not the till</span>
+            <h3 style={{ margin: 0 }}>🌐 Online deposit money</h3>
+            <span className="muted" style={{ fontSize: 12 }}>Paid straight to Stripe — never through the till drawer</span>
           </div>
-          <div className="row" style={{ justifyContent: 'space-between', padding: '6px 0' }}>
-            <span>Taken today</span>
+          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '8px 10px', fontSize: 12.5, color: '#1e3a8a' }}>
+            💡 Deposit money counts on the day the customer <strong>books</strong>, not the day they visit. If a visit and its money seem to be on different days — that's correct, nothing is missing.
+          </div>
+
+          <div className="row" style={{ justifyContent: 'space-between', padding: '8px 0 2px' }}>
+            <span style={{ fontWeight: 700 }}>Received this day</span>
             <span style={{ fontWeight: 700, color: 'var(--gold)', fontSize: 18 }}>{fmtMoney(data.online_deposits.total_taken)}</span>
           </div>
+          {(data.online_deposits.rows || []).map((r) => {
+            const chip = DEP_CHIP[r.payment_status] || DEP_CHIP.deposit_paid;
+            const sameDay = String(r.starts_at).slice(0, 10) === date;
+            const visitLabel = (sameDay ? 'visit this day ' : 'visit ') + new Date(r.starts_at).toLocaleString('en-GB', {
+              ...(sameDay ? {} : { weekday: 'short', day: '2-digit', month: 'short' }),
+              hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
+            });
+            const refunded = r.payment_status === 'refunded';
+            return (
+              <div key={r.id} className="row" style={{ justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontSize: 13, gap: 8 }}>
+                <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {r.client_name || 'Online booking'} <span className="muted">· {visitLabel}</span>
+                </span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: chip.bg, color: chip.color, whiteSpace: 'nowrap' }}>{chip.label}</span>
+                  <span style={{ fontWeight: 600, fontFamily: 'monospace', color: refunded ? '#475569' : 'inherit', textDecoration: refunded ? 'line-through' : 'none' }}>
+                    {fmtMoney(r.deposit_amount)}
+                  </span>
+                </span>
+              </div>
+            );
+          })}
           {Number(data.online_deposits.total_refunded) > 0 && (
             <div className="row" style={{ justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
-              <span className="muted">Refunded</span>
+              <span className="muted">Refunded back to customers</span>
               <span style={{ color: '#1e40af' }}>− {fmtMoney(data.online_deposits.total_refunded)}</span>
             </div>
           )}
-          <div style={{ paddingTop: 6, borderTop: '1px solid var(--border)' }}>
-            {Number(data.online_deposits.count_pending) > 0 && (
-              <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0', fontSize: 13 }}>
-                <span className="muted">Pending (booking upcoming)</span>
-                <span>{data.online_deposits.count_pending}</span>
+
+          {Number(data.online_deposits.diary_prepaid?.count || 0) > 0 && (
+            <div style={{ paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+              <div className="row" style={{ justifyContent: 'space-between' }}>
+                <span style={{ fontWeight: 700 }}>On this day's diary, paid earlier</span>
+                <span style={{ fontWeight: 700 }}>{data.online_deposits.diary_prepaid.count} · {fmtMoney(data.online_deposits.diary_prepaid.total)}</span>
               </div>
-            )}
-            {Number(data.online_deposits.count_consumed) > 0 && (
-              <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0', fontSize: 13 }}>
-                <span className="muted">Consumed (customer paid balance)</span>
-                <span>{data.online_deposits.count_consumed}</span>
+              <div className="muted" style={{ fontSize: 12, marginTop: 2 }}>
+                Each of these was paid on the customer's booking day — the money is in that day's report, so it won't appear in this day's takings. When the bill is settled it shows under "Covered by an earlier payment".
               </div>
-            )}
-            {Number(data.online_deposits.count_forfeit) > 0 && (
-              <div className="row" style={{ justifyContent: 'space-between', padding: '3px 0', fontSize: 13 }}>
-                <span className="muted">Forfeit (late cancel)</span>
-                <span style={{ color: '#92400e' }}>{data.online_deposits.count_forfeit}</span>
-              </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
 

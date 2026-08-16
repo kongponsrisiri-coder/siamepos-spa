@@ -1103,9 +1103,15 @@ export default function AppointmentScreen() {
               <strong>{withDep.length}</strong>/{active.length} with deposit
             </span>
             <span style={{ width: 1, height: 14, background: '#e0c884' }} />
-            <span style={{ color: '#166534', fontWeight: 700 }}>
-              £{totalCollected.toFixed(2)} collected
+            <span style={{ color: '#166534', fontWeight: 700 }}
+              title="Deposits attached to this day's bookings. Each was paid on the day the customer BOOKED, so the money sits in that day's report — not this day's takings.">
+              £{totalCollected.toFixed(2)} in deposits
             </span>
+            {!isMobile && (
+              <span style={{ fontSize: 11, color: '#7a4f1e' }}>
+                paid when booked — money is in the booking day's report
+              </span>
+            )}
             {!isMobile && online.length > 0 && (
               <span style={{ fontSize: 11, color: '#1e40af' }}>
                 🌐 £{sum(online).toFixed(0)} online

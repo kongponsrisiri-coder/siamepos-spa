@@ -200,6 +200,12 @@ export default function ZReportSection() {
       rows.push(['Pending (upcoming)',     data.online_deposits.count_pending  || 0]);
       rows.push(['Consumed (paid in full)', data.online_deposits.count_consumed || 0]);
       rows.push(['Forfeit (late cancel)',  data.online_deposits.count_forfeit || 0]);
+      // SPA-DEPOSIT-CLARITY-001 — the one-line rule that stops the
+      // "missing money" scare on the printed end-of-day sheet too.
+      rows.push(['(deposits count on the BOOKING day, not the visit day)']);
+      if (Number(data.online_deposits.diary_prepaid?.count || 0) > 0) {
+        rows.push(['Today\'s diary, paid earlier', data.online_deposits.diary_prepaid.count, Number(data.online_deposits.diary_prepaid.total || 0).toFixed(2)]);
+      }
     }
 
     // SPA-PETTYCASH-001 — cash-drawer reconciliation for the accountant.

@@ -105,6 +105,36 @@ function buildPaymentBreakdown(byMethodRows, voucherSalesRows, prepay) {
   return { money_taken, already_paid, revenue };
 }
 
+// SPA-DEPOSIT-CLARITY-001 — the story behind the deposit number, so the shop
+// can match money → diary without guessing (Highbury 15 Aug: a Friday-evening
+// deposit for a Saturday visit read as "missing money" on Saturday).
+//   rows          — each deposit RECEIVED on `date`, tied to its VISIT date
+//   diary_prepaid — deposits attached to `date`'s DIARY that were paid on an
+//                   earlier day: money that sits in an earlier day's report.
+async function loadOnlineDepositDetail(pool, date) {
+  const rows = await pool.query(
+    `SELECT a.id, a.deposit_amount, a.payment_status, a.created_at, a.starts_at,
+            c.name AS client_name
+     FROM appointments a
+     LEFT JOIN clients c ON c.id = a.client_id
+     WHERE a.source = 'online' AND a.created_at::date = $1::date
+       AND a.deposit_amount > 0
+       AND a.payment_status IN ('deposit_paid','fully_paid','forfeit','refunded')
+     ORDER BY a.created_at ASC`,
+    [date],
+  );
+  const diaryPrepaid = await pool.query(
+    `SELECT COUNT(*)::int AS count, COALESCE(SUM(a.deposit_amount), 0)::numeric AS total
+     FROM appointments a
+     WHERE a.source = 'online' AND a.starts_at::date = $1::date
+       AND a.created_at::date <> $1::date
+       AND a.deposit_amount > 0
+       AND a.payment_status IN ('deposit_paid','fully_paid')`,
+    [date],
+  );
+  return { rows: rows.rows, diary_prepaid: diaryPrepaid.rows[0] };
+}
+
 router.get('/trading', async (req, res) => {
   const date = req.query.date || today();
   try {
@@ -254,7 +284,7 @@ router.get('/trading', async (req, res) => {
         total:  voucherSales.rows[0].total,
         by_payment_method: voucherSalesByMethod.rows,
       },
-      online_deposits: od,
+      online_deposits: { ...od, ...(await loadOnlineDepositDetail(pool, date)) },
       petty_cash: {
         total: +pettyTotal.toFixed(2),
         count: pettyCash.rows.length,
@@ -519,7 +549,7 @@ router.get('/z-report', async (req, res) => {
       by_kind: byKindVat,
       vat,
       by_payment_method: pb.money_taken,   // back-compat; = money_taken
-      online_deposits: zod,
+      online_deposits: { ...zod, ...(await loadOnlineDepositDetail(pool, date)) },
       voucher_sales: {
         count: voucherSales.rows[0].count,
         total: voucherSales.rows[0].total,
