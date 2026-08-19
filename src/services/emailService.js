@@ -544,9 +544,11 @@ async function sendOwnerNewBookingEmail({ appointment, client, treatment, therap
   const sourceLabel = {
     online:    '🪷 Online (website widget)',
     treatwell: '🌐 Treatwell',
+    fresha:    '💜 Fresha',
     walkin:    '🚶 Walk-in / in-store',
     phone:     '📞 Phone',
     staff:     '🧑‍💼 Staff-created',
+    block:     '🚫 Time block',
   }[source] || source || '—';
 
   const safe = (s) => String(s || '').replace(/[<>]/g, '');

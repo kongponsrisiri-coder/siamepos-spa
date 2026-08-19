@@ -258,7 +258,7 @@ router.post('/:id/pay', async (req, res) => {
   // online/card payment taken BEFORE this system was installed). We just close
   // the bill and record the reference — no money moves through us, so it's
   // excluded from revenue and allowed offline (no Stripe/voucher lookup needed).
-  if (!['cash', 'card', 'split', 'voucher', 'treatwell', 'external'].includes(method)) {
+  if (!['cash', 'card', 'split', 'voucher', 'treatwell', 'fresha', 'external'].includes(method)) {
     return res.status(400).json({ error: 'invalid method' });
   }
 
@@ -442,7 +442,7 @@ router.post('/:id/pay', async (req, res) => {
     // "unpaid" on the cloud forever. The op name is historic; the drain just
     // pushes the current bill row. (Card/voucher reach the cloud via their
     // own online flows.)
-    if (['cash', 'treatwell', 'external'].includes(method)) {
+    if (['cash', 'treatwell', 'fresha', 'external'].includes(method)) {
       await offlineQueue.enqueue('pay_bill_cash', { localId: id });
     }
     // SPA-LOYALTY-001 — the paid bill may earn a loyalty stamp (direct
@@ -505,7 +505,7 @@ router.put('/:id/method', requireRole('admin', 'manager'), async (req, res) => {
   const externalVoucherCode = (req.body && req.body.external_voucher_code)
     ? String(req.body.external_voucher_code).trim().slice(0, 200) || null
     : null;
-  if (!['cash', 'card', 'split', 'voucher', 'treatwell', 'external'].includes(method)) {
+  if (!['cash', 'card', 'split', 'voucher', 'treatwell', 'fresha', 'external'].includes(method)) {
     return res.status(400).json({ error: 'invalid method' });
   }
   try {

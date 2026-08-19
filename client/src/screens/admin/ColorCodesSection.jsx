@@ -12,6 +12,8 @@ const CATEGORIES = [
   { key: 'online',            label: '🌐 Online (website)',   def: '#16a34a' },
   { key: 'treatwell_full',    label: '🅣 Treatwell — prepaid', def: '#0891b2' },
   { key: 'treatwell_partial', label: '🅣 Treatwell — deposit', def: '#f59e0b' },
+  { key: 'fresha',            label: '💜 Fresha',             def: '#0d9488' },
+  { key: 'block',             label: '⛔ Time block',          def: '#4b5563' },
   { key: 'no_show',           label: '❌ No-show',            def: '#ef4444' },
   { key: 'cancelled',         label: '🚫 Cancelled',          def: '#9ca3af' },
   { key: 'cash',              label: '💵 Paid — cash',        def: '#c2410c' },

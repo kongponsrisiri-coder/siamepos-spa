@@ -48,8 +48,9 @@ const { pool } = require('../db/dbAdapter');
 const offlineQueue = require('./offlineQueue');
 
 const IS_LOCAL = (process.env.DB_MODE || 'cloud').toLowerCase() === 'local';
-// Marketplace-sourced appointments never earn a stamp.
-const NON_EARNING_SOURCES = new Set(['treatwell', 'fresha']);
+// Marketplace-sourced appointments never earn a stamp; nor do time-table
+// blocks (a block isn't a customer visit, even if one is mistakenly billed).
+const NON_EARNING_SOURCES = new Set(['treatwell', 'fresha', 'block']);
 
 // ── Config ─────────────────────────────────────────────────────────────────
 async function getConfig(db = pool) {

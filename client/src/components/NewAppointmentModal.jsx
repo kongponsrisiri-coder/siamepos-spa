@@ -12,10 +12,11 @@ import { api } from '../api.js';
 // SPA-TREATWELL-COLOR — small inline selector for the Treatwell
 // payment type. Drives the timeline colour (green = full prepay,
 // amber = partial deposit). PATCHes the appointment.
-function TreatwellTypeBlock({ appointment }) {
+function TreatwellTypeBlock({ appointment, marketplace = 'Treatwell' }) {
   const [val, setVal] = useState(appointment.treatwell_payment_type || 'partial');
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
+  const emoji = marketplace === 'Fresha' ? '💜' : '🌐';
   async function save(next) {
     setBusy(true);
     try {
@@ -37,10 +38,10 @@ function TreatwellTypeBlock({ appointment }) {
     }}>
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
         <span style={{ color: val === 'full' ? '#166534' : '#92400e' }}>
-          🌐 <strong>Treatwell payment:</strong>{' '}
+          {emoji} <strong>{marketplace} payment:</strong>{' '}
           {val === 'full'
-            ? 'Customer paid Treatwell in full — no till charge'
-            : 'Customer paid Treatwell a deposit — balance due at till'}
+            ? `Customer paid ${marketplace} in full — no till charge`
+            : `Customer paid ${marketplace} a deposit — balance due at till`}
           {saved && <span style={{ marginLeft: 6 }}>✓</span>}
         </span>
         <div className="row" style={{ gap: 4 }}>
@@ -92,6 +93,7 @@ function PaymentEditBlock({ appointment, onUpdated }) {
     { id: 'card',      label: 'Card',      bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
     { id: 'voucher',   label: '🎁 Voucher', bg: '#dcfce7', border: '#16a34a', text: '#14532d' },
     { id: 'treatwell', label: '🌐 Treatwell', bg: '#fef9c3', border: '#eab308', text: '#854d0e' },
+    { id: 'fresha',    label: '💜 Fresha',  bg: '#ccfbf1', border: '#0d9488', text: '#115e59' },
   ];
 
   async function save() {
@@ -623,7 +625,7 @@ export default function NewAppointmentModal({
           notes:               notes || null,
           status,
           source,
-          treatwell_payment_type: source === 'treatwell' ? twType : null,
+          treatwell_payment_type: ['treatwell', 'fresha'].includes(source) ? twType : null,
           therapist_requested: therapistId ? therapistRequested : false,
         };
         const r = await api.put(`/appointments/${appointment.id}`, body);
@@ -637,7 +639,7 @@ export default function NewAppointmentModal({
           starts_at,
           notes:               notes || null,
           source,
-          treatwell_payment_type: source === 'treatwell' ? twType : null,
+          treatwell_payment_type: ['treatwell', 'fresha'].includes(source) ? twType : null,
           therapist_requested: therapistId ? therapistRequested : false,
         };
         // allow_past=1 — staff bookings may be recorded after the fact
@@ -748,8 +750,8 @@ export default function NewAppointmentModal({
             receptionist flip between full-prepay and partial-deposit
             so the timeline colour is right. Webhook makes a best
             guess; this is the manual override. */}
-        {isEdit && appointment?.source === 'treatwell' && (
-          <TreatwellTypeBlock appointment={appointment} />
+        {isEdit && ['treatwell', 'fresha'].includes(appointment?.source) && (
+          <TreatwellTypeBlock appointment={appointment} marketplace={appointment.source === 'fresha' ? 'Fresha' : 'Treatwell'} />
         )}
 
         {/* SPA-SWAP — swap therapist + room with another booking is now
@@ -1069,8 +1071,10 @@ export default function NewAppointmentModal({
           )}
 
           {/* SPA-SOURCE-DROPDOWN — Booking reference / source. Drives
-              the colour on the timeline. For Treatwell, a second
-              toggle (Full / Partial) appears below. */}
+              the colour on the timeline. For a marketplace (Treatwell /
+              Fresha), a second toggle (Full / Partial) appears below.
+              🚫 Block holds the slot with NO notifications — for owners
+              mirroring external bookings by hand or blocking time off. */}
           <div>
             <label>Booking source</label>
             <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
@@ -1079,6 +1083,8 @@ export default function NewAppointmentModal({
                 { id: 'walkin',    label: '🚶 Walk-in',  border: '#6366f1', bg: '#e0e7ff', text: '#3730a3' },
                 { id: 'online',    label: '🪷 Online',   border: '#8b4513', bg: '#f5e6d3', text: '#5a3a1f' },
                 { id: 'treatwell', label: '🌐 Treatwell', border: '#eab308', bg: '#fef9c3', text: '#854d0e' },
+                { id: 'fresha',    label: '💜 Fresha',   border: '#0d9488', bg: '#ccfbf1', text: '#115e59' },
+                { id: 'block',     label: '🚫 Block',    border: '#4b5563', bg: '#e5e7eb', text: '#1f2937' },
               ].map(s => {
                 const active = source === s.id;
                 return (
@@ -1100,10 +1106,10 @@ export default function NewAppointmentModal({
                 );
               })}
             </div>
-            {/* Treatwell sub-type — only shown when source=treatwell */}
-            {source === 'treatwell' && (
+            {/* Marketplace sub-type — shown for Treatwell / Fresha */}
+            {['treatwell', 'fresha'].includes(source) && (
               <div className="row" style={{ gap: 6, marginTop: 8, alignItems: 'center' }}>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>Treatwell payment:</span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{source === 'fresha' ? 'Fresha' : 'Treatwell'} payment:</span>
                 <button
                   type="button"
                   onClick={() => setTwType('full')}
@@ -1127,7 +1133,9 @@ export default function NewAppointmentModal({
               </div>
             )}
             <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-              The colour of this booking on the timeline depends on the source.
+              {source === 'block'
+                ? '🚫 Block reserves this time with no notifications — no owner email, no customer text. Client is optional.'
+                : 'The colour of this booking on the timeline depends on the source. Only 📞 Phone and online bookings email the owner.'}
             </div>
           </div>
 

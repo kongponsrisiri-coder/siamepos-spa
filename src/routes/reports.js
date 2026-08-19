@@ -71,13 +71,14 @@ async function billsByMethod(baseWhere, params) {
 
 // SPA-REVENUE-CLARITY — split a day's/range's payments into two clear groups so
 // the "by payment method" view is easy to understand and reconciles to revenue:
-//   • money_taken  — real money in today (= Revenue): till cash/card/Treatwell +
-//                    voucher SALES folded into the method they were bought with +
+//   • money_taken  — real money in today (= Revenue): till cash/card +
+//                    marketplace settles (Treatwell/Fresha) + voucher SALES
+//                    folded into the method they were bought with +
 //                    online prepayments.
 //   • already_paid — bills covered by money that came in EARLIER, so not counted
 //                    again today: voucher redemptions, 'external' (already paid),
 //                    and the online-deposit portion at bill close.
-const MONEY_IN_METHODS = new Set(['cash', 'card', 'treatwell']);
+const MONEY_IN_METHODS = new Set(['cash', 'card', 'treatwell', 'fresha']);
 const ALREADY_PAID_METHODS = new Set(['voucher', 'external', 'deposit']);
 function buildPaymentBreakdown(byMethodRows, voucherSalesRows, prepay) {
   const agg = {};

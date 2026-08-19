@@ -42,7 +42,7 @@ function StatCard({ label, value, color }) {
 }
 
 // Payment-method labels for the two-group breakdown.
-const PM_LABEL = { card: '💳 Card', cash: '💵 Cash', treatwell: '🌐 Treatwell', online: '🌐 Online prepayment', split: '⇄ Split', voucher: '🎁 Voucher' };
+const PM_LABEL = { card: '💳 Card', cash: '💵 Cash', treatwell: '🌐 Treatwell', fresha: '💜 Fresha', online: '🌐 Online prepayment', split: '⇄ Split', voucher: '🎁 Voucher' };
 const AP_LABEL = { voucher: '🎁 Voucher redeemed', external: '🧾 Already paid (external)', deposit: '🌐 Deposit (prepaid online)' };
 
 // SPA-DEPOSIT-CLARITY-001 — status chip per deposit row on the Trading card.

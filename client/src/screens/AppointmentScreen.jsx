@@ -39,6 +39,7 @@ const PAYMENT_COLOR = {
   card:      '#db2777',   // pink
   voucher:   '#7c3aed',   // violet  (was green — collided with Treatwell/Online)
   treatwell: '#0891b2',   // cyan    — Treatwell's single signature colour
+  fresha:    '#0d9488',   // teal    — Fresha, Treatwell's marketplace sibling
   split:     '#c026d3',   // magenta
   other:     '#6b7280',
 };
@@ -84,6 +85,8 @@ const SOURCE_STYLE = {
   online:           { bg: '#dcfce7', border: '#16a34a', text: '#14532d' },  // green — website widget
   treatwell_full:   { bg: '#cffafe', border: '#0891b2', text: '#155e75' },  // cyan — Treatwell prepaid (signature)
   treatwell_partial:{ bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },  // amber — Treatwell deposit (balance owed)
+  fresha:           { bg: '#ccfbf1', border: '#0d9488', text: '#115e59' },  // teal — Fresha (marketplace sibling of cyan)
+  block:            { bg: '#d1d5db', border: '#4b5563', text: '#1f2937' },  // dark grey — time block ("dead" slot)
   cancelled:        { bg: '#f3f4f6', border: '#9ca3af', text: '#9ca3af' },  // grey — used by apptStyle, not in legend
   no_show:          { bg: '#fee2e2', border: '#ef4444', text: '#991b1b' },  // red  — used by apptStyle, not in legend
 };
@@ -92,6 +95,7 @@ const PAYMENT_STYLE = {
   card:      { bg: '#fce7f3', border: '#db2777', text: '#9d174d' },  // pink
   voucher:   { bg: '#ede9fe', border: '#7c3aed', text: '#5b21b6' },  // violet — moved off green
   treatwell: { bg: '#cffafe', border: '#0891b2', text: '#155e75' },  // cyan — matches the Treatwell block
+  fresha:    { bg: '#ccfbf1', border: '#0d9488', text: '#115e59' },  // teal — matches the Fresha block
   split:     { bg: '#fae8ff', border: '#c026d3', text: '#86198f' },  // magenta
 };
 // SPA-COLOR-CODES — the timetable's default colours above are the fallback; a
@@ -114,12 +118,14 @@ function styleFromColor(hex) { return { bg: hexToRgba(hex, 0.15), border: hex, t
 
 // The colour CATEGORY for an appointment (shared with the legend + config table).
 function apptCategory(a) {
+  if (a.source === 'block')     return 'block';   // a block never changes colour — even if someone marks it cancelled/paid
   if (a.status === 'cancelled') return 'cancelled';
   if (a.status === 'no_show')   return 'no_show';
   if (a.status === 'completed' && a.payment_method) {
     return PAYMENT_STYLE[a.payment_method] ? a.payment_method : 'split';
   }
   if (a.source === 'treatwell') return a.treatwell_payment_type === 'full' ? 'treatwell_full' : 'treatwell_partial';
+  if (a.source === 'fresha')  return 'fresha';
   if (a.source === 'phone')  return 'phone';
   if (a.source === 'online') return 'online';
   return 'walkin';
@@ -771,6 +777,8 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
             { palette: SOURCE_STYLE, key: 'online',            label: '🪷 Online' },
             { palette: SOURCE_STYLE, key: 'treatwell_full',    label: '🌐 Treatwell · prepaid' },
             { palette: SOURCE_STYLE, key: 'treatwell_partial', label: '🌐 Treatwell · deposit' },
+            { palette: SOURCE_STYLE, key: 'fresha',            label: '💜 Fresha' },
+            { palette: SOURCE_STYLE, key: 'block',             label: '🚫 Blocked' },
           ].map(({ palette, key, label }) => {
             const s = palette[key];
             return (
@@ -787,6 +795,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
             { key: 'card',      label: '💳 Card' },
             { key: 'voucher',   label: '🎁 Voucher' },
             { key: 'treatwell', label: '🌐 Treatwell' },
+            { key: 'fresha',    label: '💜 Fresha' },
             { key: 'split',     label: '⇄ Split' },
           ].map(({ key, label }) => {
             const s = PAYMENT_STYLE[key];

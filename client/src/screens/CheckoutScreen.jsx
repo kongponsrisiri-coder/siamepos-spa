@@ -29,6 +29,11 @@ export default function CheckoutScreen() {
   const [legacyAmount, setLegacyAmount]   = useState('');
   const [showTreatwell, setShowTreatwell] = useState(false);
   const [treatwellAmount, setTreatwellAmount] = useState('');
+  // SPA-FRESHA-TENDER — which marketplace the shared amount panel / one-tap
+  // close is acting for. Treatwell and Fresha behave identically (till takes
+  // £0 on a full prepay; a deposit becomes a "<Name> paid −£X" discount) —
+  // they differ only in the name on the button and in reports.
+  const [mktMethod, setMktMethod] = useState('treatwell');
   // "Already paid / external" — customer paid outside SiamEPOS (a pre-install
   // voucher, or an online/card payment taken before this system). Records a
   // free-text reference and closes the bill without moving money through us.
@@ -148,8 +153,9 @@ export default function CheckoutScreen() {
   // confirmation in their own panels/modals — this just gates the
   // "Cash", "Card" and one-tap Treatwell-full-prepay buttons.
   function payConfirm(method, label) {
-    const amountText = method === 'treatwell'
-      ? `close this bill as paid by ${label}? (Till takes £0; Treatwell settles to your account)`
+    const mktName = { treatwell: 'Treatwell', fresha: 'Fresha' }[method];
+    const amountText = mktName
+      ? `close this bill as paid by ${label}? (Till takes £0; ${mktName} settles to your account)`
       : `take ${fmtMoney(balance)} by ${label} and close this bill?`;
     if (!confirm(`Confirm: ${amountText}`)) return;
     pay(method);
@@ -160,7 +166,7 @@ export default function CheckoutScreen() {
   // record. Warn the operator and require confirmation.
   function applyPercentDiscount(amount, label) {
     const existingReason = bill.discount_reason || '';
-    const hasPartialPayment = existingReason.includes('Treatwell paid') || existingReason.includes('Voucher ');
+    const hasPartialPayment = existingReason.includes('Treatwell paid') || existingReason.includes('Fresha paid') || existingReason.includes('Voucher ');
     if (hasPartialPayment && Number(bill.discount || 0) > 0) {
       if (!window.confirm(
         `The current discount includes a partial payment (${existingReason}).\n\n` +
@@ -511,7 +517,7 @@ export default function CheckoutScreen() {
                   instead of a ragged flex-wrap. auto-fit → 3 per row at ~375px,
                   more on a wide screen. */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 8 }}>
-                {/* Order: Cash · Card · Voucher · Treatwell · Split · Already paid */}
+                {/* Order: Cash · Card · Voucher · Treatwell · Fresha · Split · Already paid */}
                 <button
                   onClick={() => payConfirm('cash', 'CASH')} disabled={busy}
                   style={{ flex: 1, padding: 14, minWidth: 80, background: '#ffedd5', color: '#9a3412', border: '1px solid #f97316', fontWeight: 600 }}
@@ -526,15 +532,16 @@ export default function CheckoutScreen() {
                 >🎁 Voucher</button>
                 <button
                   onClick={() => {
-                    // Smart Treatwell button:
+                    // Smart marketplace button (Treatwell / Fresha share it):
                     //  - Partial deposit booking → open the amount panel
-                    //    so the receptionist can type how much Treatwell
-                    //    paid and collect the rest at the till.
+                    //    so the receptionist can type how much the
+                    //    marketplace paid and collect the rest at the till.
                     //  - Anything else (full prepay, no flag) → one tap
-                    //    closes the bill as method='treatwell'. No amount
-                    //    to type. Bill total stays at full price — that's
-                    //    what Treatwell will settle to the spa minus
-                    //    commission. The till collects £0.
+                    //    closes the bill as that method. No amount to type.
+                    //    Bill total stays at full price — that's what the
+                    //    marketplace settles to the spa minus commission.
+                    //    The till collects £0.
+                    setMktMethod('treatwell');
                     if (appt.treatwell_payment_type === 'partial') {
                       setShowTreatwell(true);
                       setTreatwellAmount(String(total.toFixed(2)));
@@ -546,8 +553,25 @@ export default function CheckoutScreen() {
                   title={appt.treatwell_payment_type === 'partial'
                     ? 'Customer paid Treatwell a deposit only. Tap to enter what Treatwell paid; the rest is due at the till.'
                     : 'Customer paid Treatwell in full. Tap once to close — the till takes £0, Treatwell settles to your account minus commission.'}
-                  style={{ flex: 1, padding: 14, minWidth: 100, background: showTreatwell ? '#eab308' : '#fef9c3', color: showTreatwell ? 'white' : '#854d0e', border: '1px solid #eab308', fontWeight: 600 }}
+                  style={{ flex: 1, padding: 14, minWidth: 100, background: showTreatwell && mktMethod === 'treatwell' ? '#eab308' : '#fef9c3', color: showTreatwell && mktMethod === 'treatwell' ? 'white' : '#854d0e', border: '1px solid #eab308', fontWeight: 600 }}
                 >🌐 Treatwell</button>
+                <button
+                  onClick={() => {
+                    // SPA-FRESHA-TENDER — Fresha mirror of the Treatwell button.
+                    setMktMethod('fresha');
+                    if (appt.treatwell_payment_type === 'partial') {
+                      setShowTreatwell(true);
+                      setTreatwellAmount(String(total.toFixed(2)));
+                    } else {
+                      payConfirm('fresha', 'FRESHA');
+                    }
+                  }}
+                  disabled={busy}
+                  title={appt.treatwell_payment_type === 'partial'
+                    ? 'Customer paid Fresha a deposit only. Tap to enter what Fresha paid; the rest is due at the till.'
+                    : 'Customer paid Fresha in full. Tap once to close — the till takes £0, Fresha settles to your account minus commission.'}
+                  style={{ flex: 1, padding: 14, minWidth: 100, background: showTreatwell && mktMethod === 'fresha' ? '#0d9488' : '#ccfbf1', color: showTreatwell && mktMethod === 'fresha' ? 'white' : '#115e59', border: '1px solid #0d9488', fontWeight: 600 }}
+                >💜 Fresha</button>
                 <button
                   onClick={() => setShowSplit(true)} disabled={busy}
                   style={{ flex: 1, padding: 14, minWidth: 80, background: '#ede9fe', color: '#4c1d95', border: '1px solid #7c3aed', fontWeight: 600 }}
@@ -575,23 +599,26 @@ export default function CheckoutScreen() {
                   </button>
                 </div>
               )}
-              {appt.source === 'treatwell' && !showTreatwell && (() => {
-                // If Treatwell's portion is already recorded (as a full payment or
-                // as a partial discount), don't prompt the operator to tap again —
-                // the bill is either closed or the balance is already adjusted.
-                const twAlreadyRecorded = bill.payment_method === 'treatwell'
-                  || (bill.discount_reason || '').includes('Treatwell paid');
-                if (twAlreadyRecorded) {
+              {['treatwell', 'fresha'].includes(appt.source) && !showTreatwell && (() => {
+                // If the marketplace's portion is already recorded (as a full
+                // payment or as a partial discount), don't prompt the operator to
+                // tap again — the bill is either closed or the balance is already
+                // adjusted.
+                const mktName  = appt.source === 'fresha' ? 'Fresha' : 'Treatwell';
+                const mktEmoji = appt.source === 'fresha' ? '💜' : '🌐';
+                const mktAlreadyRecorded = bill.payment_method === appt.source
+                  || (bill.discount_reason || '').includes(`${mktName} paid`);
+                if (mktAlreadyRecorded) {
                   return (
                     <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, background: '#dcfce7', border: '1px solid #86efac', borderRadius: 6, padding: '8px 12px', color: '#14532d' }}>
-                      ✓ Treatwell payment recorded{bill.discount_reason ? ` (${bill.discount_reason})` : ''} — collect the remaining balance at the till.
+                      ✓ {mktName} payment recorded{bill.discount_reason ? ` (${bill.discount_reason})` : ''} — collect the remaining balance at the till.
                     </div>
                   );
                 }
                 return (
                   <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, background: '#fff7ed', border: '1px solid #fdba74', borderRadius: 6, padding: '8px 12px', color: '#9a3412' }}>
-                    🌐 This appointment came from <strong>Treatwell</strong>{appt.treatwell_payment_type === 'partial' ? ' as a deposit booking' : ''}.
-                    Tap 🌐 Treatwell to record how much Treatwell paid — full closes the bill, partial leaves the balance to collect at the till.
+                    {mktEmoji} This appointment came from <strong>{mktName}</strong>{appt.treatwell_payment_type === 'partial' ? ' as a deposit booking' : ''}.
+                    Tap {mktEmoji} {mktName} to record how much {mktName} paid — full closes the bill, partial leaves the balance to collect at the till.
                   </div>
                 );
               })()}
@@ -603,18 +630,20 @@ export default function CheckoutScreen() {
                 <TreatwellPaymentPanel
                   total={total}
                   busy={busy}
+                  marketplace={mktMethod === 'fresha' ? 'Fresha' : 'Treatwell'}
                   amount={treatwellAmount}
                   setAmount={setTreatwellAmount}
                   defaultsToPartial={appt.treatwell_payment_type === 'partial'}
                   onCancel={() => { setShowTreatwell(false); setTreatwellAmount(''); }}
                   onConfirm={async (amt) => {
+                    const mktName = mktMethod === 'fresha' ? 'Fresha' : 'Treatwell';
                     if (Math.abs(amt - total) < 0.01) {
-                      // Full Treatwell payment — close bill as treatwell-paid.
-                      await pay('treatwell');
+                      // Full marketplace payment — close bill as that method.
+                      await pay(mktMethod);
                     } else {
                       // Partial — record as discount, leave bill open
                       const newDiscount = +(Number(bill.discount || 0) + amt).toFixed(2);
-                      const newReason = [bill.discount_reason, `Treatwell paid −£${amt.toFixed(2)}`].filter(Boolean).join(' + ');
+                      const newReason = [bill.discount_reason, `${mktName} paid −£${amt.toFixed(2)}`].filter(Boolean).join(' + ');
                       const r = await api.put(`/bills/${bill.id}/discount`, { discount: newDiscount, reason: newReason });
                       setBill(r.bill);
                       setShowTreatwell(false);
@@ -843,17 +872,18 @@ export default function CheckoutScreen() {
 // how much Treatwell paid. Full closes the bill as method='treatwell';
 // partial is recorded as a discount with reason "Treatwell paid £X"
 // so the till collects only the remainder.
-function TreatwellPaymentPanel({ total, busy, amount, setAmount, defaultsToPartial, onCancel, onConfirm }) {
+function TreatwellPaymentPanel({ total, busy, amount, setAmount, defaultsToPartial, onCancel, onConfirm, marketplace = 'Treatwell' }) {
   const safe = Math.max(0, Math.min(total, Number(amount) || 0));
   const willClose = Math.abs(safe - total) < 0.01;
   const remainder = +(total - safe).toFixed(2);
+  const emoji = marketplace === 'Fresha' ? '💜' : '🌐';
   return (
     <div style={{ background: '#fef9c3', border: '1px solid #eab308', borderRadius: 8, padding: 10, marginTop: 6 }} className="col">
-      <div style={{ fontSize: 13, fontWeight: 700, color: '#854d0e' }}>🌐 Treatwell payment</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: '#854d0e' }}>{emoji} {marketplace} payment</div>
       <div style={{ fontSize: 11, color: '#7a4f1e', marginBottom: 6 }}>
         {defaultsToPartial
-          ? 'This booking is flagged as a Treatwell deposit. Enter what Treatwell paid; the balance is due at the till.'
-          : 'Enter what Treatwell paid. If they covered the full price, the bill closes; otherwise the rest is due at the till.'}
+          ? `This booking is flagged as a ${marketplace} deposit. Enter what ${marketplace} paid; the balance is due at the till.`
+          : `Enter what ${marketplace} paid. If they covered the full price, the bill closes; otherwise the rest is due at the till.`}
       </div>
       <div className="row" style={{ gap: 6, alignItems: 'center' }}>
         <span style={{ fontSize: 16, fontWeight: 700 }}>£</span>
@@ -873,8 +903,8 @@ function TreatwellPaymentPanel({ total, busy, amount, setAmount, defaultsToParti
       </div>
       <div style={{ fontSize: 12, color: '#7a4f1e', marginTop: 4 }}>
         {willClose
-          ? `✓ Treatwell covered the full £${total.toFixed(2)} — closes the bill, Treatwell settles to your account minus commission.`
-          : `Treatwell paid £${safe.toFixed(2)}. Remaining £${remainder.toFixed(2)} — pick Cash / Card / Split after.`}
+          ? `✓ ${marketplace} covered the full £${total.toFixed(2)} — closes the bill, ${marketplace} settles to your account minus commission.`
+          : `${marketplace} paid £${safe.toFixed(2)}. Remaining £${remainder.toFixed(2)} — pick Cash / Card / Split after.`}
       </div>
       <div className="row" style={{ gap: 6, marginTop: 6 }}>
         <button onClick={onCancel} disabled={busy} style={{ flex: 1, fontSize: 12 }}>Cancel</button>
@@ -884,7 +914,7 @@ function TreatwellPaymentPanel({ total, busy, amount, setAmount, defaultsToParti
           disabled={busy || safe <= 0}
           style={{ flex: 2, fontSize: 13, padding: '8px 12px' }}
         >
-          {busy ? 'Processing…' : willClose ? `Treatwell £${safe.toFixed(2)} & close bill` : `Treatwell paid £${safe.toFixed(2)}`}
+          {busy ? 'Processing…' : willClose ? `${marketplace} £${safe.toFixed(2)} & close bill` : `${marketplace} paid £${safe.toFixed(2)}`}
         </button>
       </div>
     </div>

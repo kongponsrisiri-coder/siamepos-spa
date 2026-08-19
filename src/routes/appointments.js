@@ -288,10 +288,14 @@ router.post('/', async (req, res) => {
     const priceAtBooking = Number(priceRow.rows[0]?.price || 0);
 
     // SPA-SOURCE-DROPDOWN — accept the receptionist's chosen source.
-    // Treatwell payment type only stored when source='treatwell'.
-    const validSource = ['phone', 'walkin', 'staff', 'online', 'treatwell'].includes(source)
+    // SPA-FRESHA-TENDER — 'fresha' joins as a second marketplace (shares the
+    // treatwell_payment_type column for its full/partial flag). 'block' is a
+    // time-table block: holds the slot like a booking but is silent (no owner
+    // email, no client SMS) — used while marketplace mail-forwarding isn't set
+    // up and the owner mirrors external bookings by hand.
+    const validSource = ['phone', 'walkin', 'staff', 'online', 'treatwell', 'fresha', 'block'].includes(source)
       ? source : 'walkin';
-    const validTwType = validSource === 'treatwell' && ['full', 'partial'].includes(treatwell_payment_type)
+    const validTwType = ['treatwell', 'fresha'].includes(validSource) && ['full', 'partial'].includes(treatwell_payment_type)
       ? treatwell_payment_type : null;
 
     // SEPOS-SPA-BUGHUNT #1 (v2) — race-safe insert. The WHERE NOT EXISTS re-check
@@ -345,9 +349,13 @@ router.post('/', async (req, res) => {
     await offlineQueue.enqueue('create_appointment', { localId: appt.id });
     req.app.get('io')?.emit('new_appointment', appt);
 
-    // SPA-OWNER-NOTIFY — alert the spa owner of admin-created bookings
-    // too (phone / walk-in / staff). Fetch the therapist + client
-    // names alongside so the email reads well.
+    // SPA-OWNER-NOTIFY + SPA-NOTIF-SOURCE — the owner email fires ONLY for
+    // real bookings the owner didn't enter with her own hands: the online
+    // widget notifies from its own route; here, only 📞 Phone qualifies.
+    // Walk-ins, staff entries, hand-mirrored marketplace bookings and
+    // time-table blocks are silent (Jinta: "only the real booking, online
+    // and by phone, give her notification"). Client SMS still goes out for
+    // everything EXCEPT blocks — a block has no real customer to text.
     (async () => {
       try {
         const named = await pool.query(
@@ -362,19 +370,23 @@ router.post('/', async (req, res) => {
           [appt.id],
         );
         const n = named.rows[0] || {};
-        await sendOwnerNewBookingEmail({
-          appointment:   appt,
-          client:        { name: n.client_name, email: n.client_email, phone: n.client_phone },
-          treatment:     { name: n.treatment_name, duration_minutes: n.duration_minutes, price: n.price },
-          therapistName: n.therapist_name,
-          source:        validSource,
-        });
+        if (validSource === 'phone') {
+          await sendOwnerNewBookingEmail({
+            appointment:   appt,
+            client:        { name: n.client_name, email: n.client_email, phone: n.client_phone },
+            treatment:     { name: n.treatment_name, duration_minutes: n.duration_minutes, price: n.price },
+            therapistName: n.therapist_name,
+            source:        validSource,
+          });
+        }
         // SPA-SMS-001 — confirmation text for operator-created bookings too.
-        sendBookingSms({
-          client:      { phone: n.client_phone },
-          appointment: appt,
-          treatment:   { name: n.treatment_name },
-        }).catch((e) => console.error('[appointments] sms send failed', e));
+        if (validSource !== 'block') {
+          sendBookingSms({
+            client:      { phone: n.client_phone },
+            appointment: appt,
+            treatment:   { name: n.treatment_name },
+          }).catch((e) => console.error('[appointments] sms send failed', e));
+        }
       } catch (e) { console.error('[appointments] owner notify failed', e); }
     })();
 
@@ -566,13 +578,13 @@ router.put('/:id', async (req, res) => {
     );
     if (!curRes.rows[0]) return res.status(404).json({ error: 'not found' });
     const curr = curRes.rows[0];
-    const validSources = ['phone', 'walkin', 'staff', 'online', 'treatwell'];
+    const validSources = ['phone', 'walkin', 'staff', 'online', 'treatwell', 'fresha', 'block'];
     const newSource = (source !== undefined && validSources.includes(source))
       ? source
       : curr.source;
     let newTwType;
-    if (newSource !== 'treatwell') {
-      // Source changed away from Treatwell → clear the payment type.
+    if (!['treatwell', 'fresha'].includes(newSource)) {
+      // Source changed away from a marketplace → clear the payment type.
       newTwType = null;
     } else if (treatwell_payment_type !== undefined) {
       newTwType = ['full', 'partial'].includes(treatwell_payment_type) ? treatwell_payment_type : null;
