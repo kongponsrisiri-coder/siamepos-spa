@@ -11,10 +11,8 @@ publish = "/Users/korakot/Desktop/siamepos-spa/client/dist"
 publishOrigin = "config"
 commandOrigin = "config"
 base = "/Users/korakot/Desktop/siamepos-spa/client"
-command = "npm install && npm run build"
 
 [build.environment]
-VITE_API_BASE = "https://spa-api.siamepos.co.uk"
 
 [build.processing]
 
