@@ -249,7 +249,11 @@ router.put('/:id', async (req, res) => {
 //   still see the £ that was used.
 router.post('/:id/redeem', async (req, res) => {
   const id = Number(req.params.id);
-  const { amount, bill_id, notes, treatment_id } = req.body || {};
+  // SPA-VOUCHER-UPGRADE-001 — accept_difference: the operator has confirmed a
+  // duration-mismatched session redemption on the till prompt. Without it a
+  // mismatch is refused (which is also what keeps stale tills on the old,
+  // safe behaviour — they never send the flag).
+  const { amount, bill_id, notes, treatment_id, accept_difference } = req.body || {};
 
   // Phase B Option A — gift-voucher balances live in the cloud and could be
   // redeemed on another device, so redeeming offline risks double-spend.
@@ -295,6 +299,9 @@ router.post('/:id/redeem', async (req, res) => {
           sessions_used: Number(r.sessions_used || 0),
           remaining_value: Number(v.remaining_value || 0),
           sessions_remaining: Number(v.sessions_remaining || 0),
+          // NULL (legacy row) counts as covering — pre-upgrade redemptions
+          // always closed the whole bill.
+          covers_bill: r.covers_bill !== false && Number(r.covers_bill) !== 0,
         });
       }
     }
@@ -312,6 +319,23 @@ router.post('/:id/redeem', async (req, res) => {
       return res.status(400).json({ error: 'Voucher has expired' });
     }
 
+    // SPA-VOUCHER-UPGRADE-001 — balance the customer owes at the till right
+    // now (bill total already nets discounts; deposit was pre-paid online).
+    // Decides whether this redemption entitles a whole-bill voucher close
+    // (covers_bill), for both the sessions and monetary paths.
+    let billBalance = null;
+    if (bill_id) {
+      const b = await pool.query(
+        `SELECT b.total, COALESCE(a.deposit_amount, 0) AS deposit_amount
+         FROM bills b JOIN appointments a ON a.id = b.appointment_id
+         WHERE b.id = $1`,
+        [Number(bill_id)],
+      );
+      if (b.rows[0]) {
+        billBalance = +Math.max(0, Number(b.rows[0].total) - Number(b.rows[0].deposit_amount || 0)).toFixed(2);
+      }
+    }
+
     // ── Sessions voucher path ────────────────────────────────────────
     if (v.voucher_type === 'sessions') {
       const sessionsLeft = Number(v.sessions_remaining || 0);
@@ -319,11 +343,27 @@ router.post('/:id/redeem', async (req, res) => {
         await client.query('ROLLBACK');
         return res.status(400).json({ error: 'No sessions remaining on this voucher' });
       }
+      const sessionsValue = Number(v.total_sessions) > 0
+        ? +(Number(v.initial_value) / Number(v.total_sessions)).toFixed(2)
+        : 0;
+
       // Treatment match — relaxed: allow if EITHER the IDs match OR
       // the durations match. So a "10 × 60-min Thai massage" voucher
       // can be used against ANY 60-minute treatment, not just the
       // exact treatment it was sold for. Voucher with treatment_id =
       // NULL is "any treatment" so this whole block is skipped.
+      //
+      // SPA-VOUCHER-UPGRADE-001 — a duration MISMATCH is no longer a dead
+      // end. With the operator's explicit accept_difference confirmation:
+      //   • bill treatment LONGER than the voucher's → the session credits
+      //     its £ value (initial_value / total_sessions) and the difference
+      //     stays DUE (covers_bill = FALSE unless the value covers it).
+      //   • bill treatment SHORTER → allowed with a warning on the till; one
+      //     full session is consumed, bill closes as voucher (Korakot's
+      //     option b — no change given).
+      // Without the flag we refuse with a structured body the new till turns
+      // into its prompt; stale tills just show the message (old behaviour).
+      let coversBill = true;
       if (v.treatment_id && treatment_id && Number(treatment_id) !== Number(v.treatment_id)) {
         const durations = await pool.query(
           'SELECT id, name, duration_minutes FROM treatments WHERE id = ANY($1::int[])',
@@ -331,18 +371,37 @@ router.post('/:id/redeem', async (req, res) => {
         );
         const voucherTreatment = durations.rows.find(t => t.id === Number(v.treatment_id));
         const billTreatment    = durations.rows.find(t => t.id === Number(treatment_id));
-        const durationsMatch = voucherTreatment && billTreatment
-          && Number(voucherTreatment.duration_minutes) === Number(billTreatment.duration_minutes);
+        const vDur = Number(voucherTreatment?.duration_minutes);
+        const bDur = Number(billTreatment?.duration_minutes);
+        const durationsMatch = voucherTreatment && billTreatment && vDur === bDur;
         if (!durationsMatch) {
-          await client.query('ROLLBACK');
-          return res.status(400).json({
-            error: `This voucher is for ${voucherTreatment?.name || 'a specific treatment'} (${voucherTreatment?.duration_minutes || '?'}min). The chosen treatment is ${billTreatment?.duration_minutes || '?'}min — durations don't match.`,
-          });
+          const durationsKnown = Number.isFinite(vDur) && Number.isFinite(bDur);
+          if (!durationsKnown || !accept_difference) {
+            await client.query('ROLLBACK');
+            const direction = durationsKnown ? (bDur > vDur ? 'longer' : 'shorter') : null;
+            const differenceDue = direction === 'longer' && billBalance != null
+              ? +Math.max(0, billBalance - sessionsValue).toFixed(2)
+              : 0;
+            return res.status(400).json({
+              error: `This voucher is for ${voucherTreatment?.name || 'a specific treatment'} (${voucherTreatment?.duration_minutes || '?'}min). The chosen treatment is ${billTreatment?.duration_minutes || '?'}min — durations don't match.`,
+              // Structured fields drive the value-aware prompt on an
+              // updated till; absent/ignored on stale tills.
+              code: durationsKnown ? 'duration_mismatch' : undefined,
+              direction: direction || undefined,
+              session_value: sessionsValue,
+              voucher_duration: durationsKnown ? vDur : undefined,
+              bill_duration: durationsKnown ? bDur : undefined,
+              difference_due: differenceDue,
+            });
+          }
+          // Operator confirmed the mismatch. Longer treatment → the session
+          // covers only its £ value (unless that value ≥ the balance).
+          if (bDur > vDur) {
+            coversBill = billBalance != null && sessionsValue + 0.005 >= billBalance;
+          }
+          // Shorter treatment → coversBill stays TRUE (full session used).
         }
       }
-      const sessionsValue = Number(v.total_sessions) > 0
-        ? +(Number(v.initial_value) / Number(v.total_sessions)).toFixed(2)
-        : 0;
       const newSessionsLeft = sessionsLeft - 1;
       const newRemainingValue = +(sessionsValue * newSessionsLeft).toFixed(2);
       const newStatus = newSessionsLeft <= 0 ? 'used' : 'active';
@@ -355,9 +414,9 @@ router.post('/:id/redeem', async (req, res) => {
       );
       const { rows: rRows } = await client.query(
         `INSERT INTO voucher_redemptions
-           (voucher_id, bill_id, amount_used, sessions_used, redeemed_by, notes)
-         VALUES ($1,$2,$3,1,$4,$5) RETURNING *`,
-        [id, bill_id || null, sessionsValue, req.staff?.id || null, notes || null],
+           (voucher_id, bill_id, amount_used, sessions_used, redeemed_by, notes, covers_bill)
+         VALUES ($1,$2,$3,1,$4,$5,$6) RETURNING *`,
+        [id, bill_id || null, sessionsValue, req.staff?.id || null, notes || null, coversBill],
       );
       await client.query('COMMIT');
       // SPA-LOYALTY-001 L2 — refresh the voucher's Wallet pass (new count).
@@ -368,6 +427,10 @@ router.post('/:id/redeem', async (req, res) => {
         sessions_remaining: newSessionsLeft,
         amount_used: sessionsValue,
         remaining_value: newRemainingValue,
+        covers_bill: coversBill,
+        difference_due: coversBill || billBalance == null
+          ? 0
+          : +Math.max(0, billBalance - sessionsValue).toFixed(2),
       });
     }
 
@@ -381,15 +444,22 @@ router.post('/:id/redeem', async (req, res) => {
     const newRemaining = +(Number(v.remaining_value) - deduct).toFixed(2);
     const newStatus = newRemaining <= 0 ? 'used' : 'active';
 
+    // SPA-VOUCHER-UPGRADE-001 — a monetary redemption covers its bill only
+    // when the deducted £ meets the balance due. A partial redemption gets
+    // covers_bill = FALSE: the till applies it as a discount and collects
+    // the rest, and /pay refuses to close the whole bill as 'voucher'.
+    // No bill attached (bill_id null / unknown) → NULL, treated as covering.
+    const monetaryCovers = billBalance == null ? null : deduct + 0.005 >= billBalance;
+
     await client.query(
       'UPDATE vouchers SET remaining_value = $2, status = $3 WHERE id = $1',
       [id, newRemaining, newStatus],
     );
     const { rows: rRows } = await client.query(
       `INSERT INTO voucher_redemptions
-         (voucher_id, bill_id, amount_used, redeemed_by, notes)
-       VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-      [id, bill_id || null, deduct, req.staff?.id || null, notes || null],
+         (voucher_id, bill_id, amount_used, redeemed_by, notes, covers_bill)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [id, bill_id || null, deduct, req.staff?.id || null, notes || null, monetaryCovers],
     );
     await client.query('COMMIT');
 

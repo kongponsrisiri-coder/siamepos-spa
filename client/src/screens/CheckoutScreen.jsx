@@ -237,11 +237,62 @@ export default function CheckoutScreen() {
       if (v.voucher_type === 'sessions') {
         // Session voucher — one session consumed per redemption.
         // Server validates treatment match (or same-duration treatment).
-        await api.post(`/vouchers/${v.id}/redeem`, {
+        //
+        // SPA-VOUCHER-UPGRADE-001 — duration mismatches are allowed after an
+        // explicit confirm. Longer treatment: the session credits its £ value
+        // and the operator collects the difference. Shorter: one full session
+        // is used, bill closes (no change given).
+        const sessionValue = Number(v.total_sessions) > 0
+          ? +(Number(v.initial_value) / Number(v.total_sessions)).toFixed(2)
+          : 0;
+        const vDur = v.treatment_duration != null ? Number(v.treatment_duration) : null;
+        const bDur = appt.duration_minutes  != null ? Number(appt.duration_minutes)  : null;
+        const mismatch = v.treatment_id && Number(v.treatment_id) !== Number(appt.treatment_id)
+          && vDur != null && bDur != null && vDur !== bDur;
+        let acceptDifference = false;
+        if (mismatch) {
+          const msg = bDur > vDur
+            ? `This voucher's session is ${vDur} min (worth ${fmtMoney(sessionValue)}) but this treatment is ${bDur} min.\n\nUse 1 session as a ${fmtMoney(sessionValue)} credit? ${fmtMoney(Math.max(0, balance - sessionValue))} will remain to pay by cash/card.`
+            : `This treatment is only ${bDur} min but the voucher's sessions are ${vDur} min.\n\nUse 1 FULL ${vDur}-min session for it? No change is given.`;
+          if (!confirm(msg)) { setBusy(false); return; }
+          acceptDifference = true;
+        }
+
+        const redeemBody = {
           bill_id: bill.id,
           treatment_id: appt.treatment_id,
           notes: `Checkout for appointment #${appointmentId}`,
-        });
+          ...(acceptDifference ? { accept_difference: true } : {}),
+        };
+        let r;
+        try {
+          r = await api.post(`/vouchers/${v.id}/redeem`, redeemBody);
+        } catch (e) {
+          // The server saw a mismatch we didn't predict (it compares the
+          // treatments' menu durations). Re-confirm from ITS numbers and retry.
+          if (e.data?.code !== 'duration_mismatch') throw e;
+          const d = e.data;
+          const msg = d.direction === 'longer'
+            ? `This voucher's session is ${d.voucher_duration} min (worth ${fmtMoney(d.session_value)}) but this treatment is ${d.bill_duration} min.\n\nUse 1 session as a ${fmtMoney(d.session_value)} credit? ${fmtMoney(d.difference_due)} will remain to pay by cash/card.`
+            : `This treatment is only ${d.bill_duration} min but the voucher's sessions are ${d.voucher_duration} min.\n\nUse 1 FULL ${d.voucher_duration}-min session for it? No change is given.`;
+          if (!confirm(msg)) { setBusy(false); return; }
+          r = await api.post(`/vouchers/${v.id}/redeem`, { ...redeemBody, accept_difference: true });
+        }
+
+        if (r.covers_bill === false) {
+          // Value credit only — apply it as a discount (same pattern as a
+          // partial monetary voucher) and keep the bill open so the operator
+          // collects the difference by cash/card.
+          const credit = Number(r.amount_used || 0);
+          const newDiscount = +(Number(bill.discount || 0) + credit).toFixed(2);
+          const newReason = [bill.discount_reason, `Voucher ${v.code} 1 session −£${credit.toFixed(2)}`].filter(Boolean).join(' + ');
+          const resp = await api.put(`/bills/${bill.id}/discount`, { discount: newDiscount, reason: newReason });
+          setBill(resp.bill);
+          setShowVoucher(false);
+          setVoucherCode(''); setVoucherLookup(null);
+          setBusy(false);
+          return;
+        }
         await api.post(`/bills/${bill.id}/pay`, { method: 'voucher' });
         navigate('/', { replace: true });
         return;
@@ -739,12 +790,20 @@ export default function CheckoutScreen() {
                   const v = voucherLookup.voucher;
                   const isSessions = v.voucher_type === 'sessions';
                   // Session vouchers redeem by DURATION, not exact treatment:
-                  // a 60-min bundle works on any 60-min treatment. Only block
-                  // when the voucher is tied to a treatment AND the durations
-                  // differ (matches the server-side redeem rule).
+                  // a 60-min bundle works on any 60-min treatment.
+                  // SPA-VOUCHER-UPGRADE-001 — a duration mismatch no longer
+                  // blocks: a longer treatment takes the session's £ value as
+                  // credit (difference stays due); a shorter one uses a full
+                  // session after a warning. payWithVoucher confirms first.
                   const treatmentMismatch = isSessions && v.treatment_id
                     && v.treatment_duration != null && appt.duration_minutes != null
                     && Number(v.treatment_duration) !== Number(appt.duration_minutes);
+                  const sessionValue = Number(v.total_sessions) > 0
+                    ? +(Number(v.initial_value) / Number(v.total_sessions)).toFixed(2)
+                    : 0;
+                  const longerTreatment = treatmentMismatch
+                    && Number(appt.duration_minutes) > Number(v.treatment_duration);
+                  const creditDue = +Math.max(0, balance - sessionValue).toFixed(2);
                   return (
                   <div style={{ marginTop: 10 }} className="col">
                     <div style={{ background: '#1e3a6e', color: 'white', borderRadius: 8, padding: '12px 16px' }}>
@@ -774,8 +833,12 @@ export default function CheckoutScreen() {
                       </div>
                     </div>
                     {treatmentMismatch && (
-                      <div style={{ fontSize: 13, color: '#991b1b', background: '#fee2e2', padding: '8px 12px', borderRadius: 8, marginTop: 8 }}>
-                        ❌ This voucher is for a <strong>{v.treatment_duration}-min</strong> treatment ({v.treatment_name}) — this appointment is {appt.duration_minutes} min, so the durations don't match.
+                      <div style={{ fontSize: 13, color: '#92400e', background: '#fffbeb', border: '1px solid #fcd34d', padding: '8px 12px', borderRadius: 8, marginTop: 8 }}>
+                        {longerTreatment ? (
+                          <>⚠ This voucher's sessions are <strong>{v.treatment_duration} min</strong> (worth {fmtMoney(sessionValue)} each) — this appointment is {appt.duration_minutes} min. Using a session credits <strong>{fmtMoney(Math.min(sessionValue, balance))}</strong>{creditDue > 0 && <>; <strong>{fmtMoney(creditDue)}</strong> stays to pay by cash/card</>}.</>
+                        ) : (
+                          <>⚠ This appointment is only <strong>{appt.duration_minutes} min</strong> but the voucher's sessions are {v.treatment_duration} min ({v.treatment_name}). Redeeming uses one <strong>full session</strong> — no change is given.</>
+                        )}
                       </div>
                     )}
                     {/* Monetary voucher — editable amount. Default is
@@ -795,12 +858,14 @@ export default function CheckoutScreen() {
                       <button
                         className="gold"
                         onClick={() => payWithVoucher()}
-                        disabled={busy || treatmentMismatch}
+                        disabled={busy}
                         style={{ width: '100%', padding: 14, marginTop: 8 }}
                       >
                         {busy
                           ? 'Processing…'
-                          : `Use 1 session & close bill (${Number(v.sessions_remaining || 0) - 1} left)`}
+                          : longerTreatment && creditDue > 0
+                            ? `Use 1 session — credit ${fmtMoney(sessionValue)}, ${fmtMoney(creditDue)} still to pay`
+                            : `Use 1 session & close bill (${Number(v.sessions_remaining || 0) - 1} left)`}
                       </button>
                     )}
                   </div>

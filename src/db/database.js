@@ -381,6 +381,14 @@ async function initSchema() {
     -- here so they're not reversed twice and reports can tell them apart.
     ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS reversed_at TIMESTAMPTZ;
 
+    -- SPA-VOUCHER-UPGRADE-001: whether this redemption entitles the bill to be
+    -- closed as method='voucher'. TRUE = full cover (session matched, or £
+    -- redemption covered the balance). FALSE = value-credit only (e.g. a 60-min
+    -- session used against a 90-min bill) — the difference is still owed, so
+    -- /bills/:id/pay refuses a whole-bill voucher close. NULL = legacy rows
+    -- from before this column, treated as covering (old behaviour).
+    ALTER TABLE voucher_redemptions ADD COLUMN IF NOT EXISTS covers_bill BOOLEAN;
+
     -- SPA-VOUCHER-003: recipient email so the voucher can be delivered
     -- by email at point of sale (also used for a "Resend" later).
     ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS recipient_email TEXT;

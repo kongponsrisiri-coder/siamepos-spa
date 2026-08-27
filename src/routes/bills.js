@@ -345,6 +345,37 @@ router.post('/:id/pay', async (req, res) => {
     const depositAmount = Number(billRow.rows[0].deposit_amount || 0);
     const billTotal   = Number(billRow.rows[0].total);
 
+    // SPA-VOUCHER-UPGRADE-001 — refuse-to-close guard. A whole-bill 'voucher'
+    // close is only legitimate when a redemption that COVERS this bill exists
+    // (covers_bill TRUE, or NULL on legacy rows). If the only redemptions are
+    // value-credits (covers_bill FALSE — e.g. a 60-min session used against a
+    // 90-min bill), the difference is still owed: the till applies the credit
+    // as a discount and collects the rest by cash/card. This stops a stale
+    // till from silently closing the unpaid difference. External-voucher
+    // closes (external_voucher_code set) redeem nothing here, so they pass.
+    if (method === 'voucher' && !externalVoucherCode) {
+      const red = await pool.query(
+        `SELECT covers_bill FROM voucher_redemptions
+          WHERE bill_id = $1 AND reversed_at IS NULL`,
+        [id],
+      );
+      // SQLite returns 0/1/null for the boolean; PG returns false/true/null.
+      const isCredit = (cb) => cb === false || cb === 0;
+      if (red.rows.length === 0) {
+        return res.status(400).json({
+          error: 'No voucher redemption is recorded against this bill. Redeem the voucher first, or use "Already paid / external" for a voucher from outside SiamEPOS.',
+        });
+      }
+      if (red.rows.every((r) => isCredit(r.covers_bill))) {
+        const stillDue = +Math.max(0, billTotal - depositAmount).toFixed(2);
+        return res.status(409).json({
+          error: `The voucher credit is already applied to this bill — £${stillDue.toFixed(2)} is still due. Collect it by cash or card instead of closing as voucher.`,
+          code: 'voucher_credit_only',
+          still_due: stillDue,
+        });
+      }
+    }
+
     // ── Already-paid credit (SPA-PAY-EXT) ────────────────────────────
     // 'external' money = the customer paid BEFORE today (a pre-install
     // voucher, or an online/card payment taken before SiamEPOS). That money

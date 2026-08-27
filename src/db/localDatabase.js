@@ -692,6 +692,7 @@ async function initSchema() {
       notes         TEXT,
       sessions_used INTEGER NOT NULL DEFAULT 0,
       reversed_at   TEXT,
+      covers_bill   INTEGER,
       cloud_id      INTEGER
     );
 
@@ -1078,6 +1079,7 @@ function runMigrations() {
   // voucher_redemptions
   addColumnIfMissing('voucher_redemptions', 'sessions_used', 'INTEGER NOT NULL DEFAULT 0');
   addColumnIfMissing('voucher_redemptions', 'reversed_at',   'TEXT');
+  addColumnIfMissing('voucher_redemptions', 'covers_bill',   'INTEGER'); // SPA-VOUCHER-UPGRADE-001
   addColumnIfMissing('voucher_redemptions', 'cloud_id',      'INTEGER');
 
   // appointment_amendments
