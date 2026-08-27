@@ -10,3 +10,4 @@ client-setups/
 
 # Local Netlify folder
 .netlify
+client/dist-*/
