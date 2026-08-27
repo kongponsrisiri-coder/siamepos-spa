@@ -440,6 +440,9 @@ export default function NewAppointmentModal({
   defaultStartsAt,
   onClose,
   onSaved,
+  // SPA-BLOCK-EASY-001 — when provided (create mode), shows a "just block
+  // this time" escape hatch that hands off to the mini block modal.
+  onBlockInstead,
   // legacy prop name support
   onCreated,
 }) {
@@ -684,6 +687,17 @@ export default function NewAppointmentModal({
           <h3 style={{ margin: 0 }}>{isEdit ? '✏️ Edit Appointment' : '📋 New Appointment'}</h3>
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>✕</button>
         </div>
+
+        {/* SPA-BLOCK-EASY-001 — not booking anyone? One tap to the mini
+            block modal instead of filling this form with a fake treatment. */}
+        {!isEdit && onBlockInstead && (
+          <button
+            type="button"
+            onClick={onBlockInstead}
+            style={{ alignSelf: 'flex-start', fontSize: 12, padding: '5px 12px', background: '#e5e7eb', color: '#1f2937', border: '1px dashed #4b5563', borderRadius: 6, marginBottom: 4 }}>
+            🚫 Just block this time (no booking) →
+          </button>
+        )}
 
         {/* SPA-PAY-001 — deposit badge so the receptionist sees what the
             customer already paid online without opening the bill. */}

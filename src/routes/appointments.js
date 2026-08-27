@@ -158,9 +158,16 @@ router.get('/availability', async (req, res) => {
 // POST /api/appointments
 // body: { client_id, treatment_id, therapist_id?, room_id?, starts_at, notes?, source? }
 router.post('/', async (req, res) => {
-  const { client_id, treatment_id, therapist_id, room_id, starts_at, notes, source, therapist_requested, treatwell_payment_type } = req.body || {};
-  if (!treatment_id || !starts_at) {
+  const { client_id, treatment_id, therapist_id, room_id, starts_at, notes, source, therapist_requested, treatwell_payment_type, duration_minutes } = req.body || {};
+  // SPA-BLOCK-EASY-001 — a 🚫 block needs NO treatment: the one-tap Block
+  // button sends duration_minutes instead, and ends_at is computed from that.
+  // Every other source still requires a treatment.
+  const isBlock = source === 'block';
+  if ((!treatment_id && !isBlock) || !starts_at) {
     return res.status(400).json({ error: 'treatment_id + starts_at required' });
+  }
+  if (isBlock && !treatment_id && !(Number(duration_minutes) > 0)) {
+    return res.status(400).json({ error: 'duration_minutes required for a block without a treatment' });
   }
   // Block past-date bookings unless explicitly allowed (admin "retro"
   // entries for historical records — gated by ?allow_past=1).
@@ -171,20 +178,29 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'cannot book in the past — pass ?allow_past=1 to record a historical booking' });
   }
   try {
-    const tr = await pool.query('SELECT duration_minutes FROM treatments WHERE id = $1', [treatment_id]);
-    if (!tr.rows[0]) return res.status(400).json({ error: 'treatment not found' });
-    const ends_at = new Date(new Date(starts_at).getTime() + tr.rows[0].duration_minutes * 60_000);
+    let durationMins;
+    if (treatment_id) {
+      const tr = await pool.query('SELECT duration_minutes FROM treatments WHERE id = $1', [treatment_id]);
+      if (!tr.rows[0]) return res.status(400).json({ error: 'treatment not found' });
+      durationMins = tr.rows[0].duration_minutes;
+    } else {
+      // Treatment-less block — clamp to something sane (5 min … 24 h).
+      durationMins = Math.min(Math.max(Math.round(Number(duration_minutes)), 5), 24 * 60);
+    }
+    const ends_at = new Date(new Date(starts_at).getTime() + durationMins * 60_000);
 
     // Rota check — if a specific therapist is requested, they must be on
     // shift for the full duration. The timeline already blocks off-shift
     // clicks; this enforces the same rule on the booking form, which
     // otherwise lets the receptionist type any time + pick any therapist.
-    if (therapist_id) {
+    // Blocks skip it: blocking time you're not rostered for is harmless
+    // (and "rest of day" deliberately runs past the shift end).
+    if (therapist_id && !isBlock) {
       const rotaCheck = await isTherapistWorking(therapist_id, starts_at, ends_at.toISOString());
       if (!rotaCheck.working) {
         return res.status(409).json(await buildRotaConflictResponse({
           therapist_id, starts_at, ends_at: ends_at.toISOString(),
-          duration_minutes: tr.rows[0].duration_minutes,
+          duration_minutes: durationMins,
           working_window: rotaCheck.window,
           exclude_id: null,
         }));
@@ -208,7 +224,7 @@ router.post('/', async (req, res) => {
     );
     if (conflict.rows[0]) {
       const conflicting = conflict.rows[0];
-      const duration    = tr.rows[0].duration_minutes;
+      const duration    = durationMins;
 
       // ── Alternative slots for same therapist (up to 5, same day then next day) ──
       // Window bounds anchored to Europe/London (the spa's TZ) — Railway
@@ -283,9 +299,13 @@ router.post('/', async (req, res) => {
     }
 
     // Snapshot the treatment price at booking time so subsequent price
-    // edits don't retroactively change the bill.
-    const priceRow = await pool.query('SELECT price FROM treatments WHERE id = $1', [treatment_id]);
-    const priceAtBooking = Number(priceRow.rows[0]?.price || 0);
+    // edits don't retroactively change the bill. A treatment-less block
+    // has no price — it never reaches checkout.
+    let priceAtBooking = 0;
+    if (treatment_id) {
+      const priceRow = await pool.query('SELECT price FROM treatments WHERE id = $1', [treatment_id]);
+      priceAtBooking = Number(priceRow.rows[0]?.price || 0);
+    }
 
     // SPA-SOURCE-DROPDOWN — accept the receptionist's chosen source.
     // SPA-FRESHA-TENDER — 'fresha' joins as a second marketplace (shares the
@@ -318,7 +338,7 @@ router.post('/', async (req, res) => {
        )
        RETURNING *`;
     const insertParams = [
-      client_id || null, treatment_id, therapist_id || null, room_id || null,
+      client_id || null, treatment_id || null, therapist_id || null, room_id || null,
       starts_at, ends_at, validSource, notes || null, !!therapist_requested,
       priceAtBooking, validTwType,
     ];
@@ -408,7 +428,7 @@ router.put('/:id', async (req, res) => {
     let effectiveDuration = null;
     if (starts_at || treatment_id) {
       const cur = await pool.query(
-        `SELECT a.starts_at, a.treatment_id, t.duration_minutes
+        `SELECT a.starts_at, a.ends_at, a.treatment_id, t.duration_minutes
          FROM appointments a LEFT JOIN treatments t ON t.id = a.treatment_id
          WHERE a.id = $1`, [id]);
       if (!cur.rows[0]) return res.status(404).json({ error: 'not found' });
@@ -418,6 +438,12 @@ router.put('/:id', async (req, res) => {
         const t2 = await pool.query('SELECT duration_minutes FROM treatments WHERE id = $1', [treatment_id]);
         if (!t2.rows[0]) return res.status(400).json({ error: 'treatment not found' });
         dur = t2.rows[0].duration_minutes;
+      }
+      // SPA-BLOCK-EASY-001 — a treatment-less block has no treatment
+      // duration; keep its current length when it's moved.
+      if (dur == null) {
+        dur = Math.max(5, Math.round(
+          (new Date(cur.rows[0].ends_at).getTime() - new Date(cur.rows[0].starts_at).getTime()) / 60_000));
       }
       effectiveDuration = dur;
       newEnds = new Date(new Date(effectiveStart).getTime() + dur * 60_000);
@@ -438,7 +464,7 @@ router.put('/:id', async (req, res) => {
     if (needsConflictCheck) {
       // Fall back to the current row's values for fields not changed.
       const cur = await pool.query(
-        `SELECT a.therapist_id, a.room_id, a.starts_at, a.ends_at, a.treatment_id, t.duration_minutes
+        `SELECT a.therapist_id, a.room_id, a.starts_at, a.ends_at, a.treatment_id, a.source, t.duration_minutes
          FROM appointments a LEFT JOIN treatments t ON t.id = a.treatment_id
          WHERE a.id = $1`, [id]);
       if (!cur.rows[0]) return res.status(404).json({ error: 'not found' });
@@ -449,7 +475,8 @@ router.put('/:id', async (req, res) => {
 
       // Rota check on edit too. Skip if no therapist is assigned (Treatwell
       // imports that haven't been allocated yet, or "Any available" edits).
-      if (checkTherapist) {
+      // Blocks skip it as well — same rule as create (SPA-BLOCK-EASY-001).
+      if (checkTherapist && cur.rows[0].source !== 'block') {
         const startIso = checkStart instanceof Date ? checkStart.toISOString() : String(checkStart);
         const endIso   = checkEnd   instanceof Date ? checkEnd.toISOString()   : String(checkEnd);
         const rotaCheck = await isTherapistWorking(checkTherapist, startIso, endIso);

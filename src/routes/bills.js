@@ -174,12 +174,16 @@ router.post('/', async (req, res) => {
     // the snapshot column existed (already backfilled by the migration,
     // but the COALESCE is belt-and-braces).
     const ap = await pool.query(
-      `SELECT a.id, COALESCE(a.price_at_booking, t.price) AS price, t.name AS treatment_name
+      `SELECT a.id, a.source, COALESCE(a.price_at_booking, t.price) AS price, t.name AS treatment_name
        FROM appointments a LEFT JOIN treatments t ON t.id = a.treatment_id
        WHERE a.id = $1`,
       [appointment_id],
     );
     if (!ap.rows[0]) return res.status(404).json({ error: 'appointment not found' });
+    // SPA-BLOCK-EASY-001 — a time block is not a booking: nothing to bill.
+    if (ap.rows[0].source === 'block') {
+      return res.status(400).json({ error: 'This is a time block, not a booking — there is nothing to check out.' });
+    }
     const subtotal = Number(ap.rows[0].price || 0);
 
     const { rows } = await pool.query(

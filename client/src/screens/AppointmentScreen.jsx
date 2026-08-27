@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { socket } from '../socket.js';
 import NewAppointmentModal from '../components/NewAppointmentModal.jsx';
+import BlockTimeModal from '../components/BlockTimeModal.jsx';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
@@ -142,8 +143,11 @@ function toLocalMins(iso) { const d = new Date(iso); return d.getHours() * 60 + 
 // ── Mobile action sheet ───────────────────────────────────────────────────────
 // Slides up from bottom when owner taps an appointment on their phone.
 // Shows full details + tap-to-call + action buttons.
-function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwapRequest }) {
+function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwapRequest, onRemoveBlock }) {
   const s = apptStyle(appt);
+  // SPA-BLOCK-EASY-001 — a time block is not a booking: no client, no
+  // treatment, no checkout. The sheet collapses to "what is this" + Remove.
+  const isBlock = appt.source === 'block';
   return (
     <>
       {/* Backdrop */}
@@ -171,7 +175,9 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwap
 
         {/* Status + time */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <span className={`status-pill status-${appt.status}`}>{appt.status.replace('_', ' ')}</span>
+          {isBlock
+            ? <span style={{ background: '#e5e7eb', color: '#1f2937', borderRadius: 12, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>blocked</span>
+            : <span className={`status-pill status-${appt.status}`}>{appt.status.replace('_', ' ')}</span>}
           <span style={{ fontSize: 14, color: 'var(--muted)', fontWeight: 600 }}>
             {fmtTime(appt.starts_at)} – {fmtTime(appt.ends_at)}
           </span>
@@ -179,12 +185,12 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwap
 
         {/* Client name */}
         <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--navy)', marginBottom: 4, lineHeight: 1.2 }}>
-          {appt.client_name || 'Walk-in'}
+          {isBlock ? '🚫 Blocked time' : (appt.client_name || 'Walk-in')}
         </div>
 
         {/* Treatment */}
         <div style={{ fontSize: 15, color: '#374151', marginBottom: 6, fontWeight: 500 }}>
-          {appt.treatment_name || '—'}
+          {isBlock ? (appt.notes || 'No reason given') : (appt.treatment_name || '—')}
         </div>
 
         {/* Therapist + room */}
@@ -238,14 +244,23 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwap
           </div>
         )}
 
-        {/* Booking note */}
-        {appt.notes && (
+        {/* Booking note (a block's note already shows as its title line) */}
+        {!isBlock && appt.notes && (
           <div style={{ marginBottom: 12, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 12px', fontSize: 13, color: '#374151' }}>
             📝 {appt.notes}
           </div>
         )}
 
         {/* Action buttons */}
+        {isBlock ? (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => { onRemoveBlock(appt.id); onClose(); }}
+              style={{ flex: 1, minHeight: 52, borderRadius: 12, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5', fontWeight: 700, fontSize: 15 }}>
+              🗑 Remove block
+            </button>
+          </div>
+        ) : (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
             onClick={() => { onEdit(appt); onClose(); }}
@@ -296,6 +311,7 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwap
             </button>
           )}
         </div>
+        )}
       </div>
     </>
   );
@@ -627,8 +643,11 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   const hasDep = depAmt > 0 && a.status !== 'completed';
                   // SPA-SWAP — only active (non-final) appointments can
                   // participate in swap. Completed/cancelled/no-show
-                  // stay static — they're closed events.
-                  const swappable = !['completed', 'cancelled', 'no_show'].includes(a.status);
+                  // stay static — they're closed events. Blocks too:
+                  // swapping a lunch break onto another therapist by
+                  // accident is not a thing anyone wants.
+                  const isBlockAppt = a.source === 'block';
+                  const swappable = !isBlockAppt && !['completed', 'cancelled', 'no_show'].includes(a.status);
                   const isBeingDragged = draggedApptId === a.id;
                   const isDropTarget   = dragOverApptId === a.id && draggedApptId && draggedApptId !== a.id;
                   return (
@@ -677,12 +696,13 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                           speck nobody noticed; the whole point is awareness). */}
                       <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: 700, color: isSel ? 'white' : s.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.3 }}>
                         {isReq && <span style={{ marginRight: 3 }}>⭐</span>}
-                        {a.client_name || 'Walk-in'}
+                        {isBlockAppt ? '🚫 Blocked' : (a.client_name || 'Walk-in')}
                       </div>
-                      {/* Treatment — show if enough vertical space */}
+                      {/* Treatment — show if enough vertical space.
+                          A block shows its reason here instead. */}
                       {height > 36 && (
                         <div style={{ fontSize: 10, color: isSel ? 'rgba(255,255,255,0.85)' : s.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', opacity: 0.9, lineHeight: 1.3 }}>
-                          {a.treatment_name}
+                          {isBlockAppt ? (a.notes || '') : a.treatment_name}
                         </div>
                       )}
                       {/* SPA-REQ-BADGE — the ⭐ next to the client name is the
@@ -834,6 +854,9 @@ export default function AppointmentScreen() {
   const [view, setView]               = useState('timeline');
   const [selected, setSelected]       = useState(null);
   const [modal, setModal]             = useState(null);
+  // SPA-BLOCK-EASY-001 — one-tap time block. null = closed,
+  // {} or { therapistId, time } = open (prefilled from a tapped slot).
+  const [blockModal, setBlockModal]   = useState(null);
   const [allTherapists, setAllTherapists] = useState([]);
   const [weeklyRota, setWeeklyRota]       = useState([]);
   const [rotaOverrides, setRotaOverrides] = useState([]);
@@ -978,6 +1001,15 @@ export default function AppointmentScreen() {
     catch (e) { alert(e.message); }
   }
 
+  // SPA-BLOCK-EASY-001 — removing a block reuses the cancelled status (same
+  // as cancelling a booking: it drops off the timeline and frees the slot),
+  // but with wording that doesn't talk about a "booking".
+  async function removeBlock(id) {
+    if (!window.confirm('Remove this block? The time becomes bookable again.')) return;
+    try { await api.put(`/appointments/${id}/status`, { status: 'cancelled' }); load(); }
+    catch (e) { alert(e.message); }
+  }
+
   async function startCheckout(appt) {
     try {
       await api.post('/bills', { appointment_id: appt.id });
@@ -1055,6 +1087,14 @@ export default function AppointmentScreen() {
                 🔢
               </button>
             )}
+            {/* SPA-BLOCK-EASY-001 — one-tap block, compact like 🔢 */}
+            <button
+              onClick={() => setBlockModal({})}
+              title="Block time"
+              aria-label="Block time"
+              style={{ minWidth: 48, minHeight: 44, fontSize: 17, padding: 0, flexShrink: 0 }}>
+              🚫
+            </button>
             <button
               className="gold"
               onClick={() => setModal({})}
@@ -1079,6 +1119,7 @@ export default function AppointmentScreen() {
             {view === 'timeline' && (
               <button onClick={() => setShowTurnModal(true)} style={{ fontSize: 13 }} title="Set today's column order">🔢 Set turn order</button>
             )}
+            <button onClick={() => setBlockModal({})} style={{ fontSize: 13 }} title="Block time — hold a slot with no booking">🚫 Block</button>
             <button className="primary" onClick={() => setModal({})}>+ New</button>
           </div>
         </div>
@@ -1206,7 +1247,26 @@ export default function AppointmentScreen() {
             />
 
             {/* Desktop action bar (inline, below timeline) */}
-            {selected && !isMobile && (
+            {selected && !isMobile && selected.source === 'block' && (
+              // SPA-BLOCK-EASY-001 — a block's bar: what/when + Remove. No
+              // Edit (the form needs a treatment a block doesn't have), no
+              // Start/Checkout (nothing to bill).
+              <div style={{ background: 'var(--navy)', color: 'white', padding: '11px 16px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>🚫 Blocked time{selected.notes ? ` — ${selected.notes}` : ''}</div>
+                  <div style={{ fontSize: 12, color: 'var(--gold)' }}>
+                    {fmtTime(selected.starts_at)} – {fmtTime(selected.ends_at)}
+                    {selected.therapist_name && ` · ${selected.therapist_name}`}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button style={{ background: '#ef4444', color: 'white', border: 'none', borderRadius: 7, padding: '7px 16px', fontWeight: 600, cursor: 'pointer' }}
+                    onClick={() => { removeBlock(selected.id); }}>🗑 Remove block</button>
+                  <button onClick={() => setSelected(null)} style={{ background: 'transparent', border: '1px solid rgba(255,255,255,0.3)', color: 'white', borderRadius: 7, padding: '7px 12px', cursor: 'pointer' }}>✕</button>
+                </div>
+              </div>
+            )}
+            {selected && !isMobile && selected.source !== 'block' && (
               <div style={{ background: 'var(--navy)', color: 'white', padding: '11px 16px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{selected.client_name || 'Walk-in'} — {selected.treatment_name}</div>
@@ -1279,12 +1339,12 @@ export default function AppointmentScreen() {
                           {fmtTime(a.starts_at)} – {fmtTime(a.ends_at)}
                         </div>
                         <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)', marginTop: 1 }}>
-                          {a.client_name || 'Walk-in'}
+                          {a.source === 'block' ? '🚫 Blocked time' : (a.client_name || 'Walk-in')}
                         </div>
                         <div className="muted" style={{ fontSize: 13, marginTop: 2 }}>
-                          {a.treatment_name}
+                          {a.source === 'block' ? (a.notes || 'No reason given') : a.treatment_name}
                           {a.therapist_name && ` · ${a.therapist_name}`}
-                          {a.room_name && ` · ${a.room_name}`}
+                          {a.source !== 'block' && a.room_name && ` · ${a.room_name}`}
                         </div>
                         {/* Tap-to-call in list view */}
                         {a.client_phone && (
@@ -1294,8 +1354,13 @@ export default function AppointmentScreen() {
                         )}
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
-                        <span className={`status-pill status-${a.status}`}>{a.status.replace('_', ' ')}</span>
-                        {a.status === 'booked' && (
+                        {a.source === 'block'
+                          ? <span style={{ background: '#e5e7eb', color: '#1f2937', borderRadius: 12, padding: '2px 10px', fontSize: 12, fontWeight: 700 }}>blocked</span>
+                          : <span className={`status-pill status-${a.status}`}>{a.status.replace('_', ' ')}</span>}
+                        {a.source === 'block' && a.status === 'booked' && (
+                          <button style={{ minHeight: isMobile ? 44 : 34, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }} onClick={() => removeBlock(a.id)}>🗑 Remove</button>
+                        )}
+                        {a.source !== 'block' && a.status === 'booked' && (
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                             <button style={{ minHeight: isMobile ? 44 : 34 }} onClick={() => setStatus(a.id, 'in_progress')}>Start</button>
                             <button style={{ minHeight: isMobile ? 44 : 34 }} onClick={() => setStatus(a.id, 'no_show')}>No-show</button>
@@ -1331,6 +1396,7 @@ export default function AppointmentScreen() {
           onStatus={setStatus}
           onCheckout={startCheckout}
           onSwapRequest={appt => setSwapFor(appt)}
+          onRemoveBlock={removeBlock}
         />
       )}
 
@@ -1343,6 +1409,24 @@ export default function AppointmentScreen() {
           defaultStartsAt={modal.time || null}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); setSelected(null); load(); }}
+          onBlockInstead={!modal.appointment ? () => {
+            // SPA-BLOCK-EASY-001 — escape hatch from the full form: carry the
+            // tapped slot's therapist + time over to the mini block modal.
+            setBlockModal({ therapistId: modal.therapistId || null, time: modal.time || null });
+            setModal(null);
+          } : undefined}
+        />
+      )}
+
+      {/* SPA-BLOCK-EASY-001 — one-tap time block */}
+      {blockModal !== null && (
+        <BlockTimeModal
+          therapists={orderedTherapistColumns}
+          defaultTherapistId={blockModal.therapistId || null}
+          defaultDate={date}
+          defaultTime={blockModal.time || null}
+          onClose={() => setBlockModal(null)}
+          onSaved={() => { setBlockModal(null); load(); }}
         />
       )}
 
