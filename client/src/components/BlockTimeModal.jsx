@@ -9,6 +9,7 @@ import { api } from '../api.js';
 const pad = (n) => String(n).padStart(2, '0');
 
 const DURATIONS = [
+  { mins: 15,  label: '15 min' },
   { mins: 30,  label: '30 min' },
   { mins: 60,  label: '1 hr' },
   { mins: 90,  label: '1½ hr' },
