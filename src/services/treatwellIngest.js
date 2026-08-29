@@ -181,7 +181,14 @@ async function createBooking(parsed, raw, io) {
     const pr = await pool.query('SELECT price FROM treatments WHERE id = $1', [treatmentId]);
     priceAtBooking = Number(pr.rows[0]?.price || 0);
   }
-  const paymentType = parsed.prepaid ? 'full' : 'full';   // Treatwell marketplace bookings are prepaid
+  // SPA-TREATWELL-UNPAID-001 — repeat-customer Treatwell bookings arrive
+  // "Status Unpaid": no commission, and the VENUE must collect the full price
+  // at the till. Stamping those 'full' let the one-tap £0 Treatwell close
+  // silently lose the money. 'unpaid' only on an explicit signal; anything
+  // else keeps the old full-prepay default (marketplace bookings are
+  // normally prepaid, and over-collecting from a prepaid customer is the
+  // worse failure).
+  const paymentType = (parsed.unpaid && !parsed.prepaid) ? 'unpaid' : 'full';
 
   const insertSql = `
     INSERT INTO appointments

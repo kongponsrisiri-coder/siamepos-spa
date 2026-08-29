@@ -29,6 +29,7 @@ const SCHEMA = {
     room:          { type: ['string', 'null'] },
     price:         { type: ['number', 'null'] },
     prepaid:       { type: ['boolean', 'null'] },
+    unpaid:        { type: ['boolean', 'null'], description: 'true ONLY if the email explicitly says the customer has NOT paid and the venue must collect payment (e.g. "Status Unpaid"); null when unstated' },
   },
   required: ['action', 'ref'],
 };
@@ -106,7 +107,7 @@ async function extractBookingWithAI({ subject = '', text = '', source = '' } = {
     treatment: a.treatment || null, durationMin: a.duration_min || null,
     date: a.date || null, time: a.time || null, startLocal,
     room: a.room || null, price: a.price != null ? Number(a.price) : null,
-    prepaid: !!a.prepaid, cancelReason: null,
+    prepaid: !!a.prepaid, unpaid: !!a.unpaid, cancelReason: null,
     confidence, missing,
   };
 }

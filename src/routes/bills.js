@@ -336,7 +336,8 @@ router.post('/:id/pay', async (req, res) => {
     const billRow = await pool.query(
       `SELECT b.total, b.subtotal, COALESCE(b.discount, 0) AS discount,
               COALESCE(b.tip, 0) AS tip, b.discount_reason, b.appointment_id,
-              COALESCE(a.deposit_amount, 0) AS deposit_amount
+              COALESCE(a.deposit_amount, 0) AS deposit_amount,
+              a.treatwell_payment_type
        FROM bills b JOIN appointments a ON a.id = b.appointment_id
        WHERE b.id = $1`,
       [id],
@@ -344,6 +345,24 @@ router.post('/:id/pay', async (req, res) => {
     if (!billRow.rows[0]) return res.status(404).json({ error: 'not found' });
     const depositAmount = Number(billRow.rows[0].deposit_amount || 0);
     const billTotal   = Number(billRow.rows[0].total);
+
+    // SPA-TREATWELL-UNPAID-001 — refuse-to-close guard for pay-at-venue
+    // marketplace bookings. Treatwell sends repeat-customer bookings as
+    // "Status Unpaid": commission-free, and the VENUE collects the full price
+    // at the till. Closing such a bill as 'treatwell'/'fresha' takes £0 and
+    // silently loses the money, so the server refuses — even from a stale
+    // till. If the marketplace really did settle it, the operator changes the
+    // payment type on the appointment first (Edit modal), then this passes.
+    if ((method === 'treatwell' || method === 'fresha') &&
+        billRow.rows[0].treatwell_payment_type === 'unpaid') {
+      const mkt = method === 'fresha' ? 'Fresha' : 'Treatwell';
+      const due = +Math.max(0, billTotal - depositAmount).toFixed(2);
+      return res.status(409).json({
+        error: `${mkt} has NOT collected payment for this booking — the customer pays at the till. Collect £${due.toFixed(2)} by cash or card. (If ${mkt} really has settled it, change the payment type on the appointment first.)`,
+        code: 'marketplace_unpaid',
+        still_due: due,
+      });
+    }
 
     // SPA-VOUCHER-UPGRADE-001 — refuse-to-close guard. A whole-bill 'voucher'
     // close is only legitimate when a redemption that COVERS this bill exists

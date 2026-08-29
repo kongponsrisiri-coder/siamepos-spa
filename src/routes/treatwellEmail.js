@@ -65,7 +65,7 @@ function detectSource({ subject = '', text = '', from = '' } = {}) {
 }
 
 const FIELDS = ['action', 'ref', 'name', 'email', 'phone', 'treatment', 'durationMin',
-                'date', 'time', 'startLocal', 'room', 'price', 'prepaid', 'cancelReason'];
+                'date', 'time', 'startLocal', 'room', 'price', 'prepaid', 'unpaid', 'cancelReason'];
 
 // Deterministic first; AI only fills the gaps. Prefer deterministic values.
 function recompute(p) {

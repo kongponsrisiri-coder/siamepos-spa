@@ -593,7 +593,12 @@ export default function CheckoutScreen() {
                     //    marketplace settles to the spa minus commission.
                     //    The till collects £0.
                     setMktMethod('treatwell');
-                    if (appt.treatwell_payment_type === 'partial') {
+                    if (appt.treatwell_payment_type === 'unpaid') {
+                      // SPA-TREATWELL-UNPAID-001 — repeat-customer bookings:
+                      // Treatwell took NO money. The server refuses this close
+                      // too; explain instead of firing a doomed request.
+                      setError(`Treatwell has NOT collected payment for this booking — collect ${fmtMoney(balance)} by Cash or Card. (If Treatwell really has settled it, change the payment type on the appointment first.)`);
+                    } else if (appt.treatwell_payment_type === 'partial') {
                       setShowTreatwell(true);
                       setTreatwellAmount(String(total.toFixed(2)));
                     } else {
@@ -601,7 +606,9 @@ export default function CheckoutScreen() {
                     }
                   }}
                   disabled={busy}
-                  title={appt.treatwell_payment_type === 'partial'
+                  title={appt.treatwell_payment_type === 'unpaid'
+                    ? 'Treatwell took NO money for this booking (repeat customer, pay at venue). Collect the full amount by Cash or Card instead.'
+                    : appt.treatwell_payment_type === 'partial'
                     ? 'Customer paid Treatwell a deposit only. Tap to enter what Treatwell paid; the rest is due at the till.'
                     : 'Customer paid Treatwell in full. Tap once to close — the till takes £0, Treatwell settles to your account minus commission.'}
                   style={{ flex: 1, padding: 14, minWidth: 100, background: showTreatwell && mktMethod === 'treatwell' ? '#eab308' : '#fef9c3', color: showTreatwell && mktMethod === 'treatwell' ? 'white' : '#854d0e', border: '1px solid #eab308', fontWeight: 600 }}
@@ -610,7 +617,9 @@ export default function CheckoutScreen() {
                   onClick={() => {
                     // SPA-FRESHA-TENDER — Fresha mirror of the Treatwell button.
                     setMktMethod('fresha');
-                    if (appt.treatwell_payment_type === 'partial') {
+                    if (appt.treatwell_payment_type === 'unpaid') {
+                      setError(`Fresha has NOT collected payment for this booking — collect ${fmtMoney(balance)} by Cash or Card. (If Fresha really has settled it, change the payment type on the appointment first.)`);
+                    } else if (appt.treatwell_payment_type === 'partial') {
                       setShowTreatwell(true);
                       setTreatwellAmount(String(total.toFixed(2)));
                     } else {
@@ -618,7 +627,9 @@ export default function CheckoutScreen() {
                     }
                   }}
                   disabled={busy}
-                  title={appt.treatwell_payment_type === 'partial'
+                  title={appt.treatwell_payment_type === 'unpaid'
+                    ? 'Fresha took NO money for this booking (pay at venue). Collect the full amount by Cash or Card instead.'
+                    : appt.treatwell_payment_type === 'partial'
                     ? 'Customer paid Fresha a deposit only. Tap to enter what Fresha paid; the rest is due at the till.'
                     : 'Customer paid Fresha in full. Tap once to close — the till takes £0, Fresha settles to your account minus commission.'}
                   style={{ flex: 1, padding: 14, minWidth: 100, background: showTreatwell && mktMethod === 'fresha' ? '#0d9488' : '#ccfbf1', color: showTreatwell && mktMethod === 'fresha' ? 'white' : '#115e59', border: '1px solid #0d9488', fontWeight: 600 }}
@@ -663,6 +674,15 @@ export default function CheckoutScreen() {
                   return (
                     <div className="muted" style={{ fontSize: 12, marginTop: 6, lineHeight: 1.5, background: '#dcfce7', border: '1px solid #86efac', borderRadius: 6, padding: '8px 12px', color: '#14532d' }}>
                       ✓ {mktName} payment recorded{bill.discount_reason ? ` (${bill.discount_reason})` : ''} — collect the remaining balance at the till.
+                    </div>
+                  );
+                }
+                if (appt.treatwell_payment_type === 'unpaid') {
+                  // SPA-TREATWELL-UNPAID-001 — repeat-customer / pay-at-venue
+                  // booking: the marketplace took NO money.
+                  return (
+                    <div style={{ fontSize: 13, marginTop: 6, lineHeight: 1.5, background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 6, padding: '8px 12px', color: '#991b1b', fontWeight: 600 }}>
+                      {mktEmoji} This {mktName} booking is <strong>NOT paid</strong> — the customer pays here. Collect <strong>{fmtMoney(balance)}</strong> by Cash or Card.
                     </div>
                   );
                 }

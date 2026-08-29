@@ -163,6 +163,14 @@ function parseTreatwellEmail({ subject = '', text = '' } = {}) {
   const priceMatch = body.match(/Price(?:\s+paid)?\s*:?\s*£\s*([\d.,]+)/i);
   const price = priceMatch ? Number(priceMatch[1].replace(/,/g, '')) : null;
   const prepaid = /\bStatus\s+Prepaid\b/i.test(body) || /pre-?paid booking/i.test(body);
+  // SPA-TREATWELL-UNPAID-001 — Treatwell REPEAT-customer bookings are sent
+  // commission-free AND unpaid: "Status Unpaid ... you must collect the
+  // payment in full after their appointment". Detected explicitly (never
+  // inferred from !prepaid) so unknown emails keep the old full-prepay
+  // default instead of wrongly demanding money from a prepaid customer.
+  const unpaid = /\bStatus\s+Unpaid\b/i.test(body)
+    || /hasn.t been paid for yet/i.test(body)
+    || /must collect the payment in full/i.test(body);
   // Reason is "...following reason: *Customer changed their mind / Booked by
   // mistake*" — bounded by the *…* markers, and wraps across a line.
   const cancelReason = action === 'cancel'
@@ -194,6 +202,7 @@ function parseTreatwellEmail({ subject = '', text = '' } = {}) {
     room,
     price,
     prepaid,
+    unpaid,                       // SPA-TREATWELL-UNPAID-001
     cancelReason,
     confidence,                   // 'high' | 'medium' | 'low'
     missing,                      // [] when fully parsed

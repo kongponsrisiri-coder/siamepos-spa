@@ -228,6 +228,8 @@ router.post('/webhook', async (req, res) => {
     const pt = String(b.payment_type || (b.prepaid ? 'full' : '')).toLowerCase();
     if (pt === 'full' || pt === 'prepaid' || pt === 'paid')      twPaymentType = 'full';
     else if (pt === 'partial' || pt === 'deposit')               twPaymentType = 'partial';
+    // SPA-TREATWELL-UNPAID-001 — pay-at-venue bookings: till must collect all.
+    else if (pt === 'unpaid' || pt === 'none' || pt === 'pay_at_venue' || pt === 'venue') twPaymentType = 'unpaid';
     else if (/tw\s*pre.?pa(id|y)/i.test(service?.name || ''))    twPaymentType = 'full';
     else                                                          twPaymentType = 'full';   // default: full prepay
 

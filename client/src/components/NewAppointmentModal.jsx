@@ -29,18 +29,22 @@ function TreatwellTypeBlock({ appointment, marketplace = 'Treatwell' }) {
   }
   return (
     <div style={{
-      background: val === 'full' ? '#dcfce7' : '#fef3c7',
-      border: `1px solid ${val === 'full' ? '#86efac' : '#fcd34d'}`,
+      // SPA-TREATWELL-UNPAID-001 — third state 'unpaid' (pay at venue,
+      // Treatwell repeat-customer bookings): red, till collects everything.
+      background: val === 'full' ? '#dcfce7' : val === 'unpaid' ? '#fee2e2' : '#fef3c7',
+      border: `1px solid ${val === 'full' ? '#86efac' : val === 'unpaid' ? '#fca5a5' : '#fcd34d'}`,
       borderRadius: 8,
       padding: '10px 14px',
       marginBottom: 14,
       fontSize: 13,
     }}>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
-        <span style={{ color: val === 'full' ? '#166534' : '#92400e' }}>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ color: val === 'full' ? '#166534' : val === 'unpaid' ? '#991b1b' : '#92400e' }}>
           {emoji} <strong>{marketplace} payment:</strong>{' '}
           {val === 'full'
             ? `Customer paid ${marketplace} in full — no till charge`
+            : val === 'unpaid'
+            ? `Customer has NOT paid — collect the full amount at the till`
             : `Customer paid ${marketplace} a deposit — balance due at till`}
           {saved && <span style={{ marginLeft: 6 }}>✓</span>}
         </span>
@@ -55,6 +59,12 @@ function TreatwellTypeBlock({ appointment, marketplace = 'Treatwell' }) {
             disabled={busy || val === 'partial'}
             style={{ fontSize: 11, padding: '4px 10px', background: val === 'partial' ? '#f59e0b' : 'white', color: val === 'partial' ? 'white' : '#92400e', border: '1px solid #f59e0b', fontWeight: 700 }}
           >Partial</button>
+          <button
+            onClick={() => save('unpaid')}
+            disabled={busy || val === 'unpaid'}
+            title="Pay at venue — the marketplace took no money (e.g. a Treatwell repeat-customer booking)"
+            style={{ fontSize: 11, padding: '4px 10px', background: val === 'unpaid' ? '#dc2626' : 'white', color: val === 'unpaid' ? 'white' : '#991b1b', border: '1px solid #dc2626', fontWeight: 700 }}
+          >Unpaid</button>
         </div>
       </div>
     </div>
@@ -1144,6 +1154,17 @@ export default function NewAppointmentModal({
                     border: '1px solid #f59e0b', fontWeight: 700,
                   }}
                 >🟡 Deposit only</button>
+                <button
+                  type="button"
+                  onClick={() => setTwType('unpaid')}
+                  title="Pay at venue — the marketplace took no money (e.g. a Treatwell repeat-customer booking)"
+                  style={{
+                    flex: 1, fontSize: 12, padding: '5px 10px',
+                    background: twType === 'unpaid' ? '#dc2626' : 'white',
+                    color:      twType === 'unpaid' ? 'white'   : '#991b1b',
+                    border: '1px solid #dc2626', fontWeight: 700,
+                  }}
+                >🔴 Unpaid</button>
               </div>
             )}
             <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>

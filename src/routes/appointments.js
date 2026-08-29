@@ -315,7 +315,9 @@ router.post('/', async (req, res) => {
     // up and the owner mirrors external bookings by hand.
     const validSource = ['phone', 'walkin', 'staff', 'online', 'treatwell', 'fresha', 'block'].includes(source)
       ? source : 'walkin';
-    const validTwType = ['treatwell', 'fresha'].includes(validSource) && ['full', 'partial'].includes(treatwell_payment_type)
+    // SPA-TREATWELL-UNPAID-001 — 'unpaid' = pay-at-venue (repeat-customer
+    // marketplace bookings): the till must collect the full price.
+    const validTwType = ['treatwell', 'fresha'].includes(validSource) && ['full', 'partial', 'unpaid'].includes(treatwell_payment_type)
       ? treatwell_payment_type : null;
 
     // SEPOS-SPA-BUGHUNT #1 (v2) — race-safe insert. The WHERE NOT EXISTS re-check
@@ -614,7 +616,8 @@ router.put('/:id', async (req, res) => {
       // Source changed away from a marketplace → clear the payment type.
       newTwType = null;
     } else if (treatwell_payment_type !== undefined) {
-      newTwType = ['full', 'partial'].includes(treatwell_payment_type) ? treatwell_payment_type : null;
+      // SPA-TREATWELL-UNPAID-001 — 'unpaid' joins full/partial.
+      newTwType = ['full', 'partial', 'unpaid'].includes(treatwell_payment_type) ? treatwell_payment_type : null;
     } else {
       newTwType = curr.treatwell_payment_type;
     }
