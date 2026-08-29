@@ -143,7 +143,26 @@ function TopNav() {
       } catch {}
     }
     socket.on('new_appointment', onNewAppointment);
-    return () => socket.off('new_appointment', onNewAppointment);
+    // SPA-CHAT-NOTIFY-002 — pop-up when a visitor messages the website AI
+    // chat. tag per session + renotify:false → the first message of a chat
+    // pops, follow-ups quietly refresh the same notification (no spam).
+    function onWebchatMessage(m) {
+      if (Notification.permission !== 'granted') return;
+      try {
+        const n = new Notification(m?.is_new ? '💬 New website chat' : '💬 Website chat', {
+          body: m?.snippet || 'A visitor is chatting on the website — Admin → AI Chats',
+          tag: `webchat-${m?.session || 'unknown'}`,
+          icon: '/lotus.svg',
+          renotify: false,
+        });
+        n.onclick = () => { window.focus(); n.close(); };
+      } catch {}
+    }
+    socket.on('webchat_message', onWebchatMessage);
+    return () => {
+      socket.off('new_appointment', onNewAppointment);
+      socket.off('webchat_message', onWebchatMessage);
+    };
   }, []);
 
   async function enableNotifications() {
@@ -160,9 +179,9 @@ function TopNav() {
   const bellLabel = notifPerm === 'granted' ? '🔔'
                   : notifPerm === 'denied'  ? '🔕'
                   : '🔔 Enable';
-  const bellTitle = notifPerm === 'granted' ? 'Browser notifications ON for new bookings'
+  const bellTitle = notifPerm === 'granted' ? 'Browser notifications ON for new bookings & website chats'
                   : notifPerm === 'denied'  ? 'Notifications blocked — re-enable in your browser settings (lock icon next to the URL)'
-                  : 'Click to enable browser pop-ups for new bookings';
+                  : 'Click to enable browser pop-ups for new bookings & website chats';
 
   return (
     <header style={{

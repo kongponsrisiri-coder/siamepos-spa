@@ -12,28 +12,38 @@
 const express = require('express');
 const { pool } = require('../db/dbAdapter');
 const orchestrator = require('../services/conciergeOrchestrator');
-const { sendOwnerSms } = require('../services/emailService'); // SPA-CHAT-NOTIFY-001
+const { sendOwnerSms, sendOwnerChatAlertEmail } = require('../services/emailService'); // SPA-CHAT-NOTIFY-001/-002
 
 const router = express.Router();
 
-// SPA-CHAT-NOTIFY-001 — one SMS to the spa owner when a NEW website chat
-// conversation starts, so they can jump in from Admin → AI Chats. The owner's
-// mobile lives in settings.owner_notify_phone (empty/unset = feature off).
-// Deduped by the caller (fires only on a brand-new session). Best-effort — an
-// alert failure must never affect the visitor's reply.
-async function notifyOwnerNewChat(firstMessage) {
+// SPA-CHAT-NOTIFY-001/-002 — alert the shop when a website chat needs eyes:
+//   • EMAIL (the channel that actually works — Brevo is configured on every
+//     tenant) on a brand-new conversation, and again when an old one wakes up
+//     after ≥6h of quiet. One email per chat, never one per message.
+//   • SMS stays as a bonus for any tenant that ever configures Twilio
+//     (settings.owner_notify_phone; dormant otherwise).
+// Best-effort — an alert failure must never affect the visitor's reply.
+async function notifyOwnerChat(firstMessage, { returning = false } = {}) {
+  const snippet = firstMessage.length > 120 ? firstMessage.slice(0, 117) + '…' : firstMessage;
+  try {
+    await sendOwnerChatAlertEmail({ snippet, returning });
+  } catch (e) {
+    console.error('[webchat] owner chat-alert email failed:', e.message);
+  }
   try {
     const { rows } = await pool.query("SELECT value FROM settings WHERE key = 'owner_notify_phone'");
     const phone = (rows[0] && rows[0].value ? String(rows[0].value) : '').trim();
     if (!phone) return;
     const spaName = process.env.SPA_NAME || 'your spa';
-    const snippet = firstMessage.length > 120 ? firstMessage.slice(0, 117) + '…' : firstMessage;
-    const text = `💬 New website chat on ${spaName}: "${snippet}" — open Admin → AI Chats to read or take over.`;
+    const text = `💬 ${returning ? 'Website chat resumed' : 'New website chat'} on ${spaName}: "${snippet}" — open Admin → AI Chats to read or take over.`;
     await sendOwnerSms(phone, text);
   } catch (e) {
-    console.error('[webchat] owner new-chat alert failed:', e.message);
+    console.error('[webchat] owner chat-alert SMS failed:', e.message);
   }
 }
+
+// A chat quiet for this long that wakes up again re-alerts the owner.
+const RETURNING_QUIET_MS = 6 * 60 * 60 * 1000;
 
 // Origins allowed to embed the chat widget. Extend per client site.
 const ORIGIN_WHITELIST = [
@@ -81,18 +91,47 @@ router.post('/message', async (req, res) => {
     if (!text) return res.status(400).json({ error: 'empty message' });
 
     const key = 'web:' + session_id;
-    // SPA-CHAT-NOTIFY-001 — brand-new conversation? Check BEFORE the orchestrator
-    // runs (it creates the row), so we alert the owner exactly once per chat.
+    // SPA-CHAT-NOTIFY-001/-002 — brand-new conversation, or one that's been
+    // quiet ≥6h? Check BEFORE the orchestrator runs (it creates/touches the
+    // row), so we alert the owner exactly once per chat (re-)start.
     let isNewConversation = false;
+    let isReturning = false;
     try {
-      const ex = await pool.query('SELECT 1 FROM concierge_conversations WHERE phone = $1', [key]);
+      const ex = await pool.query('SELECT updated_at FROM concierge_conversations WHERE phone = $1', [key]);
       isNewConversation = ex.rowCount === 0;
+      if (!isNewConversation && ex.rows[0].updated_at) {
+        isReturning = Date.now() - new Date(ex.rows[0].updated_at).getTime() > RETURNING_QUIET_MS;
+      }
     } catch (e) { /* best-effort — skip the alert if the check fails */ }
 
     const out = await orchestrator.handleInboundMessage({ from: key, body: text });
 
-    // Fire-and-forget owner SMS on the first message of a new chat (deduped).
-    if (isNewConversation) notifyOwnerNewChat(text).catch(() => {});
+    // A message only counts as a live chat when it actually landed in a
+    // conversation: the AI handled it, or a human owns the thread (handoff —
+    // that path appends the message below). A dormant tenant (no
+    // ANTHROPIC_API_KEY → skipped before any row exists) must NOT alert on
+    // every message.
+    const chatAlive = !out.skipped || out.reason === 'handoff';
+
+    // SPA-CHAT-NOTIFY-002 — live pop-up on the tills for EVERY visitor message
+    // (the till dedupes by session so it doesn't spam). Same socket the
+    // new-booking pop-up rides.
+    if (chatAlive) {
+      try {
+        const io = req.app.get('io');
+        if (io) io.emit('webchat_message', {
+          session: session_id,
+          snippet: text.length > 120 ? text.slice(0, 117) + '…' : text,
+          is_new: isNewConversation,
+        });
+      } catch (e) { /* never block the visitor */ }
+    }
+
+    // Fire-and-forget owner email/SMS on the first message of a new or
+    // long-quiet chat (deduped).
+    if (chatAlive && (isNewConversation || isReturning)) {
+      notifyOwnerChat(text, { returning: isReturning }).catch(() => {});
+    }
 
     if (out.skipped && out.reason === 'handoff') {
       // A human owns this thread — still record what the visitor said so staff

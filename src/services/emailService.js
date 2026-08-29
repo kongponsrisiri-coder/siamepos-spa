@@ -595,6 +595,54 @@ async function sendOwnerNewBookingEmail({ appointment, client, treatment, therap
   });
 }
 
+// SPA-CHAT-NOTIFY-002 — owner email when a website AI chat starts (or an old
+// one wakes up after hours of quiet). The SMS path (SPA-CHAT-NOTIFY-001) needs
+// Twilio, which no tenant has configured, so email is the channel that
+// actually reaches the shops — same Brevo + spa_email plumbing as the owner
+// new-booking email.
+async function sendOwnerChatAlertEmail({ snippet, returning }) {
+  let ownerEmail = process.env.SPA_EMAIL || null;
+  try {
+    const r = await pool.query(`SELECT value FROM settings WHERE key = 'spa_email'`);
+    if (r.rows[0]?.value) ownerEmail = r.rows[0].value;
+  } catch (e) { /* fall back to env */ }
+  if (!ownerEmail) return { skipped: true, reason: 'no spa_email configured' };
+
+  const spaName = process.env.SPA_NAME || 'SiamEPOS Spa';
+  const safe = (s) => String(s || '').replace(/[<>]/g, '');
+  const title = returning ? '💬 Website chat resumed' : '💬 New website chat';
+
+  const html = `
+<!doctype html>
+<html><body style="margin:0;padding:0;background:#faf7f2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1c1c1c;">
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#faf7f2;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="560" style="max-width:560px;background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 14px rgba(20,38,74,0.08);">
+        <tr><td style="background:#1e3a6e;padding:18px 24px;color:#C9A84C;font-family:Georgia,serif;font-size:18px;font-weight:700;">
+          ${title} — ${spaName}
+        </td></tr>
+        <tr><td style="padding:22px 24px;line-height:1.6;font-size:14px;">
+          <div style="color:#6b6b6b;font-size:13px;margin-bottom:8px;">${returning ? 'A visitor came back to an earlier chat on your website:' : 'A visitor just started chatting with the AI assistant on your website:'}</div>
+          <div style="background:#f1f5f9;border-left:3px solid #1e3a6e;border-radius:0 8px 8px 0;padding:12px 16px;font-size:15px;">“${safe(snippet)}”</div>
+          <div style="margin-top:14px;font-size:13px;color:#6b6b6b;">
+            The assistant replies automatically. To read the conversation or take over yourself, open the till → <strong>Admin → AI Chats</strong>.
+          </div>
+        </td></tr>
+        <tr><td style="padding:14px 24px;background:#faf7f2;border-top:1px solid #e8e3d8;font-size:11px;color:#6b6b6b;">
+          Automatic notification from ${spaName}. You get one email per chat (and one when an old chat wakes up), not one per message.
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`.trim();
+
+  return sendBrevoEmail({
+    to: [{ email: ownerEmail }],
+    subject: `${title} · “${safe(snippet).slice(0, 60)}${snippet.length > 60 ? '…' : ''}”`,
+    html,
+  });
+}
+
 // SEPOS-SPA-OWNER-001 — owner mobile sign-in link (magic link).
 async function sendOwnerLoginLink({ to, url, spaName }) {
   const safe = String(spaName || 'your spa').replace(/[<>]/g, '');
@@ -721,4 +769,5 @@ module.exports = {
   sendLoyaltyProgress,   // SPA-LOYALTY-001
   sendBookingSms,        // SPA-SMS-001
   sendOwnerSms,          // SPA-CHAT-NOTIFY-001
+  sendOwnerChatAlertEmail, // SPA-CHAT-NOTIFY-002
 };
