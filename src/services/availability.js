@@ -77,7 +77,11 @@ function resolveTherapistWindow(therapistId, dateStr, dayOfWeek, weeklyRota, ove
   return { start: Math.min(...starts), end: Math.max(...ends) };
 }
 
-async function computeAvailability({ treatment_id, date, therapist_id }) {
+// exclude_appointment_id (SPA-TREATWELL-RESCHED-ROTA-001): when re-validating
+// a RESCHEDULE, the booking's own old slot must not count as "busy" — without
+// this, moving a booking 30 min within the same day sees its own footprint
+// and wrongly reports its therapist as taken.
+async function computeAvailability({ treatment_id, date, therapist_id, exclude_appointment_id }) {
   const tr = await pool.query(
     'SELECT id, duration_minutes FROM treatments WHERE id = $1 AND active = TRUE',
     [treatment_id],
@@ -157,8 +161,9 @@ async function computeAvailability({ treatment_id, date, therapist_id }) {
     `SELECT therapist_id, room_id, starts_at, ends_at
      FROM appointments
      WHERE status NOT IN ('cancelled','no_show')
-       AND starts_at < $2 AND ends_at > $1`,
-    [dayStart.toISOString(), dayEnd.toISOString()],
+       AND starts_at < $2 AND ends_at > $1
+       AND ($3::int IS NULL OR id <> $3::int)`,
+    [dayStart.toISOString(), dayEnd.toISOString(), exclude_appointment_id || null],
   );
   const busy = apptRes.rows.map((r) => ({
     therapist_id: r.therapist_id,

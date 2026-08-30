@@ -253,7 +253,7 @@ async function createBooking(parsed, raw, io) {
 async function rescheduleBooking(parsed, raw, io) {
   const startIso = toStartIso(parsed);
   const found = await pool.query(
-    `SELECT id, treatment_id FROM appointments WHERE treatwell_booking_id = $1 AND status NOT IN ('cancelled','no_show') ORDER BY id DESC LIMIT 1`,
+    `SELECT id, treatment_id, therapist_id, notes FROM appointments WHERE treatwell_booking_id = $1 AND status NOT IN ('cancelled','no_show') ORDER BY id DESC LIMIT 1`,
     [parsed.ref]);
   const row = found.rows[0];
   if (!row || !startIso) {
@@ -269,12 +269,46 @@ async function rescheduleBooking(parsed, raw, io) {
   }
   durationMin = durationMin || 60;
   const endIso = new Date(new Date(startIso).getTime() + durationMin * 60000).toISOString();
+
+  // SPA-TREATWELL-RESCHED-ROTA-001 — re-validate the assignment at the NEW
+  // time. The old code kept the original therapist blindly, so a Treatwell
+  // reschedule could land a booking on someone's day off (found live:
+  // Sandra @ Highbury moved onto Deer's off-Monday). Now: keep the therapist
+  // if they're on rota + free at the new time; otherwise auto-assign whoever
+  // is; if nobody is, keep the booking (never lose it) but flag it for staff
+  // in the review queue AND in the appointment notes.
+  let newTherapistId = row.therapist_id;
+  let conflictNote = null;
+  if (row.treatment_id) {
+    try {
+      const slots = await computeAvailability({
+        treatment_id: row.treatment_id, date: String(startIso).slice(0, 10),
+        therapist_id: null, exclude_appointment_id: row.id });
+      const slot = slots.find((s) => new Date(s.starts_at).getTime() === new Date(startIso).getTime());
+      const free = slot ? slot.therapists.map(Number) : [];
+      if (!free.includes(Number(row.therapist_id))) {
+        if (free.length) {
+          newTherapistId = free[0];
+        } else {
+          conflictNote = '[CONFLICT — rescheduled: assigned therapist is off/busy at the new time and no one else is free; please reassign]';
+        }
+      }
+    } catch (e) {
+      console.warn('[treatwellIngest] reschedule rota re-check skipped:', e.message);
+    }
+  }
+
+  const newNotes = conflictNote
+    ? [row.notes, conflictNote].filter(Boolean).join(' ')
+    : row.notes;
   const upd = await pool.query(
-    `UPDATE appointments SET starts_at = $2, ends_at = $3 WHERE id = $1 RETURNING *`,
-    [row.id, startIso, endIso]);
+    `UPDATE appointments SET starts_at = $2, ends_at = $3, therapist_id = $4, notes = $5 WHERE id = $1 RETURNING *`,
+    [row.id, startIso, endIso, newTherapistId, newNotes]);
   io?.emit('appointment_updated', upd.rows[0]);
-  await logIngestion({ ...logBase(parsed, raw), status: 'placed', appointmentId: row.id });
-  return { action: 'reschedule', status: 'moved', appointment_id: row.id };
+  await logIngestion({ ...logBase(parsed, raw),
+    status: conflictNote ? 'needs_review' : 'placed', appointmentId: row.id,
+    error: conflictNote });
+  return { action: 'reschedule', status: conflictNote ? 'needs_review' : 'moved', appointment_id: row.id };
 }
 
 // ── CANCEL ───────────────────────────────────────────────────────────────────
