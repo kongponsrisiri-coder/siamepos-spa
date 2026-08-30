@@ -253,7 +253,12 @@ router.post('/:id/redeem', async (req, res) => {
   // duration-mismatched session redemption on the till prompt. Without it a
   // mismatch is refused (which is also what keeps stale tills on the old,
   // safe behaviour — they never send the flag).
-  const { amount, bill_id, notes, treatment_id, accept_difference } = req.body || {};
+  // collect_balance (SPA-VOUCHER-ANYTREAT-001): the operator chose "use 1
+  // session AND collect the bill balance at the till" — the redemption is
+  // recorded covers_bill=FALSE so the bill can only close via a real payment.
+  // Used for any-treatment session vouchers, where the server has no duration
+  // to compare and must not assume the session swallows the bill.
+  const { amount, bill_id, notes, treatment_id, accept_difference, collect_balance } = req.body || {};
 
   // Phase B Option A — gift-voucher balances live in the cloud and could be
   // redeemed on another device, so redeeming offline risks double-spend.
@@ -402,6 +407,11 @@ router.post('/:id/redeem', async (req, res) => {
           // Shorter treatment → coversBill stays TRUE (full session used).
         }
       }
+      // SPA-VOUCHER-ANYTREAT-001 — operator's explicit "collect the balance"
+      // choice overrides any cover decision (found live: Sofie @ Highbury,
+      // any-treatment voucher silently closed a £26 upgrade bill at £0).
+      if (collect_balance) coversBill = false;
+
       const newSessionsLeft = sessionsLeft - 1;
       const newRemainingValue = +(sessionsValue * newSessionsLeft).toFixed(2);
       const newStatus = newSessionsLeft <= 0 ? 'used' : 'active';

@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
+import { toast } from '../toast.js';
 
 function fmtMoney(n) { return `£${Number(n || 0).toFixed(2)}`; }
 
@@ -332,6 +333,33 @@ export default function CheckoutScreen() {
         setBusy(false);
         // Operator picks Cash/Card/Split to close the remaining balance.
       }
+    } catch (e) {
+      setError(e.message || 'Voucher redemption failed');
+      setBusy(false);
+    }
+  }
+
+  // SPA-VOUCHER-ANYTREAT-001 — "use 1 session AND collect the balance".
+  // For an any-treatment session voucher there is no duration to compare, so
+  // the operator decides whether the session covers the whole bill or the
+  // balance is still owed (e.g. Highbury's "session 90 mins" £26 upgrade
+  // items). This path consumes the session WITHOUT closing or discounting the
+  // bill — the operator then takes the balance by Cash/Card as normal.
+  async function paySessionVoucherCollectBalance() {
+    if (!voucherLookup) return;
+    const v = voucherLookup.voucher;
+    setBusy(true); setError('');
+    try {
+      const r = await api.post(`/vouchers/${v.id}/redeem`, {
+        bill_id: bill.id,
+        treatment_id: appt.treatment_id,
+        collect_balance: true,
+        notes: `Checkout for appointment #${appointmentId}`,
+      });
+      toast(`🎟 1 session used (${Number(r.sessions_remaining ?? 0)} left) — now collect ${fmtMoney(balance)} by Cash or Card`);
+      setShowVoucher(false);
+      setVoucherCode(''); setVoucherLookup(null);
+      setBusy(false);
     } catch (e) {
       setError(e.message || 'Voucher redemption failed');
       setBusy(false);
@@ -874,7 +902,34 @@ export default function CheckoutScreen() {
                         onRedeem={(amt) => payWithVoucher(amt)}
                       />
                     )}
-                    {isSessions && (
+                    {/* SPA-VOUCHER-ANYTREAT-001 — an any-treatment session
+                        voucher has no duration to compare, so when the bill
+                        has money on it the OPERATOR decides: does the session
+                        cover everything, or is the balance still owed? (Found
+                        live: a £26 "session 90 mins" upgrade bill silently
+                        closed at £0.) */}
+                    {isSessions && !v.treatment_id && balance > 0 ? (
+                      <div className="col" style={{ gap: 8, marginTop: 8 }}>
+                        <div style={{ fontSize: 13, color: '#92400e', background: '#fffbeb', border: '1px solid #fcd34d', padding: '8px 12px', borderRadius: 8 }}>
+                          🎟 This voucher works on any treatment, so you decide: does one session cover this whole <strong>{fmtMoney(balance)}</strong> bill, or is {fmtMoney(balance)} still to be paid (e.g. an upgrade / longer treatment)?
+                        </div>
+                        <button
+                          className="gold"
+                          onClick={() => paySessionVoucherCollectBalance()}
+                          disabled={busy}
+                          style={{ width: '100%', padding: 14 }}
+                        >
+                          {busy ? 'Processing…' : `Use 1 session + collect ${fmtMoney(balance)} by Cash/Card`}
+                        </button>
+                        <button
+                          onClick={() => payWithVoucher()}
+                          disabled={busy}
+                          style={{ width: '100%', padding: 12, background: '#dcfce7', color: '#14532d', border: '1px solid #16a34a', fontWeight: 600 }}
+                        >
+                          {busy ? 'Processing…' : `Session covers everything — close bill, take £0 (${Number(v.sessions_remaining || 0) - 1} left)`}
+                        </button>
+                      </div>
+                    ) : isSessions && (
                       <button
                         className="gold"
                         onClick={() => payWithVoucher()}
