@@ -186,15 +186,17 @@ function CreateVoucherModal({ onClose, onSaved }) {
   }
 
   async function submit() {
-    if (!value || Number(value) <= 0) { setError('Please enter a sale price.'); return; }
+    // SPA-COMP-VOUCHER-001 — a complimentary voucher may be £0 (pure gift).
+    const isComp = paymentMethod === 'comp';
+    if (isComp ? !(Number(value || 0) >= 0) : (!value || Number(value) <= 0)) { setError('Please enter a sale price.'); return; }
     if (type === 'sessions') {
       if (!sessions || Number(sessions) <= 0) { setError('Please enter the number of sessions.'); return; }
     }
-    if (!paymentMethod) { setError('Please record how the customer paid (Cash / Card / Split).'); return; }
+    if (!paymentMethod) { setError('Please record how the customer paid (Cash / Card / Split — or Comp for a free gift).'); return; }
     setBusy(true); setError('');
     try {
       const body = {
-        value: Number(value),
+        value: Number(value || 0),
         purchased_by: purchasedBy.trim() || null,
         purchased_for: purchasedFor.trim() || null,
         recipient_email: recipientEmail.trim() || null,
@@ -380,6 +382,8 @@ function CreateVoucherModal({ onClose, onSaved }) {
                   { id: 'cash',  label: 'Cash',  bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
                   { id: 'card',  label: 'Card',  bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
                   { id: 'split', label: 'Split', bg: '#ede9fe', border: '#7c3aed', text: '#4c1d95' },
+                  // SPA-COMP-VOUCHER-001 — free gift: £0 taken, kept out of revenue.
+                  { id: 'comp',  label: '🎁 Comp (free)', bg: '#f0fdf4', border: '#16a34a', text: '#14532d' },
                 ].map(m => {
                   const active = paymentMethod === m.id;
                   return (

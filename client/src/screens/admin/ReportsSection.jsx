@@ -344,6 +344,46 @@ export default function ReportsSection() {
               </div>
             )}
           </div>
+
+          {/* SPA-COMP-VOUCHER-001 — complimentary gifts, never in revenue. */}
+          {Boolean(vsData?.comp?.rows?.length) && (
+            <div className="card col">
+              <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                <h3 style={{ margin: 0 }}>🎁 Complimentary vouchers — {vsData.comp.count} · £{Number(vsData.comp.total).toFixed(2)} face value</h3>
+                <span className="muted" style={{ fontSize: 12 }}>Gifts from the shop — not counted in any revenue figure</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      <th style={{ padding: '8px 6px' }}>Date</th>
+                      <th style={{ padding: '8px 6px' }}>Code</th>
+                      <th style={{ padding: '8px 6px' }}>Type</th>
+                      <th style={{ padding: '8px 6px', textAlign: 'right' }}>Face value</th>
+                      <th style={{ padding: '8px 6px', textAlign: 'right' }}>Sessions</th>
+                      <th style={{ padding: '8px 6px' }}>For</th>
+                      <th style={{ padding: '8px 6px' }}>Sold by</th>
+                      <th style={{ padding: '8px 6px' }}>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vsData.comp.rows.map((v) => (
+                      <tr key={v.id} style={{ borderTop: '1px solid var(--border)' }}>
+                        <td style={{ padding: '10px 6px' }}>{String(v.purchased_at).slice(0, 10).split('-').reverse().join('/')}</td>
+                        <td style={{ padding: '10px 6px', fontFamily: 'monospace', fontWeight: 600 }}>{v.code}</td>
+                        <td style={{ padding: '10px 6px' }}>{v.voucher_type === 'sessions' ? `${v.total_sessions} sessions` : 'Monetary'}</td>
+                        <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'monospace' }}>{fmtMoney(v.initial_value)}</td>
+                        <td style={{ padding: '10px 6px', textAlign: 'right', color: 'var(--muted)' }}>{v.voucher_type === 'sessions' ? `${v.sessions_remaining}/${v.total_sessions}` : '—'}</td>
+                        <td style={{ padding: '10px 6px' }}>{v.purchased_for || v.purchased_by || <span className="muted">—</span>}</td>
+                        <td style={{ padding: '10px 6px' }}>{v.sold_by_name || <span className="muted">—</span>}</td>
+                        <td style={{ padding: '10px 6px', textTransform: 'capitalize' }}>{v.status}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
 

@@ -187,7 +187,10 @@ router.get('/rota', requireAuth, async (req, res) => {
     const monthEnd = `${month}-${String(lastDay).padStart(2, '0')}`;
 
     const [therapistsRes, rotaRes, overridesRes, turnOrderRes] = await Promise.all([
-      pool.query("SELECT id, name, role, specialisms FROM therapists WHERE active = TRUE AND role = 'therapist' ORDER BY name"),
+      // SPA-RECEPTION-ROTA-001 — reception joins the rota so the shop can
+      // schedule who covers the front desk. Diary columns still filter to
+      // role='therapist'; reception feeds the "on the desk today" strip.
+      pool.query("SELECT id, name, role, specialisms FROM therapists WHERE active = TRUE AND role IN ('therapist', 'reception') ORDER BY role, name"),
       pool.query(
         `SELECT therapist_id, day_of_week, start_time, end_time
          FROM therapist_availability ORDER BY therapist_id, day_of_week`,

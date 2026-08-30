@@ -18,6 +18,7 @@
 // this so the count = "Send to N opted-in customers in <segment>".
 
 const express = require('express');
+const { requireRole } = require('../middleware/auth'); // SPA-RBAC-AUDIT-001
 const { pool } = require('../db/dbAdapter');
 const { sendBrevoEmail, buildCampaignEmail } = require('../services/emailService');
 
@@ -104,7 +105,7 @@ router.get('/', async (_req, res) => {
 });
 
 // POST /api/campaigns/send  body: { subject, body, segment }
-router.post('/send', async (req, res) => {
+router.post('/send', requireRole('admin', 'manager'), async (req, res) => {
   const { subject, body, segment } = req.body || {};
   if (!subject || !subject.trim()) return res.status(400).json({ error: 'Subject is required' });
   if (!body    || !body.trim())    return res.status(400).json({ error: 'Body is required' });

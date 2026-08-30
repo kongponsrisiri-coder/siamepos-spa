@@ -468,6 +468,10 @@ export default function NewAppointmentModal({
   // ── Form fields ───────────────────────────────────────────────────────────
   const [clientId, setClientId]         = useState(appointment?.client_id || null);
   const [clientName, setClientName]     = useState('');  // display name once selected
+  // SPA-INDICATORS-001 — pregnancy flag from the client's medical record so
+  // the booking form can steer toward a pregnancy-trained therapist. Only the
+  // boolean leaves the medical record (minimal exposure).
+  const [clientPregnant, setClientPregnant] = useState(false);
   const [clientQuery, setClientQuery]   = useState('');
   // New-client form — full intake so the appointment links to a proper
   // client record (not a name+phone stub). Mirrors ClientSearchScreen's
@@ -548,6 +552,17 @@ export default function NewAppointmentModal({
         .catch(() => {});
     }
   }, []);
+
+  // SPA-INDICATORS-001 — whenever a client is chosen, learn their pregnancy
+  // flag so the therapist picker can warn about specialist assignment.
+  useEffect(() => {
+    if (!clientId) { setClientPregnant(false); return; }
+    let alive = true;
+    api.get(`/clients/${clientId}`)
+      .then(r => { if (alive) setClientPregnant(Boolean(r.medical?.pregnancy)); })
+      .catch(() => { if (alive) setClientPregnant(false); });
+    return () => { alive = false; };
+  }, [clientId]);
 
   // ── Load rota for the selected month so the therapist dropdown can
   // filter to "actually on shift on this date". Reuses the same endpoint
@@ -1029,6 +1044,23 @@ export default function NewAppointmentModal({
                   No therapists on shift on this date.
                 </div>
               )}
+              {/* SPA-INDICATORS-001 — pregnancy: steer toward a trained
+                  therapist. Amber when none picked yet; red when the picked
+                  one has no pregnancy specialism listed; green when they do. */}
+              {clientPregnant && (() => {
+                const th = therapistId ? therapists.find(t => t.id === Number(therapistId)) : null;
+                const trained = th && /preg/i.test(th.specialisms || '');
+                const c = !th
+                  ? { bg: '#fffbeb', bd: '#fcd34d', tx: '#92400e', msg: 'Client is pregnant — pick a pregnancy-trained therapist (set training under Admin → Therapists → specialisms).' }
+                  : trained
+                  ? { bg: '#dcfce7', bd: '#86efac', tx: '#14532d', msg: `${th.name} is listed as pregnancy-trained.` }
+                  : { bg: '#fee2e2', bd: '#fca5a5', tx: '#991b1b', msg: `${th.name} has no pregnancy specialism listed — please check before assigning.` };
+                return (
+                  <div style={{ fontSize: 12, marginTop: 6, background: c.bg, border: `1px solid ${c.bd}`, color: c.tx, borderRadius: 8, padding: '7px 10px', fontWeight: 600 }}>
+                    🤰 {c.msg}
+                  </div>
+                );
+              })()}
             </div>
             <div style={{ flex: 1 }}>
               <label>Room</label>
@@ -1194,7 +1226,7 @@ export default function NewAppointmentModal({
           {therapistId && (
             <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer', padding: '6px 10px', background: therapistRequested ? 'rgba(201,168,76,0.12)' : '#f9fafb', borderRadius: 8, border: `1px solid ${therapistRequested ? 'var(--gold)' : 'var(--border)'}` }}>
               <input type="checkbox" style={{ width: 'auto', accentColor: 'var(--gold)' }} checked={therapistRequested} onChange={e => setTherapistRequested(e.target.checked)} />
-              <span style={{ fontSize: 13 }}>⭐ Client specifically requested this therapist</span>
+              <span style={{ fontSize: 13 }}>❤️ Client specifically requested this therapist</span>
             </label>
           )}
 

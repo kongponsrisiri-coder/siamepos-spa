@@ -8,14 +8,16 @@ import { api } from '../api.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 
+// SPA-BLOCK-GRANULAR-001 (client ask) — short chips only. Half day and Rest
+// of day removed: whole/part days off belong in Admin → Rota (day-off
+// override), which the diary respects properly.
 const DURATIONS = [
   { mins: 15,  label: '15 min' },
   { mins: 30,  label: '30 min' },
+  { mins: 45,  label: '45 min' },
   { mins: 60,  label: '1 hr' },
   { mins: 90,  label: '1½ hr' },
   { mins: 120, label: '2 hr' },
-  { mins: 240, label: 'Half day' },
-  { mins: 'rest', label: 'Rest of day' },
 ];
 
 export default function BlockTimeModal({ therapists, defaultTherapistId, defaultDate, defaultTime, onClose, onSaved }) {
@@ -34,13 +36,8 @@ export default function BlockTimeModal({ therapists, defaultTherapistId, default
   const [busy, setBusy]         = useState(false);
   const [error, setError]       = useState('');
 
-  // "Rest of day" = from the start time until 22:00 (past any spa's closing);
-  // an existing later booking will surface as a conflict and the operator
-  // picks a shorter chip instead.
   function effectiveMinutes() {
-    if (duration !== 'rest') return duration;
-    const [h, m] = time.split(':').map(Number);
-    return Math.max(30, 22 * 60 - (h * 60 + (m || 0)));
+    return duration;
   }
 
   async function save() {

@@ -1,6 +1,9 @@
 const express = require('express');
 const { pool } = require('../db/dbAdapter');
 const { requireRole } = require('../middleware/auth');
+// SPA-RBAC-AUDIT-001 — money reports are owner/manager business: every report
+// GET (trading, voucher sales, therapist earnings, Z report, petty-cash list)
+// now requires admin/manager. Reception keeps its deliberate petty-cash POST.
 
 const router = express.Router();
 
@@ -136,7 +139,7 @@ async function loadOnlineDepositDetail(pool, date) {
   return { rows: rows.rows, diary_prepaid: diaryPrepaid.rows[0] };
 }
 
-router.get('/trading', async (req, res) => {
+router.get('/trading', requireRole('admin', 'manager'), async (req, res) => {
   const date = req.query.date || today();
   try {
     const totals = await pool.query(
@@ -212,12 +215,15 @@ router.get('/trading', async (req, res) => {
     // from bill revenue because vouchers are deferred revenue (money in,
     // service not yet delivered). The frontend renders this in its own
     // block alongside the bill totals so the owner can see both.
+    // SPA-COMP-VOUCHER-001 — complimentary ('comp') vouchers are gifts, not
+    // sales: excluded from every money figure, shown in their own bucket.
     const voucherSales = await pool.query(
       `SELECT
          COUNT(*)::int                                AS count,
          COALESCE(SUM(initial_value), 0)::numeric     AS total
        FROM vouchers
-       WHERE purchased_at::date = $1::date`,
+       WHERE purchased_at::date = $1::date
+         AND COALESCE(payment_method, '') <> 'comp'`,
       [date],
     );
     const voucherSalesByMethod = await pool.query(
@@ -227,6 +233,7 @@ router.get('/trading', async (req, res) => {
          COALESCE(SUM(initial_value), 0)::numeric AS revenue
        FROM vouchers
        WHERE purchased_at::date = $1::date
+         AND COALESCE(payment_method, '') <> 'comp'
        GROUP BY COALESCE(payment_method, 'unknown')
        ORDER BY revenue DESC`,
       [date],
@@ -280,6 +287,11 @@ router.get('/trading', async (req, res) => {
       by_kind: byKind.rows,
       by_payment_method: pb.money_taken,   // kept for back-compat; = money_taken
       by_source: bySource.rows,
+      comp_vouchers: (await pool.query(
+        `SELECT COUNT(*)::int AS count, COALESCE(SUM(initial_value), 0)::numeric AS total
+         FROM vouchers WHERE purchased_at::date = $1::date AND payment_method = 'comp'`,
+        [date],
+      )).rows[0],
       voucher_sales: {
         count:  voucherSales.rows[0].count,
         total:  voucherSales.rows[0].total,
@@ -315,7 +327,7 @@ router.get('/trading', async (req, res) => {
 // (voucher_type='sessions'). Both live in `vouchers`; initial_value is the
 // sale price for either type. Itemised rows + totals; aggregation in JS so
 // it runs identically on PG (cloud) and SQLite (till).
-router.get('/voucher-session-sales', async (req, res) => {
+router.get('/voucher-session-sales', requireRole('admin', 'manager'), async (req, res) => {
   const from = req.query.from || today();
   const to   = req.query.to   || today();
   try {
@@ -333,13 +345,18 @@ router.get('/voucher-session-sales', async (req, res) => {
       [from, to],
     );
     const sum = (list) => +list.reduce((s, r) => s + Number(r.initial_value || 0), 0).toFixed(2);
-    const monetary = rowsQ.rows.filter((r) => r.voucher_type !== 'sessions');
-    const sessions = rowsQ.rows.filter((r) => r.voucher_type === 'sessions');
+    // SPA-COMP-VOUCHER-001 — comp vouchers listed in their own group so the
+    // paid totals stay pure money.
+    const comp     = rowsQ.rows.filter((r) => r.payment_method === 'comp');
+    const paid     = rowsQ.rows.filter((r) => r.payment_method !== 'comp');
+    const monetary = paid.filter((r) => r.voucher_type !== 'sessions');
+    const sessions = paid.filter((r) => r.voucher_type === 'sessions');
     res.json({
       identity: await loadIdentity(),
       from, to,
       vouchers: { count: monetary.length, total: sum(monetary), rows: monetary },
       sessions: { count: sessions.length, total: sum(sessions), rows: sessions },
+      comp:     { count: comp.length,     total: sum(comp),     rows: comp },
     });
   } catch (err) {
     console.error('[reports] voucher-session-sales', err);
@@ -348,7 +365,7 @@ router.get('/voucher-session-sales', async (req, res) => {
 });
 
 // GET /api/reports/therapist?from=&to=
-router.get('/therapist', async (req, res) => {
+router.get('/therapist', requireRole('admin', 'manager'), async (req, res) => {
   const { from, to } = req.query;
   try {
     const params = [];
@@ -393,6 +410,7 @@ router.get('/therapist', async (req, res) => {
        FROM vouchers
        WHERE ($1::date IS NULL OR purchased_at::date >= $1::date)
          AND ($2::date IS NULL OR purchased_at::date <= $2::date)
+         AND COALESCE(payment_method, '') <> 'comp'
        GROUP BY COALESCE(payment_method, 'card')`,
       [from || null, to || null],
     );
@@ -421,7 +439,7 @@ router.get('/therapist', async (req, res) => {
 });
 
 // GET /api/reports/z-report?date=
-router.get('/z-report', async (req, res) => {
+router.get('/z-report', requireRole('admin', 'manager'), async (req, res) => {
   const date = req.query.date || today();
   try {
     const totals = await pool.query(
@@ -498,7 +516,8 @@ router.get('/z-report', async (req, res) => {
          COUNT(*)::int                                AS count,
          COALESCE(SUM(initial_value), 0)::numeric     AS total
        FROM vouchers
-       WHERE purchased_at::date = $1::date`,
+       WHERE purchased_at::date = $1::date
+         AND COALESCE(payment_method, '') <> 'comp'`,
       [date],
     );
     const voucherSalesByMethod = await pool.query(
@@ -508,6 +527,7 @@ router.get('/z-report', async (req, res) => {
          COALESCE(SUM(initial_value), 0)::numeric AS revenue
        FROM vouchers
        WHERE purchased_at::date = $1::date
+         AND COALESCE(payment_method, '') <> 'comp'
        GROUP BY COALESCE(payment_method, 'unknown')
        ORDER BY revenue DESC`,
       [date],
@@ -588,7 +608,7 @@ router.get('/z-report', async (req, res) => {
 
 // POST /api/reports/z-report/close  body: { date? }
 // Records that the day was Z-closed. Bills stay queryable; this just stamps.
-router.post('/z-report/close', async (req, res) => {
+router.post('/z-report/close', requireRole('admin', 'manager'), async (req, res) => {
   const date = req.body?.date || today();
   try {
     await pool.query(
@@ -609,7 +629,7 @@ router.post('/z-report/close', async (req, res) => {
 
 // GET /api/reports/petty-cash?date=          — the day's entries + total.
 // GET /api/reports/petty-cash?from=&to=      — a date range (Reports tab).
-router.get('/petty-cash', async (req, res) => {
+router.get('/petty-cash', requireRole('admin', 'manager'), async (req, res) => {
   const { from, to } = req.query;
   const date = req.query.date || today();
   const range = Boolean(from || to);

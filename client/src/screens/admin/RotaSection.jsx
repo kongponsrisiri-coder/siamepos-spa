@@ -120,6 +120,11 @@ function WeeklyTab({ data, onRefresh }) {
                   <tr key={t.id} style={{ borderBottom: '1px solid var(--border)' }}>
                     <td style={{ padding: '10px', fontWeight: 500 }}>
                       {t.name}
+                      {/* SPA-RECEPTION-ROTA-001 — reception staff join the rota
+                          for front-desk cover; tag them so shifts read clearly. */}
+                      {t.role === 'reception' && (
+                        <span style={{ fontSize: 10, marginLeft: 6, background: '#e0e7ff', color: '#3730a3', borderRadius: 8, padding: '1px 7px', fontWeight: 700 }}>🛎 RECEPTION</span>
+                      )}
                       {t.specialisms && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{t.specialisms}</div>}
                     </td>
                     {[0,1,2,3,4,5,6].map(dow => {

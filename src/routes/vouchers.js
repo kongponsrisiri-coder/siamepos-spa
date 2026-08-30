@@ -136,7 +136,10 @@ router.get('/:id', async (req, res) => {
 // body (sessions, new):
 //   { voucher_type:'sessions', value (sale price), total_sessions, treatment_id?, ... }
 //   — treatment_id NULL means "any treatment in the menu".
-const VOUCHER_PAYMENT_METHODS = ['cash', 'card', 'split'];
+// SPA-COMP-VOUCHER-001 — 'comp' = complimentary / gifted by the shop. No
+// money changes hands: reports exclude comp sales from money-taken and show
+// them in their own bucket. Face value may be 0 (e.g. a free-session gift).
+const VOUCHER_PAYMENT_METHODS = ['cash', 'card', 'split', 'comp'];
 
 router.post('/', async (req, res) => {
   const {
@@ -144,7 +147,11 @@ router.post('/', async (req, res) => {
     voucher_type, total_sessions, treatment_id, recipient_email, payment_method,
   } = req.body || {};
   const isSessions = voucher_type === 'sessions';
-  if (!value || Number(value) <= 0) return res.status(400).json({ error: 'value required' });
+  const isComp = payment_method === 'comp';
+  // Comp vouchers may carry £0 (pure free sessions); paid vouchers need a value.
+  if (isComp ? !(Number(value) >= 0) : (!value || Number(value) <= 0)) {
+    return res.status(400).json({ error: 'value required' });
+  }
   if (!payment_method || !VOUCHER_PAYMENT_METHODS.includes(payment_method)) {
     return res.status(400).json({ error: 'payment_method required (cash | card | split)' });
   }

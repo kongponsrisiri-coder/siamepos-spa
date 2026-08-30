@@ -199,9 +199,19 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwap
             {appt.therapist_name && <span>👤 {appt.therapist_name}</span>}
             {Boolean(appt.therapist_requested) && (
               <span style={{ background: 'var(--gold, #C9A84C)', color: '#3a2c05', borderRadius: 4, padding: '0 8px', fontWeight: 800 }}>
-                ⭐ Requested by client
+                ❤️ Requested by client
               </span>
             )}
+            {/* SPA-INDICATORS-001 — pregnancy: green when the assigned
+                therapist lists a pregnancy specialism, red otherwise. */}
+            {Boolean(appt.client_pregnant) && (() => {
+              const trained = /preg/i.test(appt.therapist_specialisms || '');
+              return (
+                <span style={{ background: trained ? '#dcfce7' : '#fee2e2', color: trained ? '#14532d' : '#991b1b', borderRadius: 4, padding: '0 8px', fontWeight: 800 }}>
+                  🤰 Pregnancy{trained ? ' — trained therapist ✓' : ' — check therapist training'}
+                </span>
+              );
+            })()}
             {appt.room_name      && <span>🚪 {appt.room_name}</span>}
           </div>
         )}
@@ -470,7 +480,9 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
           <div style={{ width: LBL_W_USE, flexShrink: 0 }} />
           {columns.map((col, ci) => {
             const activeAppts = col.appts.filter(a => !['cancelled','no_show'].includes(a.status));
-            const workedMins  = activeAppts.reduce((sum, a) =>
+            // SPA-BLOCK-HOURS-001 (client ask) — blocked time is not work:
+            // keep it out of the "Xh booked" total.
+            const workedMins  = activeAppts.filter(a => a.source !== 'block').reduce((sum, a) =>
               sum + (new Date(a.ends_at) - new Date(a.starts_at)) / 60000, 0);
             const workedLabel = workedMins >= 60
               ? `${Math.floor(workedMins / 60)}h${workedMins % 60 ? ` ${workedMins % 60}m` : ''}`
@@ -647,6 +659,11 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   // swapping a lunch break onto another therapist by
                   // accident is not a thing anyone wants.
                   const isBlockAppt = a.source === 'block';
+                  // SPA-INDICATORS-001 — ⭐ extended time: the booking runs
+                  // longer than its treatment's standard duration (client ask;
+                  // ❤️ = requested therapist, ⭐ = extended).
+                  const isExt = !isBlockAppt && a.duration_minutes != null
+                    && (endM - startM) > Number(a.duration_minutes);
                   const swappable = !isBlockAppt && !['completed', 'cancelled', 'no_show'].includes(a.status);
                   const isBeingDragged = draggedApptId === a.id;
                   const isDropTarget   = dragOverApptId === a.id && draggedApptId && draggedApptId !== a.id;
@@ -695,7 +712,11 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                           client asked for THIS therapist by name (was a 9px
                           speck nobody noticed; the whole point is awareness). */}
                       <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: 700, color: isSel ? 'white' : s.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.3 }}>
-                        {isReq && <span style={{ marginRight: 3 }}>⭐</span>}
+                        {isReq && <span style={{ marginRight: 3 }}>❤️</span>}
+                        {isExt && <span style={{ marginRight: 3 }} title="Extended time — longer than the standard treatment">⭐</span>}
+                        {Boolean(a.client_pregnant) && !isBlockAppt && (
+                          <span style={{ marginRight: 3 }} title="Pregnancy — assign a pregnancy-trained therapist">🤰</span>
+                        )}
                         {isBlockAppt ? '🚫 Blocked' : (a.client_name || 'Walk-in')}
                       </div>
                       {/* Treatment — show if enough vertical space.
@@ -828,7 +849,13 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
           })}
           <span style={{ width: 1, height: 14, background: 'var(--border)', display: 'inline-block' }} />
           <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10 }}>⭐</span> Therapist requested
+            <span style={{ fontSize: 10 }}>❤️</span> Therapist requested
+          </span>
+          <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 10 }}>⭐</span> Extended time
+          </span>
+          <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 10 }}>🤰</span> Pregnancy — specialist
           </span>
           {/* SPA-DEPOSIT-BADGE legend */}
           <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1185,6 +1212,26 @@ export default function AppointmentScreen() {
                 </span>
               </>
             )}
+            {/* SPA-RECEPTION-ROTA-001 — who covers the front desk today.
+                Scheduled in Admin → Rota like any shift; reception-role staff
+                only (they take no bookings so they get no diary column). */}
+            {(() => {
+              const onDesk = allTherapists
+                .filter(t => t.role === 'reception' && isWorkingOn(t.id, date, weeklyRota, rotaOverrides))
+                .map(t => {
+                  const h = getWorkHours(t.id, date, weeklyRota, rotaOverrides);
+                  return h ? `${t.name} (${h.start}–${h.end})` : t.name;
+                });
+              if (!onDesk.length) return null;
+              return (
+                <>
+                  <span style={{ width: 1, height: 14, background: '#e0c884' }} />
+                  <span style={{ color: '#1e3a6e', fontWeight: 700 }} title="Reception cover today — set under Admin → Rota">
+                    🛎 Reception: {onDesk.join(' · ')}
+                  </span>
+                </>
+              );
+            })()}
           </div>
         );
       })()}
@@ -1275,7 +1322,7 @@ export default function AppointmentScreen() {
                     {selected.therapist_name && ` · ${selected.therapist_name}`}
                     {Boolean(selected.therapist_requested) && (
                       <span style={{ marginLeft: 6, background: 'var(--gold)', color: '#3a2c05', borderRadius: 4, padding: '1px 8px', fontWeight: 800 }}>
-                        ⭐ Requested by client
+                        ❤️ Requested by client
                       </span>
                     )}
                     {selected.room_name && ` · ${selected.room_name}`}

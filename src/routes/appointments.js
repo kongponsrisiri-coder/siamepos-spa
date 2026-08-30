@@ -114,12 +114,15 @@ router.get('/', async (req, res) => {
               t.name AS treatment_name, t.duration_minutes,
               c.name AS client_name, c.phone AS client_phone,
               th.name AS therapist_name,
+              th.specialisms AS therapist_specialisms,
               r.name AS room_name,
               b.payment_method, b.payment_status AS bill_status, b.total AS bill_total,
-              b.external_voucher_code
+              b.external_voucher_code,
+              COALESCE(cm.pregnancy, FALSE) AS client_pregnant
        FROM appointments a
        LEFT JOIN treatments t  ON t.id  = a.treatment_id
        LEFT JOIN clients    c  ON c.id  = a.client_id
+       LEFT JOIN client_medical cm ON cm.client_id = a.client_id
        LEFT JOIN therapists th ON th.id = a.therapist_id
        LEFT JOIN rooms      r  ON r.id  = a.room_id
        LEFT JOIN bills b ON b.id = (

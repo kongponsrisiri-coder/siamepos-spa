@@ -1,4 +1,5 @@
 const express = require('express');
+const { requireRole } = require('../middleware/auth'); // SPA-RBAC-AUDIT-001
 const { pool } = require('../db/dbAdapter');
 
 const router = express.Router();
@@ -48,7 +49,7 @@ router.get('/categories', async (_req, res) => {
 });
 
 // POST /api/treatments
-router.post('/', async (req, res) => {
+router.post('/', requireRole('admin', 'manager'), async (req, res) => {
   const { category_id, name, duration_minutes, price, description, online_bookable } = req.body || {};
   if (!name || !duration_minutes || price == null) {
     return res.status(400).json({ error: 'name, duration_minutes, price required' });
@@ -67,7 +68,7 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/treatments/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireRole('admin', 'manager'), async (req, res) => {
   const id = Number(req.params.id);
   const { category_id, name, duration_minutes, price, description, active, online_bookable } = req.body || {};
   try {
@@ -95,7 +96,7 @@ router.put('/:id', async (req, res) => {
 //   default          — soft delete (active=false). Preserves history.
 //   ?hard=1          — permanent removal. Fails 409 if appointments
 //                      reference the row (operator must use soft delete).
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
   const id = Number(req.params.id);
   const hard = req.query.hard === '1' || req.query.hard === 'true';
   try {
@@ -128,7 +129,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // POST /api/treatments/categories
-router.post('/categories', async (req, res) => {
+router.post('/categories', requireRole('admin', 'manager'), async (req, res) => {
   const { name, sort_order } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
   try {
@@ -144,7 +145,7 @@ router.post('/categories', async (req, res) => {
 });
 
 // PUT /api/treatments/categories/:id — rename / reorder a category
-router.put('/categories/:id', async (req, res) => {
+router.put('/categories/:id', requireRole('admin', 'manager'), async (req, res) => {
   const id = Number(req.params.id);
   const { name, sort_order } = req.body || {};
   try {
@@ -165,7 +166,7 @@ router.put('/categories/:id', async (req, res) => {
 
 // DELETE /api/treatments/categories/:id — removes the category and
 // moves any treatments using it to category_id=NULL (uncategorised).
-router.delete('/categories/:id', async (req, res) => {
+router.delete('/categories/:id', requireRole('admin', 'manager'), async (req, res) => {
   const id = Number(req.params.id);
   // Single pooled client so this is a real atomic transaction — running
   // BEGIN/COMMIT through pool.query() spreads the statements across
