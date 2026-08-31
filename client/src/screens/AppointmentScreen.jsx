@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api.js';
+import { api, getStaff } from '../api.js';
 import { socket } from '../socket.js';
 import NewAppointmentModal from '../components/NewAppointmentModal.jsx';
 import BlockTimeModal from '../components/BlockTimeModal.jsx';
@@ -1222,6 +1222,12 @@ export default function AppointmentScreen() {
                   const h = getWorkHours(t.id, date, weeklyRota, rotaOverrides);
                   return h ? `${t.name} (${h.start}–${h.end})` : t.name;
                 });
+              // SPA-AUDIT-TRAIL-001 — the reception account signed in on THIS
+              // till also counts as on duty, rostered or not.
+              const me = getStaff();
+              if (me?.role === 'reception' && !onDesk.some(n => n.startsWith(me.name))) {
+                onDesk.push(`${me.name} (on this till)`);
+              }
               if (!onDesk.length) return null;
               return (
                 <>

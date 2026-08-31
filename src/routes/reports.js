@@ -287,6 +287,41 @@ router.get('/trading', requireRole('admin', 'manager'), async (req, res) => {
       by_kind: byKind.rows,
       by_payment_method: pb.money_taken,   // kept for back-compat; = money_taken
       by_source: bySource.rows,
+      // SPA-AUDIT-TRAIL-001 — front-desk visibility on the daily report:
+      // who was rostered on reception (override wins over weekly rota), and
+      // who actually created bookings that day.
+      on_duty_receptionists: await (async () => {
+        const dow = new Date(date + 'T12:00:00').getDay();
+        const r = await pool.query(
+          `SELECT th.id, th.name,
+                  ov.is_working AS ov_working, ov.start_time AS ov_start, ov.end_time AS ov_end,
+                  wa.start_time AS wk_start, wa.end_time AS wk_end
+           FROM therapists th
+           LEFT JOIN therapist_rota_overrides ov ON ov.therapist_id = th.id AND ov.date = $1::date
+           LEFT JOIN therapist_availability  wa ON wa.therapist_id = th.id AND wa.day_of_week = $2
+           WHERE th.role = 'reception' AND th.active = TRUE
+           ORDER BY th.name`,
+          [date, dow],
+        );
+        const seen = new Set();
+        return r.rows.filter((x) => {
+          if (seen.has(x.id)) return false; seen.add(x.id);
+          return x.ov_working != null ? Boolean(x.ov_working) : x.wk_start != null;
+        }).map((x) => ({
+          id: x.id, name: x.name,
+          hours: (x.ov_working && x.ov_start) ? `${String(x.ov_start).slice(0,5)}–${String(x.ov_end).slice(0,5)}`
+               : x.wk_start ? `${String(x.wk_start).slice(0,5)}–${String(x.wk_end).slice(0,5)}` : null,
+        }));
+      })(),
+      booking_creators: (await pool.query(
+        `SELECT COALESCE(cb.name, 'System (' || a.source || ')') AS name, COUNT(*)::int AS bookings
+         FROM appointments a
+         LEFT JOIN therapists cb ON cb.id = a.created_by
+         WHERE a.created_at::date = $1::date
+         GROUP BY COALESCE(cb.name, 'System (' || a.source || ')')
+         ORDER BY bookings DESC`,
+        [date],
+      )).rows,
       comp_vouchers: (await pool.query(
         `SELECT COUNT(*)::int AS count, COALESCE(SUM(initial_value), 0)::numeric AS total
          FROM vouchers WHERE purchased_at::date = $1::date AND payment_method = 'comp'`,
@@ -327,6 +362,56 @@ router.get('/trading', requireRole('admin', 'manager'), async (req, res) => {
 // (voucher_type='sessions'). Both live in `vouchers`; initial_value is the
 // sale price for either type. Itemised rows + totals; aggregation in JS so
 // it runs identically on PG (cloud) and SQLite (till).
+// SPA-AUDIT-TRAIL-001 — GET /api/reports/booking-audit?from&to&staff_id
+// Who created / edited each booking, plus per-staff totals. staff_id filters
+// to one creator. System bookings (widget / marketplace ingest) have
+// created_by NULL and are labelled by their source in the totals.
+router.get('/booking-audit', requireRole('admin', 'manager'), async (req, res) => {
+  const from = req.query.from || today();
+  const to   = req.query.to   || today();
+  const staffId = req.query.staff_id ? Number(req.query.staff_id) : null;
+  try {
+    const params = [from, to];
+    let where = `WHERE a.created_at::date >= $1::date AND a.created_at::date <= $2::date`;
+    if (staffId) { params.push(staffId); where += ` AND a.created_by = $${params.length}`; }
+    const { rows } = await pool.query(
+      `SELECT a.id, a.created_at, a.updated_at, a.starts_at, a.status, a.source,
+              c.name  AS client_name,
+              t.name  AS treatment_name,
+              th.name AS therapist_name,
+              cb.name AS created_by_name,
+              ub.name AS updated_by_name
+       FROM appointments a
+       LEFT JOIN clients    c  ON c.id  = a.client_id
+       LEFT JOIN treatments t  ON t.id  = a.treatment_id
+       LEFT JOIN therapists th ON th.id = a.therapist_id
+       LEFT JOIN therapists cb ON cb.id = a.created_by
+       LEFT JOIN therapists ub ON ub.id = a.updated_by
+       ${where}
+       ORDER BY a.created_at DESC
+       LIMIT 500`,
+      params,
+    );
+    // Per-creator totals over the SAME range (unfiltered by staff_id so the
+    // dropdown numbers stay stable while filtering the table).
+    const totals = await pool.query(
+      `SELECT COALESCE(cb.name, 'System (' || a.source || ')') AS creator,
+              a.created_by AS staff_id,
+              COUNT(*)::int AS bookings
+       FROM appointments a
+       LEFT JOIN therapists cb ON cb.id = a.created_by
+       WHERE a.created_at::date >= $1::date AND a.created_at::date <= $2::date
+       GROUP BY COALESCE(cb.name, 'System (' || a.source || ')'), a.created_by
+       ORDER BY bookings DESC`,
+      [from, to],
+    );
+    res.json({ identity: await loadIdentity(), from, to, rows, totals: totals.rows });
+  } catch (err) {
+    console.error('[reports] booking-audit', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 router.get('/voucher-session-sales', requireRole('admin', 'manager'), async (req, res) => {
   const from = req.query.from || today();
   const to   = req.query.to   || today();

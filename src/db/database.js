@@ -535,6 +535,12 @@ async function initSchema() {
     -- treatment price for legacy bookings.
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS price_at_booking NUMERIC(10,2);
 
+    -- SPA-AUDIT-TRAIL-001 — who created / last edited each booking (staff id).
+    -- NULL = system-created (online widget, Treatwell/Fresha ingest, sync).
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS created_by INT REFERENCES therapists(id) ON DELETE SET NULL;
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_by INT REFERENCES therapists(id) ON DELETE SET NULL;
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+
     -- Backfill existing rows so the column is never NULL going forward.
     -- For past bookings the "right" price is unknowable; we set the
     -- current treatment price (same value the bill would have computed

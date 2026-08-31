@@ -713,6 +713,21 @@ export default function NewAppointmentModal({
           <button onClick={onClose} style={{ background: 'transparent', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>✕</button>
         </div>
 
+        {/* SPA-AUDIT-TRAIL-001 — who put this booking in (accountability for
+            wrong time / wrong therapist / double bookings). System bookings
+            (widget, Treatwell/Fresha emails) show their source instead. */}
+        {isEdit && (
+          <div className="muted" style={{ fontSize: 12, marginTop: -6 }}>
+            📝 Created by <strong>{appointment.created_by_name || `system (${appointment.source || 'online'})`}</strong>
+            {appointment.created_at && ` · ${new Date(appointment.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}
+            {appointment.updated_by_name && (
+              <> — last edited by <strong>{appointment.updated_by_name}</strong>
+                {appointment.updated_at && ` · ${new Date(appointment.updated_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}`}
+              </>
+            )}
+          </div>
+        )}
+
         {/* SPA-BLOCK-EASY-001 — not booking anyone? One tap to the mini
             block modal instead of filling this form with a fake treatment. */}
         {!isEdit && onBlockInstead && (

@@ -82,20 +82,25 @@ export default function ReportsSection() {
   const [trading,       setTrading]       = useState(null);
   const [loading,       setLoading]       = useState(true);
   // SPA-VS-REPORT — Voucher & Session sales tab (Highbury request)
-  const [tab,    setTab]    = useState('overview'); // 'overview' | 'sales'
+  const [tab,    setTab]    = useState('overview'); // 'overview' | 'sales' | 'audit'
   const [vsData, setVsData] = useState(null);
+  // SPA-AUDIT-TRAIL-001 — booking audit tab (who created each booking)
+  const [auditData,  setAuditData]  = useState(null);
+  const [auditStaff, setAuditStaff] = useState(''); // '' = everyone
   // SPA-PETTYCASH-001 — expenses for the range (Highbury 2026-08-13 request)
   const [pcData, setPcData] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [t, td, vs, pc] = await Promise.all([
+      const [t, td, vs, pc, au] = await Promise.all([
         api.get(`/reports/therapist?from=${from}&to=${to}`),
         api.get(`/reports/trading?date=${to}`),
         api.get(`/reports/voucher-session-sales?from=${from}&to=${to}`).catch(() => null),
         api.get(`/reports/petty-cash?from=${from}&to=${to}`).catch(() => null),
+        api.get(`/reports/booking-audit?from=${from}&to=${to}`).catch(() => null),
       ]);
+      setAuditData(au);
       setTherapistData(t);
       setTrading(td);
       setVsData(vs);
@@ -241,7 +246,7 @@ export default function ReportsSection() {
 
       {/* SPA-VS-REPORT — tab bar */}
       <div className="row" style={{ gap: 8 }}>
-        {[['overview', '📊 Overview'], ['sales', '🎁 Voucher & Session sales']].map(([k, label]) => (
+        {[['overview', '📊 Overview'], ['sales', '🎁 Voucher & Session sales'], ['audit', '📝 Booking audit']].map(([k, label]) => (
           <button key={k} onClick={() => setTab(k)}
             style={{
               fontWeight: 700,
@@ -387,7 +392,88 @@ export default function ReportsSection() {
         </>
       )}
 
+      {/* SPA-AUDIT-TRAIL-001 — Booking audit tab: who created each booking. */}
+      {tab === 'audit' && (
+        <>
+          <div className="card col">
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <h3 style={{ margin: 0 }}>📝 Bookings created {from === to ? `on ${ukDate(from)}` : `${ukDate(from)} → ${ukDate(to)}`}</h3>
+              <select value={auditStaff} onChange={e => setAuditStaff(e.target.value)} style={{ maxWidth: 260 }}>
+                <option value="">Everyone</option>
+                {(auditData?.totals || []).map(t => (
+                  <option key={t.creator} value={t.creator}>{t.creator} ({t.bookings})</option>
+                ))}
+              </select>
+            </div>
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              {(auditData?.totals || []).map(t => (
+                <span key={t.creator} style={{ fontSize: 13, background: t.staff_id ? '#e0e7ff' : '#f3f4f6', color: t.staff_id ? '#3730a3' : '#374151', borderRadius: 8, padding: '4px 12px', fontWeight: 600 }}>
+                  {t.creator}: <strong>{t.bookings}</strong>
+                </span>
+              ))}
+              {!auditData?.totals?.length && <span className="muted">No bookings created in this range.</span>}
+            </div>
+            {Boolean(auditData?.rows?.length) && (
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ textAlign: 'left', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      <th style={{ padding: '8px 6px' }}>Created</th>
+                      <th style={{ padding: '8px 6px' }}>Created by</th>
+                      <th style={{ padding: '8px 6px' }}>Client</th>
+                      <th style={{ padding: '8px 6px' }}>Treatment</th>
+                      <th style={{ padding: '8px 6px' }}>Visit</th>
+                      <th style={{ padding: '8px 6px' }}>Therapist</th>
+                      <th style={{ padding: '8px 6px' }}>Status</th>
+                      <th style={{ padding: '8px 6px' }}>Last edited by</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditData.rows
+                      .filter(r => !auditStaff || (r.created_by_name || `System (${r.source})`) === auditStaff)
+                      .map(r => (
+                      <tr key={r.id} style={{ borderTop: '1px solid var(--border)' }}>
+                        <td style={{ padding: '9px 6px', whiteSpace: 'nowrap' }}>{new Date(r.created_at).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                        <td style={{ padding: '9px 6px', fontWeight: 600 }}>{r.created_by_name || <span className="muted">System ({r.source})</span>}</td>
+                        <td style={{ padding: '9px 6px' }}>{r.client_name || 'Walk-in'}</td>
+                        <td style={{ padding: '9px 6px' }}>{r.source === 'block' ? '🚫 Block' : r.treatment_name}</td>
+                        <td style={{ padding: '9px 6px', whiteSpace: 'nowrap' }}>{new Date(r.starts_at).toLocaleString('en-GB', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                        <td style={{ padding: '9px 6px' }}>{r.therapist_name || '—'}</td>
+                        <td style={{ padding: '9px 6px', textTransform: 'capitalize' }}>{r.status.replace('_', ' ')}</td>
+                        <td style={{ padding: '9px 6px' }}>{r.updated_by_name || <span className="muted">—</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <div className="muted" style={{ fontSize: 11 }}>
+              Tracking started 31 Aug 2026 — bookings made before then show as System. "System" also covers online-widget and Treatwell/Fresha bookings.
+            </div>
+          </div>
+        </>
+      )}
+
       {tab === 'overview' && (<>
+      {/* SPA-AUDIT-TRAIL-001 — front-desk line for the day: rostered
+          receptionists + who created bookings. */}
+      {(Boolean(trading?.on_duty_receptionists?.length) || Boolean(trading?.booking_creators?.length)) && (
+        <div className="card col" style={{ gap: 6 }}>
+          {Boolean(trading?.on_duty_receptionists?.length) && (
+            <div style={{ fontSize: 14 }}>
+              🛎 <strong>On-duty reception ({String(to).split('-').reverse().join('/')}):</strong>{' '}
+              {trading.on_duty_receptionists.map(r => r.hours ? `${r.name} (${r.hours})` : r.name).join(' · ')}
+            </div>
+          )}
+          {Boolean(trading?.booking_creators?.length) && (
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>
+              📝 Bookings entered that day:{' '}
+              {trading.booking_creators.map(c => `${c.name} (${c.bookings})`).join(' · ')}
+              {' '}— full detail in the Booking audit tab
+            </div>
+          )}
+        </div>
+      )}
       {/* Payment method breakdown for the range */}
       <div className="card col">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'baseline' }}>

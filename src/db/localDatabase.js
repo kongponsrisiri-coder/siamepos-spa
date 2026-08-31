@@ -1022,6 +1022,9 @@ function runMigrations() {
   addColumnIfMissing('appointments', 'deposit_taken_at',       'TEXT');
   addColumnIfMissing('appointments', 'deposit_taken_by',       'INTEGER');
   addColumnIfMissing('appointments', 'price_at_booking',       'REAL');
+  addColumnIfMissing('appointments', 'created_by',             'INTEGER'); // SPA-AUDIT-TRAIL-001
+  addColumnIfMissing('appointments', 'updated_by',             'INTEGER');
+  addColumnIfMissing('appointments', 'updated_at',             'TEXT');
   addColumnIfMissing('appointments', 'hold_expires_at',        'TEXT');
   addColumnIfMissing('appointments', 'cloud_id',               'INTEGER');
 

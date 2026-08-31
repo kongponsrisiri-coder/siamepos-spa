@@ -118,12 +118,15 @@ router.get('/', async (req, res) => {
               r.name AS room_name,
               b.payment_method, b.payment_status AS bill_status, b.total AS bill_total,
               b.external_voucher_code,
-              COALESCE(cm.pregnancy, FALSE) AS client_pregnant
+              COALESCE(cm.pregnancy, FALSE) AS client_pregnant,
+              cb.name AS created_by_name, ub.name AS updated_by_name
        FROM appointments a
        LEFT JOIN treatments t  ON t.id  = a.treatment_id
        LEFT JOIN clients    c  ON c.id  = a.client_id
        LEFT JOIN client_medical cm ON cm.client_id = a.client_id
        LEFT JOIN therapists th ON th.id = a.therapist_id
+       LEFT JOIN therapists cb ON cb.id = a.created_by
+       LEFT JOIN therapists ub ON ub.id = a.updated_by
        LEFT JOIN rooms      r  ON r.id  = a.room_id
        LEFT JOIN bills b ON b.id = (
          SELECT id FROM bills WHERE appointment_id = a.id ORDER BY id DESC LIMIT 1
@@ -332,8 +335,9 @@ router.post('/', async (req, res) => {
     // statement is already atomic there. Swap (/swap) is a separate handler.
     const insertSql = `INSERT INTO appointments
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
-          status, source, notes, therapist_requested, price_at_booking, treatwell_payment_type)
-       SELECT $1,$2,$3,$4,$5,$6,'booked',$7,$8,$9,$10,$11
+          status, source, notes, therapist_requested, price_at_booking, treatwell_payment_type,
+          created_by)
+       SELECT $1,$2,$3,$4,$5,$6,'booked',$7,$8,$9,$10,$11,$12
        WHERE NOT EXISTS (
          SELECT 1 FROM appointments a
          WHERE a.status NOT IN ('cancelled','no_show')
@@ -346,6 +350,7 @@ router.post('/', async (req, res) => {
       client_id || null, treatment_id || null, therapist_id || null, room_id || null,
       starts_at, ends_at, validSource, notes || null, !!therapist_requested,
       priceAtBooking, validTwType,
+      req.staff?.id || null, // SPA-AUDIT-TRAIL-001 — who booked it
     ];
     let appt;
     if ((process.env.DB_MODE || '').toLowerCase() === 'local') {
@@ -678,6 +683,16 @@ router.put('/:id', async (req, res) => {
         return res.status(409).json({ error: 'conflict', message: 'That slot was just taken — please pick another time or therapist.' });
       }
       return res.status(404).json({ error: 'not found' });
+    }
+
+    // SPA-AUDIT-TRAIL-001 — stamp who last edited (separate statement so the
+    // dynamic move-guard's parameter numbering stays untouched).
+    if (req.staff?.id) {
+      await pool.query(
+        `UPDATE appointments SET updated_by = $2, updated_at = now() WHERE id = $1`,
+        [id, req.staff.id],
+      ).catch((e) => console.warn('[appointments] audit stamp failed:', e.message));
+      rows[0].updated_by = req.staff.id;
     }
 
     // SPA-BILL-SYNC — if the treatment was swapped AND there's already
@@ -1017,9 +1032,10 @@ router.put('/:id/status', async (req, res) => {
     return res.status(400).json({ error: 'invalid status' });
   }
   try {
+    // SPA-AUDIT-TRAIL-001 — status flips count as edits for the audit trail.
     const { rows } = await pool.query(
-      `UPDATE appointments SET status = $2 WHERE id = $1 RETURNING *`,
-      [id, status],
+      `UPDATE appointments SET status = $2, updated_by = COALESCE($3, updated_by), updated_at = now() WHERE id = $1 RETURNING *`,
+      [id, status, req.staff?.id || null],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     await offlineQueue.enqueue('update_appointment_status', { localId: id });
