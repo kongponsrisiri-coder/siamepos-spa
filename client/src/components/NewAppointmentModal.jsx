@@ -425,9 +425,9 @@ function isWorkingOn(therapistId, dateStr, weeklyRota, overrides) {
   const override = overrides.find(o => o.therapist_id === therapistId && String(o.date).slice(0, 10) === dateStr);
   if (override) return Boolean(override.is_working);
   if (weeklyRota.some(r => r.therapist_id === therapistId && r.day_of_week === dayOfWeek)) return true;
-  // Backwards compat: a therapist with NO rota at all is treated as available
-  // (full-day), matching availability.js / AppointmentScreen.
-  return !weeklyRota.some(r => r.therapist_id === therapistId);
+  // SPA-ROTA-EMPTY-001 — full-day assumption only while the WHOLE shop has no
+  // rota; on a rota-running shop, no rows = off (matches availability.js).
+  return weeklyRota.length === 0;
 }
 function workHoursOn(therapistId, dateStr, weeklyRota, overrides) {
   if (!dateStr) return null;

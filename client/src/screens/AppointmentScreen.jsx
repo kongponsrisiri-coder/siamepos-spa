@@ -18,8 +18,10 @@ function isWorkingOn(therapistId, dateStr, weeklyRota, overrides) {
   if (override) return Boolean(override.is_working);
   const entry = weeklyRota.find(r => r.therapist_id === therapistId && r.day_of_week === dayOfWeek);
   if (entry) return true;
-  const hasAnyRota = weeklyRota.some(r => r.therapist_id === therapistId);
-  return !hasAnyRota;
+  // SPA-ROTA-EMPTY-001 — "no rota = working full day" only while the WHOLE
+  // shop has no rota. On a shop that runs its rota, a blank-rota therapist
+  // is off (their date overrides above still put them on).
+  return weeklyRota.length === 0;
 }
 
 function getWorkHours(therapistId, dateStr, weeklyRota, overrides) {

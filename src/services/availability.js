@@ -43,7 +43,13 @@ function buildAt(dateStr, timeStr) {
 
 // Returns a working window { start, end } in ms, or null if the therapist
 // is off that day. Resolution order: override > weekly rota > full-day fallback.
-function resolveTherapistWindow(therapistId, dateStr, dayOfWeek, weeklyRota, overrides, openAtMs, closeAtMs) {
+// shopUsesRota (SPA-ROTA-EMPTY-001): the old rule treated a therapist with NO
+// rota rows as "working full day" — a backwards-compat default for shops that
+// never set a rota up. But on a shop that DOES run its rota, that default put
+// blank-rota therapists on the diary as free every day (Ploy @ Jinta). Now the
+// full-day assumption only applies while the WHOLE shop has zero weekly-rota
+// rows; once anyone has a rota, no rows = off (their overrides still work).
+function resolveTherapistWindow(therapistId, dateStr, dayOfWeek, weeklyRota, overrides, openAtMs, closeAtMs, shopUsesRota = null) {
   // 1 — date-specific override
   const override = overrides.find(
     (o) => o.therapist_id === therapistId && o.date === dateStr,
@@ -61,13 +67,14 @@ function resolveTherapistWindow(therapistId, dateStr, dayOfWeek, weeklyRota, ove
     (r) => r.therapist_id === therapistId && r.day_of_week === dayOfWeek,
   );
 
+  const rotaInUse = shopUsesRota != null ? shopUsesRota : weeklyRota.length > 0;
   const hasAnyRotaForTherapist = weeklyRota.some((r) => r.therapist_id === therapistId);
-  if (!hasAnyRotaForTherapist) {
-    // No rota set at all → backwards-compatible: assume working full day
+  if (!hasAnyRotaForTherapist && !rotaInUse) {
+    // Whole shop has no rota → backwards-compatible: assume working full day
     return { start: openAtMs, end: closeAtMs };
   }
   if (todaySlots.length === 0) {
-    // Rota exists but no slot for today → day off
+    // Shop runs a rota but this therapist has no slot today → day off
     return null;
   }
 
@@ -232,10 +239,15 @@ async function getTherapistWorkingWindow(therapist_id, date) {
     [therapist_id, date],
   );
 
+  // SPA-ROTA-EMPTY-001 — this lookup only loads ONE therapist's rows, so the
+  // "does the shop run a rota at all" question needs its own query.
+  const anyRota = await pool.query('SELECT 1 FROM therapist_availability LIMIT 1');
+
   return resolveTherapistWindow(
     therapist_id, date, dayOfWeek,
     weeklyRota, overrideRes.rows,
     openAtMs, closeAtMs,
+    anyRota.rowCount > 0,
   );
 }
 
