@@ -35,7 +35,8 @@ async function notifyOwnerChat(firstMessage, { returning = false } = {}) {
     const phone = (rows[0] && rows[0].value ? String(rows[0].value) : '').trim();
     if (!phone) return;
     const spaName = process.env.SPA_NAME || 'your spa';
-    const text = `💬 ${returning ? 'Website chat resumed' : 'New website chat'} on ${spaName}: "${snippet}" — open Admin → AI Chats to read or take over.`;
+    // SPA-SMS-COST-001 — plain GSM text (no emoji / em-dash) so it stays one segment.
+    const text = `${returning ? 'Website chat resumed' : 'New website chat'} on ${spaName}: "${snippet}" - open Admin > AI Chats to reply.`;
     await sendOwnerSms(phone, text);
   } catch (e) {
     console.error('[webchat] owner chat-alert SMS failed:', e.message);

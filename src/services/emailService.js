@@ -681,15 +681,88 @@ function toE164Uk(phone) {
   return null;
 }
 
+// SPA-SMS-COST-001 — keep every text ONE GSM-7 segment (160 chars).
+// Aug 2026 Twilio bill: every confirmation carried an em-dash, a non-GSM
+// character, so Twilio encoded the whole text as UCS-2 (70-char segments) and
+// a 150-char confirmation cost 3 segments instead of 1 (£0.127 vs £0.042).
+// toGsm7() maps the usual offenders to GSM equivalents (dashes, curly quotes,
+// accented letters) and drops anything else (emoji, Thai script) so the text
+// can never flip to UCS-2. smsBody() then hard-caps at 160.
+const SMS_MAX = 160;
+// The GSM 03.38 basic character set (plus the extension chars we allow, each
+// of which counts as 2 — we treat them as 2 in the length check below).
+const GSM_BASIC = '@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&\'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà';
+const GSM_EXT   = '^{}\\[~]|€';
+const GSM_MAP = {
+  '\u2014': '-', '\u2013': '-', '\u2012': '-', '\u2010': '-', '\u2011': '-', '\u2212': '-', // dashes
+  '\u2018': "'", '\u2019': "'", '\u201A': "'", '\u2032': "'",                                 // single quotes
+  '\u201C': '"', '\u201D': '"', '\u201E': '"', '\u2033': '"',                                 // double quotes
+  '\u2026': '...', '\u00A0': ' ', '\u2022': '*', '\u00B7': '-',
+};
+function toGsm7(input) {
+  let out = '';
+  // NFD splits "é" into "e" + combining accent; the accent is then dropped
+  // as a non-GSM char, leaving plain "e". (Letters GSM does carry, like é/ü,
+  // are kept intact by mapping back only when the composed form is GSM.)
+  const src = String(input || '');
+  for (const ch of src) {
+    if (GSM_MAP[ch] !== undefined) { out += GSM_MAP[ch]; continue; }
+    if (GSM_BASIC.includes(ch)) { out += ch; continue; }
+    if (GSM_EXT.includes(ch)) { out += ch; continue; }
+    const base = ch.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (base && base !== ch && GSM_BASIC.includes(base)) { out += base; continue; }
+    // Anything else (emoji, Thai, symbols) is dropped.
+  }
+  return out.replace(/[ \t]{2,}/g, ' ').trim();
+}
+// GSM length: extension chars cost 2.
+function gsmLength(s) {
+  let n = 0;
+  for (const ch of s) n += GSM_EXT.includes(ch) ? 2 : 1;
+  return n;
+}
+// Cut a sanitised text to SMS_MAX GSM chars (never mid-extension-pair).
+function smsBody(text, max = SMS_MAX) {
+  const clean = toGsm7(text);
+  if (gsmLength(clean) <= max) return clean;
+  let out = '', n = 0;
+  for (const ch of clean) {
+    const w = GSM_EXT.includes(ch) ? 2 : 1;
+    if (n + w > max) break;
+    out += ch; n += w;
+  }
+  return out;
+}
+// "Tue 1 Sept, 14:00" — the long form ("Tuesday, 1 September 2026 at 14:00")
+// alone ate 34 chars of the 160 budget.
+function formatStartsShort(starts_at) {
+  const d = new Date(starts_at);
+  return d.toLocaleString('en-GB', {
+    weekday: 'short', day: 'numeric', month: 'short',
+    hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London',
+  });
+}
+// Builds the confirmation text; if it would exceed one segment the treatment
+// name (the only free-text part) is shortened first, so the fixed parts
+// (spa, date/time, ref) always survive intact.
+function buildBookingSmsText({ spaName, treatmentName, starts_at, id }) {
+  const fixedHead = toGsm7(spaName) + ': booking confirmed - ';
+  const fixedTail = ', ' + formatStartsShort(starts_at) + '. Ref #' + id + '.';
+  let name = toGsm7(treatmentName || 'your treatment');
+  const room = SMS_MAX - gsmLength(fixedHead) - gsmLength(fixedTail);
+  if (gsmLength(name) > room) name = smsBody(name, Math.max(room, 0)).replace(/\s+\S*$/, '').trim() || smsBody(name, Math.max(room, 0));
+  return smsBody(fixedHead + name + fixedTail);
+}
+
 function sendBookingSms({ client, appointment, treatment }) {
   return new Promise((resolve) => {
     if (!TWILIO_SID || !TWILIO_TOKEN) return resolve();
     const to = toE164Uk(client?.phone);
     if (!to) return resolve();
     const spaName = process.env.SPA_NAME || 'SiamEPOS Spa';
-    const text = spaName + ': booking confirmed — ' + (treatment?.name || 'your treatment') +
-      ', ' + formatStarts(appointment.starts_at) + '. Ref #' + appointment.id +
-      '. We look forward to seeing you!';
+    const text = buildBookingSmsText({
+      spaName, treatmentName: treatment?.name, starts_at: appointment.starts_at, id: appointment.id,
+    });
     const body = new URLSearchParams({ To: to, From: TWILIO_FROM, Body: text }).toString();
     const req = https.request({
       hostname: 'api.twilio.com',
@@ -727,7 +800,8 @@ function sendOwnerSms(phone, text) {
     if (!TWILIO_SID || !TWILIO_TOKEN) return resolve(false);
     const to = toE164Uk(phone);
     if (!to) return resolve(false);
-    const body = new URLSearchParams({ To: to, From: TWILIO_FROM, Body: String(text || '') }).toString();
+    // SPA-SMS-COST-001 — same one-segment rule as the booking text.
+    const body = new URLSearchParams({ To: to, From: TWILIO_FROM, Body: smsBody(text) }).toString();
     const req = https.request({
       hostname: 'api.twilio.com',
       path:     '/2010-04-01/Accounts/' + TWILIO_SID + '/Messages.json',
@@ -769,5 +843,6 @@ module.exports = {
   sendLoyaltyProgress,   // SPA-LOYALTY-001
   sendBookingSms,        // SPA-SMS-001
   sendOwnerSms,          // SPA-CHAT-NOTIFY-001
+  toGsm7, smsBody, buildBookingSmsText, // SPA-SMS-COST-001 (exported for test/sms.test.js)
   sendOwnerChatAlertEmail, // SPA-CHAT-NOTIFY-002
 };
