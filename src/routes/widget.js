@@ -537,6 +537,58 @@ router.post('/book', async (req, res) => {
   }
 });
 
+// SPA-VOUCHER-PAY-001 — POST /api/widget/voucher-payment-intent
+// body (monetary): { value, email? }
+// body (sessions): { voucher_type:'sessions', treatment_id, total_sessions, email? }
+// Creates the Stripe PaymentIntent a gift-voucher purchase must be paid
+// through before POST /vouchers will mint it (SPA-SEC-001). Mirrors
+// /payment-intent: nothing is written to the DB here — an abandoned card
+// form leaves no phantom voucher. The client-chosen value is safe for a
+// monetary voucher because /vouchers sets the balance from Stripe's
+// amount_received, so the buyer gets exactly what they paid; for a sessions
+// bundle the amount is computed server-side from the treatment price (and
+// /vouchers re-checks paid ≈ sessions × price).
+router.post('/voucher-payment-intent', async (req, res) => {
+  const b = req.body || {};
+  const s = stripeClient();
+  if (!s) return res.status(503).json({ error: 'stripe not configured' });
+  try {
+    const isSessions = b.voucher_type === 'sessions';
+    let amount, meta;
+    if (isSessions) {
+      const n = Number(b.total_sessions);
+      if (!n || n <= 0 || !Number.isInteger(n) || n > MAX_SESSIONS) {
+        return res.status(400).json({ error: `total_sessions required (1–${MAX_SESSIONS})` });
+      }
+      if (!b.treatment_id) return res.status(400).json({ error: 'treatment_id required for a sessions voucher' });
+      const t = await pool.query('SELECT id, name, price FROM treatments WHERE id = $1 AND active = TRUE', [Number(b.treatment_id)]);
+      if (!t.rows[0]) return res.status(400).json({ error: 'treatment not found' });
+      amount = +(n * Number(t.rows[0].price)).toFixed(2);
+      meta = { voucher_type: 'sessions', treatment_id: String(t.rows[0].id), treatment_name: String(t.rows[0].name || ''), total_sessions: String(n) };
+    } else {
+      amount = Number(b.value);
+      if (!amount || amount <= 0) return res.status(400).json({ error: 'value required' });
+      amount = +amount.toFixed(2);
+      meta = { voucher_type: 'monetary' };
+    }
+    if (amount > MAX_ONLINE_VOUCHER) {
+      return res.status(400).json({ error: `online vouchers are capped at £${MAX_ONLINE_VOUCHER}` });
+    }
+    const intent = await s.s.paymentIntents.create({
+      amount: Math.round(amount * 100),
+      currency: 'gbp',
+      automatic_payment_methods: { enabled: true },
+      receipt_email: b.email || undefined,
+      ...piFee(s), // SIAMPAY-002 — flat fee from the client's settlement, not the customer
+      metadata: { purpose: 'spa_voucher', ...meta },
+    }, s.opts);
+    res.json({ client_secret: intent.client_secret, intent_id: intent.id, amount });
+  } catch (err) {
+    console.error('[widget] voucher-payment-intent', err);
+    res.status(500).json({ error: err.message || 'server error' });
+  }
+});
+
 // POST /api/widget/vouchers
 // Public endpoint — called by the Baan Siam website voucher widget.
 // Creates a voucher record for online purchases (payment_method always 'card').
