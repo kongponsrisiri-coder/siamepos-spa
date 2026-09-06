@@ -540,6 +540,12 @@ async function initSchema() {
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS created_by INT REFERENCES therapists(id) ON DELETE SET NULL;
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_by INT REFERENCES therapists(id) ON DELETE SET NULL;
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+    -- SPA-EXTEND-001 — ต่อเวลานวด: extra minutes added to a running booking,
+    -- the price charged for them, and (split mode) the parent booking when the
+    -- extension runs on a different therapist as its own row.
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS extended_minutes INT NOT NULL DEFAULT 0;
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS extension_price  NUMERIC(10,2) NOT NULL DEFAULT 0;
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS extension_of     INT REFERENCES appointments(id) ON DELETE CASCADE;
 
     -- Backfill existing rows so the column is never NULL going forward.
     -- For past bookings the "right" price is unknowable; we set the

@@ -199,6 +199,21 @@ router.post('/', async (req, res) => {
        VALUES ($1, 'treatment', $2, 1, $3, $3)`,
       [rows[0].id, ap.rows[0].treatment_name || 'Treatment', subtotal],
     );
+    // SPA-EXTEND-001 — a hand-over extension lives on another therapist as
+    // its own row; the customer pays for it on THIS bill.
+    const ext = await pool.query(
+      `SELECT a.id, a.extended_minutes, a.price_at_booking, th.name AS therapist_name
+       FROM appointments a LEFT JOIN therapists th ON th.id = a.therapist_id
+       WHERE a.extension_of = $1 AND a.status NOT IN ('cancelled','no_show') ORDER BY a.starts_at`, [appointment_id]);
+    let extTotal = 0;
+    for (const e of ext.rows) {
+      const p = Number(e.price_at_booking || 0);
+      extTotal += p;
+      await pool.query(
+        `INSERT INTO bill_items (bill_id, kind, name, quantity, unit_price, line_total) VALUES ($1, 'extension', $2, 1, $3, $3)`,
+        [rows[0].id, `Extended time +${e.extended_minutes} min${e.therapist_name ? ' (' + e.therapist_name + ')' : ''}`, p]);
+    }
+    if (extTotal > 0) await pool.query(`UPDATE bills SET subtotal = subtotal + $2, total = total + $2 WHERE id = $1`, [rows[0].id, extTotal]);
     await offlineQueue.enqueue('create_bill', { localId: rows[0].id });
     res.status(201).json({ bill: await loadBillWithItems(rows[0].id) });
   } catch (err) {
@@ -487,6 +502,11 @@ router.post('/:id/pay', async (req, res) => {
     await pool.query(
       `UPDATE appointments SET status = 'completed'
        WHERE id = $1 AND status NOT IN ('cancelled','no_show')`,
+      [rows[0].appointment_id],
+    );
+    // SPA-EXTEND-001 — hand-over extension segments close with the parent.
+    await pool.query(
+      `UPDATE appointments SET status = 'completed' WHERE extension_of = $1 AND status NOT IN ('cancelled','no_show')`,
       [rows[0].appointment_id],
     );
     // Push the paid state up from a local till for every method that closes

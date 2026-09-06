@@ -435,6 +435,148 @@ router.post('/', async (req, res) => {
   }
 });
 
+// SPA-EXTEND-001 — POST /api/appointments/:id/extend   (ต่อเวลานวด)
+// body: { minutes: 15|30|45|60, price?: number, therapist_id?: number }
+//
+// Adds `minutes` to the END of a live booking. Price defaults to the
+// treatment's pro-rata rate (price / duration × minutes) and can be
+// overridden by the operator. Two modes:
+//   • same therapist (default): the booking's ends_at moves later. If the
+//     therapist (or room) is busy in that window → 409 with the therapists
+//     who ARE free + working, so the till can offer a hand-over.
+//   • therapist_id given: the extension becomes its OWN row on that therapist
+//     (extension_of = parent), starting when the parent ends. Checkout of the
+//     parent bills both.
+// An open (unpaid) bill gets an 'Extended time' line so the total is right.
+router.post('/:id/extend', async (req, res) => {
+  const id = Number(req.params.id);
+  const minutes = Number(req.body?.minutes);
+  const overridePrice = req.body?.price;
+  const handoverId = req.body?.therapist_id ? Number(req.body.therapist_id) : null;
+  if (![15, 30, 45, 60, 75, 90].includes(minutes)) return res.status(400).json({ error: 'minutes must be 15, 30, 45, 60, 75 or 90' });
+  try {
+    const cur = await pool.query(
+      `SELECT a.*, t.name AS treatment_name, t.duration_minutes, t.price AS treatment_price, th.name AS therapist_name
+       FROM appointments a
+       LEFT JOIN treatments t ON t.id = a.treatment_id
+       LEFT JOIN therapists th ON th.id = a.therapist_id
+       WHERE a.id = $1`, [id]);
+    const a = cur.rows[0];
+    if (!a) return res.status(404).json({ error: 'not found' });
+    if (a.source === 'block') return res.status(400).json({ error: 'a time block cannot be extended' });
+    if (a.extension_of) return res.status(400).json({ error: 'extend the main booking, not the extension' });
+    if (['completed', 'cancelled', 'no_show'].includes(a.status)) return res.status(409).json({ error: `booking is ${a.status}` });
+
+    // Extension window = after the LAST segment (parent or an existing split).
+    const lastEnd = await pool.query(
+      `SELECT MAX(ends_at) AS e FROM appointments WHERE (id = $1 OR extension_of = $1) AND status NOT IN ('cancelled','no_show')`, [id]);
+    const winStart = new Date(lastEnd.rows[0].e || a.ends_at);
+    const winEnd   = new Date(winStart.getTime() + minutes * 60_000);
+
+    // Price: operator override, else pro-rata of the treatment's own rate.
+    const base = Number(a.price_at_booking ?? a.treatment_price ?? 0);
+    const dur  = Number(a.duration_minutes) || 60;
+    let extra = overridePrice !== undefined && overridePrice !== null && overridePrice !== ''
+      ? Number(overridePrice)
+      : +((base / dur) * minutes).toFixed(2);
+    if (!(extra >= 0)) return res.status(400).json({ error: 'price must be 0 or more' });
+    extra = +extra.toFixed(2);
+
+    const therapistId = handoverId || a.therapist_id;
+    // Busy check for the therapist in the window (ignore this booking's own segments).
+    const busy = await pool.query(
+      `SELECT a2.id, a2.starts_at, a2.ends_at, c.name AS client_name, t.name AS treatment_name
+       FROM appointments a2
+       LEFT JOIN clients c ON c.id = a2.client_id
+       LEFT JOIN treatments t ON t.id = a2.treatment_id
+       WHERE a2.therapist_id = $1 AND a2.id <> $2 AND COALESCE(a2.extension_of, 0) <> $2
+         AND a2.status NOT IN ('cancelled','no_show')
+         AND NOT (a2.ends_at <= $3 OR a2.starts_at >= $4)
+       ORDER BY a2.starts_at LIMIT 1`,
+      [therapistId, id, winStart.toISOString(), winEnd.toISOString()]);
+    // Rota check — is the therapist still on shift for the extra minutes?
+    let rotaOk = true;
+    if (therapistId) {
+      const chk = await isTherapistWorking(therapistId, winStart.toISOString(), winEnd.toISOString());
+      rotaOk = chk.working;
+    }
+    if (busy.rows[0] || !rotaOk) {
+      const conflict = await buildRotaConflictResponse({
+        therapist_id: therapistId, starts_at: winStart.toISOString(), ends_at: winEnd.toISOString(),
+        duration_minutes: minutes, working_window: null, exclude_id: id,
+      });
+      const who = handoverId ? conflict.rota_conflict.therapist_name : a.therapist_name;
+      const message = `Therapist ${who || ''} is unavailable for the extra ${minutes} min`
+        + (busy.rows[0] ? ` (next booking ${new Date(busy.rows[0].starts_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })}${busy.rows[0].client_name ? ' — ' + busy.rows[0].client_name : ''})` : ' (off shift)') + '.';
+      return res.status(409).json({
+        code: 'therapist_unavailable',
+        error: message,
+        message,
+        next_booking: busy.rows[0] || null,
+        alternative_therapists: conflict.alternative_therapists.filter((t) => t.id !== a.therapist_id || handoverId),
+        window: { starts_at: winStart.toISOString(), ends_at: winEnd.toISOString() },
+      });
+    }
+    // Room check (customer stays in the same room).
+    if (a.room_id) {
+      const roomBusy = await pool.query(
+        `SELECT id FROM appointments WHERE room_id = $1 AND id <> $2 AND COALESCE(extension_of,0) <> $2
+           AND status NOT IN ('cancelled','no_show') AND NOT (ends_at <= $3 OR starts_at >= $4) LIMIT 1`,
+        [a.room_id, id, winStart.toISOString(), winEnd.toISOString()]);
+      if (roomBusy.rows[0]) return res.status(409).json({ code: 'room_unavailable', error: 'The room is booked straight after — free the room first or move the next booking.' });
+    }
+
+    const staffId = req.staff?.id || null;
+    const stamp = `Extended +${minutes} min` + (handoverId ? ` with ${(await pool.query('SELECT name FROM therapists WHERE id = $1', [handoverId])).rows[0]?.name || 'another therapist'}` : '');
+    let result;
+    if (!handoverId || handoverId === a.therapist_id) {
+      const upd = await pool.query(
+        `UPDATE appointments
+           SET ends_at = $2, extended_minutes = extended_minutes + $3, extension_price = extension_price + $4,
+               price_at_booking = COALESCE(price_at_booking, $6) + $4,
+               notes = CASE WHEN notes IS NULL OR notes = '' THEN $5 ELSE notes || ' · ' || $5 END,
+               updated_by = COALESCE($7, updated_by), updated_at = now()
+         WHERE id = $1 RETURNING *`,
+        [id, winEnd.toISOString(), minutes, extra, stamp, base, staffId]);
+      result = upd.rows[0];
+      await offlineQueue.enqueue('update_appointment', { localId: id });
+    } else {
+      const ins = await pool.query(
+        `INSERT INTO appointments
+           (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at, status, source, notes,
+            price_at_booking, extension_of, extended_minutes, extension_price, created_by, treatwell_payment_type)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+        [a.client_id, a.treatment_id, handoverId, a.room_id, winStart.toISOString(), winEnd.toISOString(),
+         a.status === 'in_progress' ? 'in_progress' : 'booked', a.source, `Extension of #${id} (+${minutes} min)`,
+         extra, id, minutes, extra, staffId, a.treatwell_payment_type || null]);
+      await pool.query(
+        `UPDATE appointments SET extended_minutes = extended_minutes + $2,
+           notes = CASE WHEN notes IS NULL OR notes = '' THEN $3 ELSE notes || ' · ' || $3 END,
+           updated_by = COALESCE($4, updated_by), updated_at = now() WHERE id = $1`,
+        [id, minutes, stamp, staffId]);
+      await offlineQueue.enqueue('create_appointment', { localId: ins.rows[0].id });
+      await offlineQueue.enqueue('update_appointment', { localId: id });
+      result = ins.rows[0];
+    }
+
+    // Open bill? Add the line so the total is right at checkout.
+    const bill = await pool.query(
+      `SELECT id FROM bills WHERE appointment_id = $1 AND payment_status = 'pending' AND closed_at IS NULL ORDER BY id DESC LIMIT 1`, [id]);
+    if (bill.rows[0] && extra > 0) {
+      await pool.query(
+        `INSERT INTO bill_items (bill_id, kind, name, quantity, unit_price, line_total) VALUES ($1, 'extension', $2, 1, $3, $3)`,
+        [bill.rows[0].id, `Extended time +${minutes} min`, extra]);
+      await pool.query(`UPDATE bills SET subtotal = subtotal + $2, total = total + $2 WHERE id = $1`, [bill.rows[0].id, extra]);
+    }
+
+    req.app.get('io')?.emit('appointment_updated', result);
+    res.json({ ok: true, appointment: result, minutes, price: extra, mode: handoverId && handoverId !== a.therapist_id ? 'handover' : 'same' });
+  } catch (err) {
+    console.error('[appointments] extend', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 // PUT /api/appointments/:id  — reschedule / reassign / edit any field
 router.put('/:id', async (req, res) => {
   const id = Number(req.params.id);
@@ -1046,6 +1188,8 @@ router.put('/:id/status', async (req, res) => {
       [id, status, req.staff?.id || null],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
+    // SPA-EXTEND-001 — a split extension follows its parent's status.
+    await pool.query(`UPDATE appointments SET status = $2, updated_at = now() WHERE extension_of = $1`, [id, status]);
     await offlineQueue.enqueue('update_appointment_status', { localId: id });
     req.app.get('io')?.emit('appointment_status', rows[0]);
     res.json({ appointment: rows[0] });

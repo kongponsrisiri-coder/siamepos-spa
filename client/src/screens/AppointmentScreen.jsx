@@ -2,8 +2,10 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { api, getStaff } from '../api.js';
 import { socket } from '../socket.js';
+import { toast } from '../toast.js';
 import NewAppointmentModal from '../components/NewAppointmentModal.jsx';
 import BlockTimeModal from '../components/BlockTimeModal.jsx';
+import ExtendModal from '../components/ExtendModal.jsx'; // SPA-EXTEND-001
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
@@ -145,7 +147,7 @@ function toLocalMins(iso) { const d = new Date(iso); return d.getHours() * 60 + 
 // ── Mobile action sheet ───────────────────────────────────────────────────────
 // Slides up from bottom when owner taps an appointment on their phone.
 // Shows full details + tap-to-call + action buttons.
-function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwapRequest, onRemoveBlock }) {
+function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwapRequest, onRemoveBlock, onExtend }) {
   const s = apptStyle(appt);
   // SPA-BLOCK-EASY-001 — a time block is not a booking: no client, no
   // treatment, no checkout. The sheet collapses to "what is this" + Remove.
@@ -287,6 +289,15 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwap
               onClick={() => { onSwapRequest(appt); onClose(); }}
               style={{ flex: 1, minWidth: 80, minHeight: 52, borderRadius: 12, border: '1px solid var(--border)', background: 'white', fontWeight: 600, fontSize: 14, color: '#374151' }}>
               ⇄ Swap
+            </button>
+          )}
+
+          {/* SPA-EXTEND-001 — ต่อเวลานวด */}
+          {onExtend && ['booked', 'in_progress'].includes(appt.status) && !appt.extension_of && (
+            <button
+              onClick={() => { onExtend(appt); onClose(); }}
+              style={{ flex: 1, minWidth: 80, minHeight: 52, borderRadius: 12, border: '1px solid #f59e0b', background: '#fffbeb', fontWeight: 700, fontSize: 14, color: '#92400e' }}>
+              ⏱ Extend
             </button>
           )}
 
@@ -664,8 +675,9 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   // SPA-INDICATORS-001 — ⭐ extended time: the booking runs
                   // longer than its treatment's standard duration (client ask;
                   // ❤️ = requested therapist, ⭐ = extended).
-                  const isExt = !isBlockAppt && a.duration_minutes != null
-                    && (endM - startM) > Number(a.duration_minutes);
+                  const isExt = !isBlockAppt && (
+                    Number(a.extended_minutes) > 0 || Boolean(a.extension_of)
+                    || (a.duration_minutes != null && (endM - startM) > Number(a.duration_minutes)));
                   const swappable = !isBlockAppt && !['completed', 'cancelled', 'no_show'].includes(a.status);
                   const isBeingDragged = draggedApptId === a.id;
                   const isDropTarget   = dragOverApptId === a.id && draggedApptId && draggedApptId !== a.id;
@@ -898,6 +910,7 @@ export default function AppointmentScreen() {
   // booking → "⇄ Swap" → tap the other booking. Also available on desktop
   // (some prefer it to drag). Holds the appointment being swapped, or null.
   const [swapFor, setSwapFor] = useState(null);
+  const [extendFor, setExtendFor] = useState(null); // SPA-EXTEND-001
   const [, setColorsVer] = useState(0); // bumped after custom timetable colours load
 
   // SPA-COLOR-CODES — load the spa's custom timetable colours once, then
@@ -1368,6 +1381,11 @@ export default function AppointmentScreen() {
                     <button style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 7, padding: '7px 14px', cursor: 'pointer' }}
                       onClick={() => setSwapFor(selected)}>⇄ Swap</button>
                   )}
+                  {/* SPA-EXTEND-001 — ต่อเวลานวด */}
+                  {['booked', 'in_progress'].includes(selected.status) && !selected.extension_of && (
+                    <button style={{ background: '#f59e0b', color: '#1f2937', border: 'none', borderRadius: 7, padding: '7px 14px', fontWeight: 700, cursor: 'pointer' }}
+                      onClick={() => setExtendFor(selected)}>⏱ Extend</button>
+                  )}
                   {selected.status === 'booked' && (
                     <>
                       <button style={{ background: '#22c55e', color: 'white', border: 'none', borderRadius: 7, padding: '7px 16px', fontWeight: 600, cursor: 'pointer' }}
@@ -1461,12 +1479,17 @@ export default function AppointmentScreen() {
       )}
 
       {/* ── Mobile action sheet (slides up on appointment tap) ─────────────── */}
+      {extendFor && (
+        <ExtendModal appt={extendFor} onClose={() => setExtendFor(null)}
+          onDone={(r) => { load(); toast(r?.mode === 'handover' ? '✓ Extended — hand-over booked' : `✓ Extended +${r?.minutes} min`); }} />
+      )}
       {selected && isMobile && (
         <MobileActionSheet
           appt={selected}
           onClose={() => setSelected(null)}
           onEdit={appt => setModal({ appointment: appt })}
           onStatus={setStatus}
+          onExtend={setExtendFor}
           onCheckout={startCheckout}
           onSwapRequest={appt => setSwapFor(appt)}
           onRemoveBlock={removeBlock}
