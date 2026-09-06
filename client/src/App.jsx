@@ -13,6 +13,7 @@ import ClientSearchScreen  from './screens/ClientSearchScreen.jsx';
 import ClientProfileScreen from './screens/ClientProfileScreen.jsx';
 import AdminScreen         from './screens/AdminScreen.jsx';
 import NewBookingAlert     from './components/NewBookingAlert.jsx'; // SPA-NOTIFY-LIVE-001
+import { canSeeAdmin, refreshPermissions } from './permissions.js'; // SPA-RBAC-001
 
 // Brand CI: var(--navy) navy · var(--gold) gold · Cormorant Garamond headings
 
@@ -120,7 +121,7 @@ function SyncStatusPill() {
 function TopNav() {
   const staff = getStaff();
   const navigate = useNavigate();
-  const isAdmin = staff && ['admin', 'manager'].includes(staff.role);
+  const isAdmin = canSeeAdmin(); // SPA-RBAC-001 — owner's matrix, admin always
 
   // SPA-OWNER-NOTIFY (browser desktop notification)
   // Once the operator grants permission, every `new_appointment` socket
@@ -259,7 +260,7 @@ function TopNav() {
 function BottomNav() {
   const { pathname } = useLocation();
   const staff = getStaff();
-  const isAdmin = staff && ['admin', 'manager'].includes(staff.role);
+  const isAdmin = canSeeAdmin(); // SPA-RBAC-001 — owner's matrix, admin always
 
   const items = [
     { to: '/',        icon: CalendarIcon, label: 'Appointments' },
@@ -310,6 +311,9 @@ function GearIcon({ active }) {
 
 // ── App shell ─────────────────────────────────────────────────────
 function AppShell({ children }) {
+  // SPA-RBAC-001 — pick up permission changes without a re-login.
+  const [, setPermsVer] = useState(0);
+  useEffect(() => { refreshPermissions().then(() => setPermsVer((v) => v + 1)); }, []);
   return (
     <div style={{ minHeight: '100vh', minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <TopNav />

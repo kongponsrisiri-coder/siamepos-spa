@@ -22,6 +22,8 @@ import OnlineBookingSection   from './admin/OnlineBookingSection.jsx';
 import TreatwellSection        from './admin/TreatwellSection.jsx';
 import ChatsSection            from './admin/ChatsSection.jsx';
 import CertificatesSection     from './admin/CertificatesSection.jsx'; // SPA-CERTS-001
+import PermissionsSection      from './admin/PermissionsSection.jsx'; // SPA-RBAC-001
+import { can, canSeeAdmin, sectionLevel, refreshPermissions } from '../permissions.js'; // SPA-RBAC-001
 
 // ── Sandy: AdminScreen — left sidebar, SiamEPOS Spa brand CI ──────
 // Slate Navy var(--navy) sidebar · Thai Gold var(--gold) active state
@@ -60,6 +62,7 @@ const GROUPS = [
     { k: 'embed',      label: 'Embed Codes' },
     { k: 'colors',     label: 'Colour Codes' },
     { k: 'settings',   label: 'Settings' },
+    { k: 'permissions', label: 'Roles & Permissions' }, // SPA-RBAC-001 — admin only
   ] },
 ];
 
@@ -100,6 +103,7 @@ function NavItem({ item, active, onClick }) {
 }
 
 const SECTIONS = {
+  permissions: PermissionsSection, // SPA-RBAC-001
   trading:    TradingSection,
   reports:    ReportsSection,
   zreport:    ZReportSection,
@@ -125,6 +129,7 @@ const SECTIONS = {
 
 export default function AdminScreen() {
   const [tab, setTab] = useState('trading');
+  const [, setPermsVer] = useState(0); // SPA-RBAC-001 — re-render after the matrix loads
   const [openGroups, setOpenGroups] = useState(() => {
     try { const raw = localStorage.getItem(OPEN_GROUPS_KEY); if (raw) { const a = JSON.parse(raw); if (Array.isArray(a)) return new Set(a); } } catch {}
     const init = groupContaining('trading');
@@ -152,19 +157,26 @@ export default function AdminScreen() {
     return () => window.removeEventListener('resize', onResize);
   }, []);
   const staff = getStaff();
-
-  if (!staff || !['admin', 'manager'].includes(staff.role)) {
+  // SPA-RBAC-001 — the owner's matrix decides which sections this role sees.
+  useEffect(() => { refreshPermissions().then(() => setPermsVer((v) => v + 1)); }, []);
+  const visible = (k) => k === 'permissions' ? staff?.role === 'admin' : can(k, 'view');
+  const visibleGroups = GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => visible(i.k)) })).filter((g) => g.items.length > 0);
+  const firstVisible = visibleGroups[0]?.items[0]?.k || null;
+  useEffect(() => {
+    if (firstVisible && !visible(tab)) setTab(firstVisible);
+  }, [firstVisible, tab]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!staff || !canSeeAdmin()) {
     return (
       <div style={{ padding: 32 }}>
         <div className="card">
           <h2>Admin</h2>
-          <p className="muted">Admin or manager role required.</p>
+          <p className="muted">Your role has no admin sections. Ask the owner to grant access under Admin → Roles &amp; Permissions.</p>
         </div>
       </div>
     );
   }
-
   const Current = SECTIONS[tab] || TradingSection;
+  const readOnly = tab !== 'permissions' && sectionLevel(tab) === 'view';
 
   return (
     <div className="admin-layout" style={{
@@ -206,12 +218,12 @@ export default function AdminScreen() {
 
         {isMobile ? (
           // Mobile: flat horizontal tab strip of every section (no collapse).
-          GROUPS.flatMap((g) => g.items).map((item) => (
+          visibleGroups.flatMap((g) => g.items).map((item) => (
             <NavItem key={item.k} item={item} active={tab === item.k} onClick={() => setTab(item.k)} />
           ))
         ) : (
           // Desktop: collapsible drop-list groups to save vertical space.
-          GROUPS.map((group) => {
+          visibleGroups.map((group) => {
             const isOpen = openGroups.has(group.title);
             return (
               <div key={group.title}>
@@ -256,7 +268,14 @@ export default function AdminScreen() {
         background: 'var(--bg)',
         padding: '24px 28px',
       }}>
-        <Current />
+        {readOnly && (
+          <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', color: '#92400e', borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 12 }}>
+            👁 View only — your role can see this section but not change it.
+          </div>
+        )}
+        <div className={readOnly ? 'perm-readonly' : undefined}>
+          <Current />
+        </div>
       </main>
     </div>
   );

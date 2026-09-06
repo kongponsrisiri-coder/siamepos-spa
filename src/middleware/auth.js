@@ -40,7 +40,12 @@ function requireAuth(req, res, next) {
 function requireRole(...roles) {
   return (req, res, next) => {
     if (!req.staff) return res.status(401).json({ error: 'not authenticated' });
-    if (!roles.includes(req.staff.role)) {
+    // SPA-RBAC-001 — the owner's permission matrix (services/permissions.js,
+    // applied by the gate in server.js) can GRANT a section to a role the
+    // route wouldn't normally allow: 'edit' covers everything, 'view' covers
+    // reads. Denials were already handled by the gate before we got here.
+    const granted = req.permissionLevel === 'edit' || (req.permissionLevel === 'view' && req.method === 'GET');
+    if (!roles.includes(req.staff.role) && !granted) {
       return res.status(403).json({ error: 'forbidden' });
     }
     next();

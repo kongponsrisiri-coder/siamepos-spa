@@ -495,3 +495,10 @@ tbody tr:hover td { background: var(--navy-muted); }
   table { font-size: 12px !important; width: 100% !important; }
   a[href]:after { content: ''; }
 }
+
+/* SPA-RBAC-001 — "View only" admin sections: every control is switched off. */
+.perm-readonly input, .perm-readonly select, .perm-readonly textarea, .perm-readonly button,
+.perm-readonly [role="button"], .perm-readonly a.button {
+  pointer-events: none !important;
+  opacity: 0.55;
+}

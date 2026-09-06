@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
+import { can } from '../permissions.js'; // SPA-RBAC-001
 import { toast } from '../toast.js';
 
 function fmtMoney(n) { return `£${Number(n || 0).toFixed(2)}`; }
@@ -550,6 +551,8 @@ export default function CheckoutScreen() {
                 Amount input commits on blur so we don't hammer the API
                 on every keystroke. % buttons warn if a partial Treatwell
                 or voucher payment is already recorded as a discount. */}
+            {/* SPA-RBAC-001 — discount controls only for roles the owner allows */}
+            {can('discounts', 'edit') && (
             <div>
               <label>🏷 Discount</label>
               <div className="row" style={{ flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
@@ -589,6 +592,7 @@ export default function CheckoutScreen() {
                 )}
               </div>
             </div>
+            )}
 
             <div>
               <label>Payment method</label>

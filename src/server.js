@@ -232,6 +232,19 @@ app.get('/api/unsubscribe', async (req, res) => {
 });
 
 // ---- Protected routes (require staff token) ------------------------------
+// SPA-RBAC-001 — owner-configurable role permissions. Decodes the staff token
+// (when present) and enforces the matrix for mapped admin sections before the
+// per-route requireRole runs. Public routes carry no token and pass through.
+const permissions = require('./services/permissions');
+app.use('/api', (req, res, next) => {
+  const header = req.headers.authorization || '';
+  if (!header.startsWith('Bearer ')) return next();
+  return requireAuth(req, res, () => permissions.gate(req, res, next));
+});
+app.get('/api/permissions', requireAuth, async (_req, res) => {
+  try { res.json({ permissions: await permissions.load(), sections: permissions.SECTIONS, roles: permissions.ROLES }); }
+  catch (e) { res.status(500).json({ error: 'server error' }); }
+});
 app.use('/api/concierge-admin', requireAuth, conciergeAdminRoutes); // SPA-WEBCHAT-AI-001 — staff chat inbox
 app.use('/api/certificates', requireAuth, require('./routes/certificates')); // SPA-CERTS-001 — qualification certificates
 app.use('/api/treatments',   requireAuth, treatmentRoutes);
