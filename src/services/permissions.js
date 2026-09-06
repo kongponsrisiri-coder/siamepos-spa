@@ -61,8 +61,13 @@ const WRITE = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 // part of the till's everyday work (diary, checkout, clients) and stays
 // governed by the route's own requireRole.
 function sectionForRequest(req) {
-  const base = req.baseUrl || '';
-  const path = req.path || '';
+  // Works whether called from a router (baseUrl='/api/reports', path='/x')
+  // or from the app-level gate (baseUrl='/api', path='/reports/x'): derive
+  // both from the full URL so the mapping below is stable.
+  const full = String(req.originalUrl || ((req.baseUrl || '') + (req.path || ''))).split('?')[0];
+  const m = full.match(/^(\/api\/[^/]+)(\/.*)?$/);
+  const base = m ? m[1] : (req.baseUrl || '');
+  const path = m ? (m[2] || '/') : (req.path || '');
   const write = WRITE.has(req.method);
   if (base === '/api/reports')          return 'reports';
   if (base === '/api/campaigns')        return 'campaigns';
