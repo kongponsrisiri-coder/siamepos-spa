@@ -18,6 +18,34 @@ const router = express.Router();
 
 // SIAMPAY-002 — own keys OR SiamPay platform mode (see services/stripeGateway).
 const { gateway, sessionFee } = require('../services/stripeGateway');
+const { sendPaymentLinkEmail, sendSms, toGsm7 } = require('../services/emailService'); // SPA-PAYLINK-SEND-001
+
+// SPA-PAYLINK-SEND-001 — compose the SMS so it fits ONE segment (160 GSM
+// chars) whenever possible: the description is shortened first, then dropped;
+// the link is never cut (a 2-segment text beats a dead link).
+function composePayLinkSms({ spaName, amount, description, payUrl }) {
+  const head = toGsm7(spaName) + ': please pay ' + amount;
+  const tail = '. Pay here: ' + payUrl + ' (valid 24h)';
+  const room = 160 - head.length - tail.length;
+  let desc = description ? ' for ' + toGsm7(description) : '';
+  if (desc.length > room) desc = room > 12 ? desc.slice(0, room).replace(/\s+\S*$/, '') : '';
+  return head + desc + tail;
+}
+
+// SPA-PAYLINK-SEND-001 — 8-char code for the short public URL
+// (${PUBLIC_API_URL}/pay/<code>) that fits in a single SMS segment. Stripe's
+// own checkout URL is ~250 chars, which alone costs 2 segments.
+const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+async function newShortCode() {
+  for (let i = 0; i < 10; i++) {
+    let c = '';
+    for (let j = 0; j < 8; j++) c += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+    const { rows } = await pool.query('SELECT 1 FROM payment_links WHERE short_code = $1', [c]);
+    if (!rows[0]) return c;
+  }
+  return null;
+}
+const shortUrl = (link) => (link.short_code && publicUrl()) ? `${publicUrl()}/pay/${link.short_code}` : link.url;
 function stripe() {
   return gateway();
 }
@@ -50,18 +78,18 @@ function computeDeposit(policy, price) {
 //   ad-hoc : { amount, description?, customer_email? }
 //   booking: { appointment_id }   (amount derived from deposit policy)
 router.post('/', requireRole('admin', 'manager', 'reception'), async (req, res) => {
-  const { amount, description, customer_email, appointment_id } = req.body || {};
+  const { amount, description, customer_email, customer_phone, appointment_id } = req.body || {};
   const s = stripe();
   if (!s) return res.status(503).json({ error: 'Stripe is not configured' });
 
-  let pounds, desc, email = customer_email || null, purpose = 'adhoc', apptId = null;
+  let pounds, desc, email = customer_email || null, phone = customer_phone || null, purpose = 'adhoc', apptId = null;
 
   try {
     if (appointment_id) {
       // ── Booking deposit link ──────────────────────────────────────────
       const a = await pool.query(
         `SELECT ap.id, ap.price_at_booking, ap.payment_status,
-                t.name AS treatment_name, c.name AS client_name, c.email AS client_email
+                t.name AS treatment_name, c.name AS client_name, c.email AS client_email, c.phone AS client_phone
          FROM appointments ap
          LEFT JOIN treatments t ON t.id = ap.treatment_id
          LEFT JOIN clients    c ON c.id = ap.client_id
@@ -78,6 +106,7 @@ router.post('/', requireRole('admin', 'manager', 'reception'), async (req, res) 
       if (pounds <= 0) return res.status(400).json({ error: 'Deposit policy is "none" — no payment is due' });
       desc    = description || `Deposit — ${appt.treatment_name || 'treatment'}${appt.client_name ? ' for ' + appt.client_name : ''}`;
       email   = customer_email || appt.client_email || null;
+      phone   = customer_phone || appt.client_phone || null;
       purpose = 'deposit';
       apptId  = appt.id;
     } else {
@@ -108,13 +137,15 @@ router.post('/', requireRole('admin', 'manager', 'reception'), async (req, res) 
       cancel_url:  `${publicUrl()}/pay-thanks?status=cancelled`,
     }, s.opts);
 
+    const code = await newShortCode();
     const { rows } = await pool.query(
       `INSERT INTO payment_links
-         (purpose, amount, currency, description, status, stripe_session_id, url, customer_email, appointment_id, created_by, expires_at)
-       VALUES ($1, $2, 'gbp', $3, 'pending', $4, $5, $6, $7, $8, $9)
+         (purpose, amount, currency, description, status, stripe_session_id, url, customer_email, customer_phone, short_code, appointment_id, created_by, expires_at)
+       VALUES ($1, $2, 'gbp', $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING *`,
-      [purpose, pounds, desc, session.id, session.url, email, apptId, req.staff?.id || null, expiresIso],
+      [purpose, pounds, desc, session.id, session.url, email, phone, code, apptId, req.staff?.id || null, expiresIso],
     );
+    rows[0].short_url = shortUrl(rows[0]);
 
     // Surface the pending deposit on the booking so staff see it on the
     // appointment screen straight away.
@@ -175,6 +206,7 @@ router.get('/', requireRole('admin', 'manager', 'reception'), async (_req, res) 
         } catch (e) { /* leave as pending if Stripe lookup fails */ }
       }
     }
+    for (const l of rows) l.short_url = shortUrl(l);
     res.json({ links: rows });
   } catch (err) {
     console.error('[payment-links] list', err);
@@ -202,4 +234,68 @@ router.post('/:id/cancel', requireRole('admin', 'manager', 'reception'), async (
   }
 });
 
+// SPA-PAYLINK-SEND-001 — POST /api/payment-links/:id/send
+// body: { channel: 'email' | 'sms', to }
+// Sends the (short) link to the customer. Best-effort delivery; the link
+// itself is unaffected, so staff can always fall back to Copy link.
+router.post('/:id/send', requireRole('admin', 'manager', 'reception'), async (req, res) => {
+  const id = Number(req.params.id);
+  const { channel, to } = req.body || {};
+  if (!['email', 'sms'].includes(channel)) return res.status(400).json({ error: 'channel must be email or sms' });
+  try {
+    const { rows } = await pool.query('SELECT * FROM payment_links WHERE id = $1', [id]);
+    const link = rows[0];
+    if (!link) return res.status(404).json({ error: 'link not found' });
+    if (link.status !== 'pending') return res.status(409).json({ error: `link is ${link.status}` });
+    const payUrl = shortUrl(link);
+    const spaName = process.env.SPA_NAME || 'SiamEPOS Spa';
+    const amt = '£' + Number(link.amount).toFixed(2);
+    let target;
+    if (channel === 'email') {
+      target = String(to || link.customer_email || '').trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(target)) return res.status(400).json({ error: 'a valid email address is required' });
+      const r = await sendPaymentLinkEmail({ to: target, amount: link.amount, description: link.description, payUrl, expiresAt: link.expires_at, spaName });
+      if (r && r.skipped) return res.status(503).json({ error: 'email is not configured on this spa (BREVO_API_KEY)' });
+    } else {
+      target = String(to || link.customer_phone || '').trim();
+      if (!target) return res.status(400).json({ error: 'a mobile number is required' });
+      if (!process.env.TWILIO_ACCOUNT_SID || !process.env.TWILIO_AUTH_TOKEN) return res.status(503).json({ error: 'SMS is not configured on this spa' });
+      const text = composePayLinkSms({ spaName, amount: amt, description: link.description, payUrl });
+      const ok = await sendSms(target, text, { noCap: true });
+      if (!ok) return res.status(502).json({ error: 'SMS could not be sent — check the mobile number (UK 07… or +44…)' });
+    }
+    await pool.query(
+      `UPDATE payment_links SET sent_via = $2, sent_to = $3, sent_at = now(),
+         customer_email = CASE WHEN $2 = 'email' THEN $3 ELSE customer_email END,
+         customer_phone = CASE WHEN $2 = 'sms'   THEN $3 ELSE customer_phone END
+       WHERE id = $1`,
+      [id, channel, target],
+    );
+    res.json({ ok: true, channel, sent_to: target });
+  } catch (err) {
+    console.error('[payment-links] send', err);
+    res.status(500).json({ error: err.message || 'server error' });
+  }
+});
+
+// SPA-PAYLINK-SEND-001 — public resolver for the short URL. Mounted by
+// server.js at GET /pay/:code (no auth — the customer clicks it from an SMS).
+async function resolveShortCode(req, res) {
+  const code = String(req.params.code || '').toUpperCase();
+  try {
+    const { rows } = await pool.query('SELECT url, status, expires_at FROM payment_links WHERE short_code = $1', [code]);
+    const link = rows[0];
+    if (!link) return res.redirect(302, `${publicUrl()}/pay-thanks?status=cancelled`);
+    if (link.status === 'paid') return res.redirect(302, `${publicUrl()}/pay-thanks?status=paid`);
+    const expired = link.expires_at && new Date(link.expires_at).getTime() < Date.now();
+    if (link.status !== 'pending' || expired || !link.url) return res.redirect(302, `${publicUrl()}/pay-thanks?status=cancelled`);
+    return res.redirect(302, link.url);
+  } catch (err) {
+    console.error('[payment-links] short-code', err);
+    return res.redirect(302, `${publicUrl()}/pay-thanks?status=cancelled`);
+  }
+}
+
 module.exports = router;
+module.exports.resolveShortCode = resolveShortCode;
+module.exports.composePayLinkSms = composePayLinkSms;

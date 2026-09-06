@@ -134,13 +134,14 @@ export default function PaymentsSection() {
             <div className="col" style={{ flex: 1, minWidth: 240, gap: 8 }}>
               <div style={{ fontWeight: 700 }}>{fmtMoney(created.amount)} — link ready</div>
               <div className="muted" style={{ fontSize: 13 }}>{created.description || 'SiamEPOS Spa payment'}</div>
-              <input readOnly value={created.url} onFocus={(e) => e.target.select()} style={{ fontSize: 12 }} />
+              <input readOnly value={created.short_url || created.url} onFocus={(e) => e.target.select()} style={{ fontSize: 12 }} />
+              <SendPanel link={created} onSent={(upd) => setCreated((c) => ({ ...c, ...upd }))} />
               <div className="row">
-                <button className="primary" onClick={() => copy(created.url)}>📋 Copy link</button>
+                <button className="primary" onClick={() => copy(created.short_url || created.url)}>📋 Copy link</button>
                 <a href={created.url} target="_blank" rel="noreferrer"><button>Open</button></a>
                 <button onClick={() => { setCreated(null); setQr(''); }}>Done</button>
               </div>
-              <div className="muted" style={{ fontSize: 12 }}>Expires in ~24 hours. Show the QR or copy the link to the customer.</div>
+              <div className="muted" style={{ fontSize: 12 }}>Expires in ~24 hours. Email or text it, show the QR, or copy the link.</div>
             </div>
           </div>
         </div>
@@ -176,7 +177,8 @@ export default function PaymentsSection() {
                   </td>
                   <td style={{ padding: '6px 4px' }}><StatusBadge status={l.status} /></td>
                   <td style={{ padding: '6px 4px', textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {l.status === 'pending' && l.url && <button onClick={() => copy(l.url)}>Copy</button>}{' '}
+                    {l.sent_via && <span className="muted" style={{ fontSize: 11, marginRight: 6 }} title={`Sent to ${l.sent_to || ''}`}>{l.sent_via === 'sms' ? '📱 texted' : '✉️ emailed'}</span>}
+                    {l.status === 'pending' && l.url && <button onClick={() => copy(l.short_url || l.url)}>Copy</button>}{' '}
                     {l.status === 'pending' && <button onClick={() => cancelLink(l.id)}>Cancel</button>}
                   </td>
                 </tr>
@@ -194,6 +196,7 @@ function AmountForm({ stripeOk, onCreated }) {
   const [amount, setAmount] = useState('');
   const [desc, setDesc]     = useState('');
   const [email, setEmail]   = useState('');
+  const [phone, setPhone]   = useState(''); // SPA-PAYLINK-SEND-001
   const [busy, setBusy]     = useState(false);
   const [error, setError]   = useState('');
 
@@ -203,8 +206,8 @@ function AmountForm({ stripeOk, onCreated }) {
     if (!amt || amt <= 0) { setError('Enter a valid amount'); return; }
     setBusy(true);
     try {
-      const r = await api.post('/payment-links', { amount: amt, description: desc || null, customer_email: email || null });
-      setAmount(''); setDesc(''); setEmail('');
+      const r = await api.post('/payment-links', { amount: amt, description: desc || null, customer_email: email || null, customer_phone: phone || null });
+      setAmount(''); setDesc(''); setEmail(''); setPhone('');
       onCreated(r.link);
     } catch (e) { setError(e.message || 'Could not create link'); }
     finally { setBusy(false); }
@@ -225,6 +228,10 @@ function AmountForm({ stripeOk, onCreated }) {
         <div style={{ flex: 1, minWidth: 200 }}>
           <label>Customer email <span className="muted" style={{ fontSize: 12 }}>(optional)</span></label>
           <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@email.com" />
+        </div>
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <label>Customer mobile <span className="muted" style={{ fontSize: 12 }}>(optional, for SMS)</span></label>
+          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07… or +44…" />
         </div>
       </div>
       {error && <div style={{ color: '#b91c1c', fontSize: 13 }}>{error}</div>}
@@ -298,7 +305,7 @@ function BookingForm({ stripeOk, policy, onCreated }) {
         therapist_requested: !!therapistId,
       });
       // 3. Generate the deposit link for that booking.
-      const lr = await api.post('/payment-links', { appointment_id: ar.appointment.id, customer_email: email.trim() || null });
+      const lr = await api.post('/payment-links', { appointment_id: ar.appointment.id, customer_email: email.trim() || null, customer_phone: phone.trim() || null });
       // reset
       setName(''); setPhone(''); setEmail(''); setGdpr(false); setSlot(null); setSlots(null); setTherapistId('');
       onCreated(lr.link);
@@ -411,6 +418,49 @@ function BookingForm({ stripeOk, policy, onCreated }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ── SPA-PAYLINK-SEND-001 — send the link by email or SMS ─────────────────────
+function SendPanel({ link, onSent }) {
+  const [email, setEmail] = useState(link.customer_email || '');
+  const [phone, setPhone] = useState(link.customer_phone || '');
+  const [busy, setBusy]   = useState('');   // 'email' | 'sms' | ''
+  const [msg, setMsg]     = useState(null); // { ok, text }
+
+  async function send(channel) {
+    const to = channel === 'email' ? email.trim() : phone.trim();
+    if (!to) { setMsg({ ok: false, text: channel === 'email' ? 'Enter the customer\'s email first' : 'Enter the customer\'s mobile number first' }); return; }
+    setBusy(channel); setMsg(null);
+    try {
+      const r = await api.post(`/payment-links/${link.id}/send`, { channel, to });
+      setMsg({ ok: true, text: `${channel === 'email' ? 'Emailed' : 'Texted'} to ${r.sent_to}` });
+      onSent && onSent({ sent_via: channel, sent_to: r.sent_to, customer_email: channel === 'email' ? to : link.customer_email, customer_phone: channel === 'sms' ? to : link.customer_phone });
+    } catch (e) { setMsg({ ok: false, text: e.message || 'Could not send' }); }
+    finally { setBusy(''); }
+  }
+
+  return (
+    <div className="col" style={{ gap: 8, padding: '10px 12px', background: '#f8fafc', border: '1px solid var(--border)', borderRadius: 8 }}>
+      <div style={{ fontWeight: 700, fontSize: 13 }}>Send to the customer</div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <label style={{ fontSize: 12 }}>Email</label>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@email.com" />
+        </div>
+        <button disabled={!!busy} onClick={() => send('email')} style={{ minHeight: 38 }}>{busy === 'email' ? 'Sending…' : '✉️ Send via Email'}</button>
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <label style={{ fontSize: 12 }}>Mobile</label>
+          <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07… or +44…" />
+        </div>
+        <button disabled={!!busy} onClick={() => send('sms')} style={{ minHeight: 38 }}>{busy === 'sms' ? 'Sending…' : '📱 Send via SMS'}</button>
+      </div>
+      {msg && <div style={{ fontSize: 13, color: msg.ok ? '#15803d' : '#b91c1c' }}>{msg.ok ? '✓ ' : '⚠️ '}{msg.text}</div>}
+      <div className="muted" style={{ fontSize: 11 }}>SMS is one text (about 4p) using the spa's short link.</div>
     </div>
   );
 }

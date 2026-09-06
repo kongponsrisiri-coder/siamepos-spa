@@ -656,6 +656,12 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_payment_links_created_at ON payment_links (created_at);
     -- Older deploys created payment_links before appointment_id existed.
     ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS appointment_id INT REFERENCES appointments(id) ON DELETE SET NULL;
+    -- SPA-PAYLINK-SEND-001 — dispatch by email / SMS + a short public redirect code.
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS customer_phone TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS short_code     TEXT UNIQUE;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS sent_via       TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS sent_to        TEXT;
+    ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS sent_at        TIMESTAMPTZ;
   `);
 
   // ── WhatsApp concierge conversations (SPA-WHATSAPP-AI-001, Stage 2) ─────

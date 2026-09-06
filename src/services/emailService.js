@@ -795,13 +795,15 @@ function sendBookingSms({ client, appointment, treatment }) {
 // alert the spa owner when a new website chat starts). Reuses the same Twilio
 // creds + UK E.164 normalisation as sendBookingSms. Resolves true/false, never
 // throws — the caller must never fail its request because an alert didn't send.
-function sendOwnerSms(phone, text) {
+function sendOwnerSms(phone, text, { noCap = false } = {}) {
   return new Promise((resolve) => {
     if (!TWILIO_SID || !TWILIO_TOKEN) return resolve(false);
     const to = toE164Uk(phone);
     if (!to) return resolve(false);
-    // SPA-SMS-COST-001 — same one-segment rule as the booking text.
-    const body = new URLSearchParams({ To: to, From: TWILIO_FROM, Body: smsBody(text) }).toString();
+    // SPA-SMS-COST-001 — same one-segment rule as the booking text. noCap
+    // (payment links) still sanitises to GSM-7 but never truncates — cutting
+    // a URL in half is worse than paying for a second segment.
+    const body = new URLSearchParams({ To: to, From: TWILIO_FROM, Body: noCap ? toGsm7(text) : smsBody(text) }).toString();
     const req = https.request({
       hostname: 'api.twilio.com',
       path:     '/2010-04-01/Accounts/' + TWILIO_SID + '/Messages.json',
@@ -827,8 +829,42 @@ function sendOwnerSms(phone, text) {
   });
 }
 
+// SPA-PAYLINK-SEND-001 — "Pay £25.00 here" email for a payment link.
+async function sendPaymentLinkEmail({ to, amount, description, payUrl, expiresAt, spaName }) {
+  const safe = (v) => String(v || '').replace(/[<>]/g, '');
+  const name = safe(spaName || process.env.SPA_NAME || 'SiamEPOS Spa');
+  const amt  = '£' + Number(amount || 0).toFixed(2);
+  const exp  = expiresAt ? new Date(expiresAt).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }) : null;
+  const html = `
+<!doctype html>
+<html><body style="margin:0;padding:0;background:#faf7f2;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#1c1c1c;">
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:#faf7f2;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="520" style="max-width:520px;background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 14px rgba(20,38,74,0.08);">
+        <tr><td style="background:#1e3a6e;padding:18px 24px;color:#C9A84C;font-family:Georgia,serif;font-size:18px;font-weight:700;">${name}</td></tr>
+        <tr><td style="padding:24px;line-height:1.6;font-size:15px;">
+          <p style="margin:0 0 8px;">Hello,</p>
+          <p style="margin:0 0 16px;">${name} has sent you a secure payment request${description ? ' for <strong>' + safe(description) + '</strong>' : ''}.</p>
+          <div style="font-size:28px;font-weight:800;color:#1e3a6e;margin:8px 0 18px;">${amt}</div>
+          <p style="text-align:center;margin:0 0 18px;">
+            <a href="${payUrl}" style="background:#C9A84C;color:#0D1B3E;font-weight:700;text-decoration:none;padding:14px 28px;border-radius:10px;display:inline-block;">Pay ${amt} securely</a>
+          </p>
+          <p style="margin:0;font-size:12px;color:#6b6b6b;">Payment is handled by Stripe. ${exp ? 'This link expires ' + exp + '.' : ''} If the button doesn't work, copy this address into your browser:<br><span style="word-break:break-all;">${payUrl}</span></p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`.trim();
+  return sendBrevoEmail({ to: [{ email: to }], subject: `${name} — payment request ${amt}`, html });
+}
+
+// SPA-PAYLINK-SEND-001 — generic customer SMS (same plumbing as the owner alert).
+const sendSms = sendOwnerSms;
+
 module.exports = {
   sendBrevoEmail,
+  sendPaymentLinkEmail,  // SPA-PAYLINK-SEND-001
+  sendSms,               // SPA-PAYLINK-SEND-001
   sendOwnerLoginLink,
   sendBookingConfirmation,
   sendBookingRescheduled,

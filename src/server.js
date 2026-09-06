@@ -140,6 +140,9 @@ app.get('/my-booking.html', (_req, res) => {
 
 // SEPOS-SPA-PAYLINK-001 — landing page a payment-link customer returns to after
 // Stripe Checkout (success_url / cancel_url). Public, no auth.
+// SPA-PAYLINK-SEND-001 — short payment-link redirect (public; the customer taps it from an SMS/email).
+app.get('/pay/:code', paymentLinkRoutes.resolveShortCode);
+
 app.get('/pay-thanks', (req, res) => {
   const ok = req.query.status !== 'cancelled';
   res.type('html').send(`<!doctype html><html><head><meta charset="utf-8">
