@@ -377,7 +377,8 @@ router.post('/', async (req, res) => {
       });
     }
     await offlineQueue.enqueue('create_appointment', { localId: appt.id });
-    req.app.get('io')?.emit('new_appointment', appt);
+    // SPA-NOTIFY-LIVE-001 — the enriched event (names + source) is emitted
+    // inside the notify block below once the joined row is loaded.
 
     // SPA-OWNER-NOTIFY + SPA-NOTIF-SOURCE — the owner email fires ONLY for
     // real bookings the owner didn't enter with her own hands: the online
@@ -400,6 +401,10 @@ router.post('/', async (req, res) => {
           [appt.id],
         );
         const n = named.rows[0] || {};
+        // SPA-NOTIFY-LIVE-001 — live till alert needs names, not just ids.
+        req.app.get('io')?.emit('new_appointment', {
+          ...appt, client_name: n.client_name, treatment_name: n.treatment_name, therapist_name: n.therapist_name,
+        });
         if (validSource === 'phone') {
           await sendOwnerNewBookingEmail({
             appointment:   appt,
@@ -417,7 +422,10 @@ router.post('/', async (req, res) => {
             treatment:   { name: n.treatment_name },
           }).catch((e) => console.error('[appointments] sms send failed', e));
         }
-      } catch (e) { console.error('[appointments] owner notify failed', e); }
+      } catch (e) {
+        console.error('[appointments] owner notify failed', e);
+        req.app.get('io')?.emit('new_appointment', appt); // diaries must still refresh
+      }
     })();
 
     res.status(201).json({ appointment: appt });

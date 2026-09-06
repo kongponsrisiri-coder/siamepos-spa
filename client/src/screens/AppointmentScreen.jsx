@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api, getStaff } from '../api.js';
 import { socket } from '../socket.js';
 import NewAppointmentModal from '../components/NewAppointmentModal.jsx';
@@ -921,6 +921,24 @@ export default function AppointmentScreen() {
   }, []);
 
   const navigate = useNavigate();
+
+  // SPA-NOTIFY-LIVE-001 — "/?date=YYYY-MM-DD&appt=ID" (from the new-booking
+  // alert's View button) jumps the diary to that day and highlights the
+  // booking once the day's appointments have loaded.
+  const location = useLocation();
+  const [pendingSelectId, setPendingSelectId] = useState(null);
+  useEffect(() => {
+    const q = new URLSearchParams(location.search);
+    const d = q.get('date'), a = q.get('appt');
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) setDate(d);
+    if (a) setPendingSelectId(Number(a));
+    if (d || a) navigate('/', { replace: true });
+  }, [location.search]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!pendingSelectId) return;
+    const hit = appointments.find((x) => x.id === pendingSelectId);
+    if (hit) { setSelected(hit); setPendingSelectId(null); }
+  }, [appointments, pendingSelectId]);
 
   const month = date.slice(0, 7);
   const refreshRota = useCallback(async (m) => {

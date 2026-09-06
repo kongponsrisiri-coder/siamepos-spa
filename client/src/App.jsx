@@ -12,6 +12,7 @@ import CheckoutScreen      from './screens/CheckoutScreen.jsx';
 import ClientSearchScreen  from './screens/ClientSearchScreen.jsx';
 import ClientProfileScreen from './screens/ClientProfileScreen.jsx';
 import AdminScreen         from './screens/AdminScreen.jsx';
+import NewBookingAlert     from './components/NewBookingAlert.jsx'; // SPA-NOTIFY-LIVE-001
 
 // Brand CI: var(--navy) navy · var(--gold) gold · Cormorant Garamond headings
 
@@ -312,6 +313,7 @@ function AppShell({ children }) {
   return (
     <div style={{ minHeight: '100vh', minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <TopNav />
+      <NewBookingAlert />
       <main className="app-main" style={{
         flex: 1,
         padding: '16px 16px 0',

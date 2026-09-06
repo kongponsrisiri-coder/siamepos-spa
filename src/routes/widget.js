@@ -486,7 +486,10 @@ router.post('/book', async (req, res) => {
     await client.query('COMMIT');
 
     // Fire-and-forget side effects after commit.
-    req.app.get('io')?.emit('new_appointment', ap.rows[0]);
+    // SPA-NOTIFY-LIVE-001 — names ride along so the till can show "New booking — Jane".
+    req.app.get('io')?.emit('new_appointment', {
+      ...ap.rows[0], client_name: cli.name, treatment_name: tr.rows[0]?.name, therapist_name: named.rows[0]?.therapist_name,
+    });
     if (cli.email) {
       sendBookingConfirmation({
         client:        cli,
