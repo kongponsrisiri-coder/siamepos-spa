@@ -343,7 +343,7 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwap
 // ══════════════════════════════════════════════════════════════════════════════
 // VERTICAL TIMELINE
 // ══════════════════════════════════════════════════════════════════════════════
-function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder, onSwap, onMove, isMobile }) {
+function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder, onSwap, onMove, onBlockRange, isMobile }) {
   // SPA-SWAP — track which appointment block is being dragged so the
   // drop target can highlight + we can fire the swap on drop.
   const [draggedApptId, setDraggedApptId] = useState(null);
@@ -351,6 +351,15 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   // SPA-MOVE-DND — track the column being hovered while dragging onto
   // an empty area so we can highlight the destination column.
   const [dragOverColId, setDragOverColId] = useState(null);
+  // SPA-DND-PRECISION-001 — live drop preview ({ colId, mins, colName }) and
+  // the move awaiting confirmation ({ apptId, colId, colName, mins }).
+  const [dragPreview, setDragPreview] = useState(null);
+  const [pendingMove, setPendingMove] = useState(null);
+  // SPA-BLOCK-DRAG-001 — press-and-hold on an empty slot, drag down to pick
+  // the block's end. { colId, colName, startMins, endMins } while dragging.
+  const [blockDrag, setBlockDrag] = useState(null);
+  const holdRef = useRef(null);     // { timer, colId, colName, mins, x, y, armed, el }
+  const suppressClickRef = useRef(false);
   const nowRef       = useRef(null);
   const containerRef = useRef(null);
   const headerRef    = useRef(null);
@@ -358,6 +367,56 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   const [headerH,    setHeaderH]    = useState(HEADER_H);
   const [dragSrc,  setDragSrc]  = useState(null);
   const [dragOver, setDragOver] = useState(null);
+
+  // Snap a pointer Y (relative to the column top) to the nearest 15 minutes.
+  function ySnap(clientY, el) {
+    const rect = el.getBoundingClientRect();
+    const rawMins = ((clientY - rect.top) / HOUR_H) * 60 + DAY_START * 60;
+    return Math.max(DAY_START * 60, Math.min(DAY_END * 60 - 15, Math.round(rawMins / 15) * 15));
+  }
+  const minsLabel = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
+  const draggedAppt = draggedApptId ? appointments.find(a => a.id === draggedApptId) : null;
+
+  // SPA-BLOCK-DRAG-001 — pointer handlers for press-and-hold block selection.
+  function holdStart(e, col) {
+    if (col.isOff || e.target !== e.currentTarget || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    const el = e.currentTarget;
+    const mins = ySnap(e.clientY, el);
+    clearTimeout(holdRef.current?.timer);
+    holdRef.current = { colId: col.id, colName: col.name, mins, x: e.clientX, y: e.clientY, armed: false, el };
+    holdRef.current.timer = setTimeout(() => {
+      if (!holdRef.current) return;
+      holdRef.current.armed = true;
+      try { el.setPointerCapture(e.pointerId); } catch { /* not supported */ }
+      if (navigator.vibrate) { try { navigator.vibrate(15); } catch { /* ignore */ } }
+      setBlockDrag({ colId: col.id, colName: col.name, startMins: mins, endMins: mins + 15 });
+    }, 350);
+  }
+  function holdMove(e) {
+    const h = holdRef.current;
+    if (!h) return;
+    if (!h.armed) {
+      // Moved before the hold fired → it's a scroll/click, not a hold.
+      if (Math.abs(e.clientX - h.x) > 8 || Math.abs(e.clientY - h.y) > 8) { clearTimeout(h.timer); holdRef.current = null; }
+      return;
+    }
+    e.preventDefault();
+    const m = ySnap(e.clientY, h.el);
+    setBlockDrag(b => b ? { ...b, endMins: Math.max(b.startMins + 15, m + 15) } : b);
+  }
+  function holdEnd() {
+    const h = holdRef.current;
+    if (!h) return;
+    clearTimeout(h.timer);
+    holdRef.current = null;
+    if (!h.armed) return;
+    suppressClickRef.current = true;             // swallow the click that follows pointerup
+    setTimeout(() => { suppressClickRef.current = false; }, 400);
+    setBlockDrag(b => {
+      if (b && onBlockRange) onBlockRange({ therapistId: b.colId, therapistName: b.colName, time: minsLabel(b.startMins), minutes: b.endMins - b.startMins });
+      return null;
+    });
+  }
 
   // Responsive dimensions
   const COL_W_USE = isMobile ? COL_W_MOB : COL_W;
@@ -588,13 +647,19 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   width: COL_W_USE, flexShrink: 0, position: 'relative', height: totalH,
                   borderLeft: '1px solid var(--border)',
                   cursor: col.isOff ? 'default' : 'crosshair',
+                  touchAction: blockDrag ? 'none' : 'pan-y',
                   background: col.isOff
                     ? 'repeating-linear-gradient(135deg, #f5f5f5 0px, #f5f5f5 8px, #ececec 8px, #ececec 16px)'
                     : (dragOverColId === col.id && draggedApptId ? '#fdf6ec' : 'white'),
                   transition: 'background 0.1s',
                 }}
+                onPointerDown={col.isOff ? undefined : e => holdStart(e, col)}
+                onPointerMove={holdMove}
+                onPointerUp={holdEnd}
+                onPointerCancel={holdEnd}
                 onClick={col.isOff ? undefined : e => {
                   if (e.target !== e.currentTarget) return;
+                  if (suppressClickRef.current) return; // SPA-BLOCK-DRAG-001 — hold just ended
                   if (!onSlotClick) return;
                   const rect = e.currentTarget.getBoundingClientRect();
                   const clickY = e.clientY - rect.top;
@@ -617,22 +682,44 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   e.preventDefault();
                   e.dataTransfer.dropEffect = 'move';
                   setDragOverColId(col.id);
+                  // SPA-DND-PRECISION-001 — live preview of the snapped target.
+                  const mins = ySnap(e.clientY, e.currentTarget);
+                  setDragPreview(p => (p && p.colId === col.id && p.mins === mins) ? p : { colId: col.id, colName: col.name, mins });
                 }}
-                onDragLeave={() => setDragOverColId(prev => prev === col.id ? null : prev)}
+                onDragLeave={() => { setDragOverColId(prev => prev === col.id ? null : prev); setDragPreview(p => p && p.colId === col.id ? null : p); }}
                 onDrop={col.isOff ? undefined : e => {
                   e.preventDefault();
                   const sourceId = Number(e.dataTransfer.getData('text/plain'));
-                  setDragOverColId(null); setDraggedApptId(null); setDragOverApptId(null);
+                  setDragOverColId(null); setDraggedApptId(null); setDragOverApptId(null); setDragPreview(null);
                   if (!sourceId || !onMove) return;
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const dropY = e.clientY - rect.top;
-                  const rawMins = (dropY / HOUR_H) * 60 + DAY_START * 60;
-                  const mins = Math.max(DAY_START * 60, Math.min(DAY_END * 60 - 15, Math.round(rawMins / 15) * 15));
-                  const h = Math.floor(mins / 60);
-                  const m = mins % 60;
-                  onMove(sourceId, col.id, `${pad(h)}:${pad(m)}`);
+                  const mins = ySnap(e.clientY, e.currentTarget);
+                  const src = appointments.find(a => a.id === sourceId);
+                  // SPA-DND-PRECISION-001 — no accidental shifts: confirm first.
+                  setPendingMove({ apptId: sourceId, appt: src, colId: col.id, colName: col.name, mins });
                 }}
               >
+                {/* SPA-DND-PRECISION-001 — drop preview */}
+                {dragPreview && dragPreview.colId === col.id && draggedAppt && (() => {
+                  const durM = Math.max(15, toLocalMins(draggedAppt.ends_at) - toLocalMins(draggedAppt.starts_at));
+                  return (
+                    <div style={{ position: 'absolute', left: 3, right: 3, top: minsToPx(dragPreview.mins), height: Math.max(minsToPx(dragPreview.mins + durM) - minsToPx(dragPreview.mins) - 2, 26),
+                      border: '2px dashed var(--gold, #C9A84C)', background: 'rgba(201,168,76,0.18)', borderRadius: 7, zIndex: 6, pointerEvents: 'none' }}>
+                      <div style={{ position: 'absolute', top: -22, left: 0, background: 'var(--navy, #0D1B3E)', color: 'white', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>
+                        {minsLabel(dragPreview.mins)}–{minsLabel(dragPreview.mins + durM)} · {col.name}
+                      </div>
+                    </div>
+                  );
+                })()}
+                {/* SPA-BLOCK-DRAG-001 — press-and-hold selection */}
+                {blockDrag && blockDrag.colId === col.id && (
+                  <div style={{ position: 'absolute', left: 3, right: 3, top: minsToPx(blockDrag.startMins), height: minsToPx(blockDrag.endMins) - minsToPx(blockDrag.startMins) - 2,
+                    background: 'repeating-linear-gradient(135deg, rgba(75,85,99,0.35) 0px, rgba(75,85,99,0.35) 6px, rgba(75,85,99,0.15) 6px, rgba(75,85,99,0.15) 12px)',
+                    border: '2px solid #4b5563', borderRadius: 7, zIndex: 7, pointerEvents: 'none' }}>
+                    <div style={{ position: 'absolute', top: 4, left: 6, background: '#1f2937', color: 'white', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>
+                      🚫 Block {minsLabel(blockDrag.startMins)}–{minsLabel(blockDrag.endMins)} ({blockDrag.endMins - blockDrag.startMins} min)
+                    </div>
+                  </div>
+                )}
                 {/* Grid lines */}
                 {hours.map(h => (
                   <div key={h} style={{ position: 'absolute', top: (h - DAY_START) * HOUR_H, left: 0, right: 0, height: HOUR_H, borderBottom: '1px solid #f3f4f6', pointerEvents: 'none' }}>
@@ -879,6 +966,32 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
             }}>💳 £</span>
             Deposit on file
           </span>
+        </div>
+      )}
+      {/* SPA-DND-PRECISION-001 — confirm the move before it happens */}
+      {pendingMove && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,27,62,0.5)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+          onClick={e => { if (e.target === e.currentTarget) setPendingMove(null); }}>
+          <div style={{ background: 'white', borderRadius: 14, width: 'min(94vw, 400px)', padding: 20, boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            <h3 style={{ margin: '0 0 8px' }}>Move appointment?</h3>
+            <div style={{ fontSize: 14, lineHeight: 1.5, marginBottom: 14 }}>
+              Move <strong>{pendingMove.appt?.client_name || 'this booking'}</strong>
+              {pendingMove.appt?.treatment_name ? ` (${pendingMove.appt.treatment_name})` : ''} to{' '}
+              <strong>{minsLabel(pendingMove.mins)}</strong> with <strong>{pendingMove.colName}</strong>?
+              {pendingMove.appt && (
+                <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                  Currently {fmtTime(pendingMove.appt.starts_at)}{pendingMove.appt.therapist_name ? ' with ' + pendingMove.appt.therapist_name : ''}
+                </div>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setPendingMove(null)} style={{ flex: 1, minHeight: 44 }}>Cancel</button>
+              <button className="primary" style={{ flex: 2, minHeight: 44, fontWeight: 800 }}
+                onClick={() => { const m = pendingMove; setPendingMove(null); onMove && onMove(m.apptId, m.colId, minsLabel(m.mins)); }}>
+                Move
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -1299,6 +1412,7 @@ export default function AppointmentScreen() {
               selected={selected}
               onSelect={setSelected}
               onSlotClick={({ therapistId, time }) => setModal({ therapistId, time })}
+              onBlockRange={({ therapistId, time, minutes }) => setBlockModal({ therapistId, time, minutes })} // SPA-BLOCK-DRAG-001
               onEditClick={appt => setModal({ appointment: appt })}
               onColumnReorder={handleColumnReorder}
               onSwap={async (idA, idB) => {
@@ -1521,6 +1635,7 @@ export default function AppointmentScreen() {
           defaultTherapistId={blockModal.therapistId || null}
           defaultDate={date}
           defaultTime={blockModal.time || null}
+          defaultDuration={blockModal.minutes || null}
           onClose={() => setBlockModal(null)}
           onSaved={() => { setBlockModal(null); load(); }}
         />

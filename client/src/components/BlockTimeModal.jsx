@@ -20,7 +20,7 @@ const DURATIONS = [
   { mins: 120, label: '2 hr' },
 ];
 
-export default function BlockTimeModal({ therapists, defaultTherapistId, defaultDate, defaultTime, onClose, onSaved }) {
+export default function BlockTimeModal({ therapists, defaultTherapistId, defaultDate, defaultTime, defaultDuration, onClose, onSaved }) {
   const [therapistId, setTherapistId] = useState(defaultTherapistId ? String(defaultTherapistId) : '');
   const [date, setDate] = useState(defaultDate);
   const [time, setTime] = useState(() => {
@@ -31,7 +31,9 @@ export default function BlockTimeModal({ therapists, defaultTherapistId, default
     d.setMinutes(m, 0, 0);
     return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
   });
-  const [duration, setDuration] = useState(60);
+  // SPA-BLOCK-DRAG-001 — prefilled from a press-and-hold range on the timetable.
+  const [duration, setDuration] = useState(defaultDuration && defaultDuration > 0 ? defaultDuration : 60);
+  const durationChoices = DURATIONS.some(d => d.mins === duration) ? DURATIONS : [...DURATIONS, { mins: duration, label: `${duration} min` }].sort((a, b) => a.mins - b.mins);
   const [reason, setReason]     = useState('');
   const [busy, setBusy]         = useState(false);
   const [error, setError]       = useState('');
@@ -109,7 +111,7 @@ export default function BlockTimeModal({ therapists, defaultTherapistId, default
           <div>
             <label>How long</label>
             <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
-              {DURATIONS.map(d => {
+              {durationChoices.map(d => {
                 const active = duration === d.mins;
                 return (
                   <button
