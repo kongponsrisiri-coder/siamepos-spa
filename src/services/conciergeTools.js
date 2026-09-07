@@ -24,7 +24,17 @@ function stripeClient() {
 }
 
 const publicUrl = () => (process.env.PUBLIC_API_URL || '').replace(/\/+$/, '');
-const HOLD_TTL_MIN = Math.max(5, Number(process.env.CONCIERGE_HOLD_TTL_MIN || 15));
+// SPA-CHATBOT-FIX-001 — 30 min (was 15): Stripe Checkout links live ≥30 min,
+// so a 15-min hold meant the link the customer was sent stopped working
+// after 15 minutes ("the payment link doesn't work"). Hold and link now expire together.
+const HOLD_TTL_MIN = Math.max(30, Number(process.env.CONCIERGE_HOLD_TTL_MIN || 30));
+
+// Human label for a slot in UK time — the model must never have to convert
+// a UTC ISO string to a weekday itself (that is how "Friday" became "Saturday").
+function ukLabel(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+}
 
 function badRequest(message) {
   const e = new Error(message);
@@ -101,7 +111,8 @@ async function checkAvailability({ treatment_id, date, therapist_id } = {}) {
     therapist_id: therapist_id ? Number(therapist_id) : null,
   });
   return slots.map((s) => ({
-    slot_datetime: s.starts_at,                       // ISO 8601
+    slot_datetime: s.starts_at,                       // ISO 8601 (UTC) — pass back verbatim to hold_slot
+    label:         ukLabel(s.starts_at),              // e.g. "Friday 11 September, 15:00" — UK time, quote THIS to the customer
     therapist_id:  (s.therapists && s.therapists[0]) || null,
   }));
 }
@@ -109,10 +120,15 @@ async function checkAvailability({ treatment_id, date, therapist_id } = {}) {
 // Find-or-create a client from concierge-supplied contact details. Mirrors the
 // public /book rule: for an existing match, only FILL BLANKS — never overwrite
 // identity from an unauthenticated channel.
-async function findOrCreateClient(client, { name, phone, email }) {
-  const existing = email
-    ? await client.query('SELECT * FROM clients WHERE email = $1 OR phone = $2 ORDER BY id LIMIT 1', [email, phone])
-    : await client.query('SELECT * FROM clients WHERE phone = $1 ORDER BY id LIMIT 1', [phone]);
+async function findOrCreateClient(client, { name, phone, email, source = 'whatsapp' }) {
+  // SPA-CHATBOT-FIX-001 — website chats have no phone; match on whichever
+  // contact we DO have (never on a NULL, which would match nothing / everything).
+  const existing = await client.query(
+    `SELECT * FROM clients
+      WHERE ($1::text IS NOT NULL AND lower(email) = lower($1))
+         OR ($2::text IS NOT NULL AND phone = $2)
+      ORDER BY id LIMIT 1`,
+    [email || null, phone || null]);
   if (existing.rows[0]) {
     const cli = existing.rows[0];
     await client.query(
@@ -124,8 +140,8 @@ async function findOrCreateClient(client, { name, phone, email }) {
   }
   const ins = await client.query(
     `INSERT INTO clients (name, phone, email, gdpr_consent, gdpr_consent_at, marketing_consent, source)
-     VALUES ($1,$2,$3,TRUE,now(),FALSE,'whatsapp') RETURNING *`,
-    [name, phone, email || null],
+     VALUES ($1,$2,$3,TRUE,now(),FALSE,$4) RETURNING *`,
+    [name, phone || null, email || null, source],
   );
   return ins.rows[0];
 }
@@ -140,7 +156,11 @@ async function findOrCreateClient(client, { name, phone, email }) {
 // customer = { name, phone, email? }
 async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, notes } = {}) {
   if (!treatment_id || !slot_datetime) throw badRequest('treatment_id and slot_datetime are required');
-  if (!customer || !customer.name || !customer.phone) throw badRequest('customer name and phone are required');
+  if (!customer || !customer.name) throw badRequest('customer name is required');
+  // SPA-CHATBOT-FIX-001 — a website session id is not a phone number.
+  if (customer.phone && /^web:/i.test(String(customer.phone))) customer.phone = null;
+  if (!customer.phone && !customer.email) throw badRequest('a mobile number or an email address is required so we can send the confirmation');
+  const channel = customer.channel === 'web' ? 'web' : 'whatsapp';
   const startsAt = new Date(slot_datetime);
   if (isNaN(startsAt.getTime())) throw badRequest('invalid slot_datetime');
   if (startsAt.getTime() < Date.now()) throw badRequest('cannot hold a slot in the past');
@@ -158,7 +178,7 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
     const ends_at = new Date(startsAt.getTime() + tr.rows[0].duration_minutes * 60_000);
     const priceAtBooking = Number(tr.rows[0].price || 0);
 
-    const cli = await findOrCreateClient(client, customer);
+    const cli = await findOrCreateClient(client, { ...customer, source: channel === 'web' ? 'online' : 'whatsapp' });
 
     // Confirm the slot is genuinely free, and resolve a therapist + room.
     let therapistId = therapist_id ? Number(therapist_id) : null;
@@ -184,7 +204,7 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
       `INSERT INTO appointments
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
           status, source, notes, payment_status, price_at_booking, hold_expires_at)
-       SELECT $1,$2,$3,$4,$5,$6,'held','whatsapp',$7,'none',$8,$9
+       SELECT $1,$2,$3,$4,$5,$6,'held',$10,$7,'none',$8,$9
        WHERE NOT EXISTS (
          SELECT 1 FROM appointments a
          WHERE a.status NOT IN ('cancelled','no_show')
@@ -194,7 +214,7 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
        )
        RETURNING *`,
       [cli.id, Number(treatment_id), therapistId, roomId, startsAt.toISOString(), ends_at.toISOString(),
-       notes || null, priceAtBooking, holdExpiresAt.toISOString()],
+       notes || null, priceAtBooking, holdExpiresAt.toISOString(), channel === 'web' ? 'online' : 'whatsapp'],
     );
     if (!ap.rows[0]) { await client.query('ROLLBACK'); const e = badRequest('That slot was just taken'); e.status = 409; throw e; }
     const appt = ap.rows[0];
@@ -224,7 +244,8 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
     if (deposit > 0 && s) {
       // Stripe requires the session to live ≥30 min; our shorter hold is
       // enforced by the sweeper, which also expires this session on release.
-      const expiresUnix = Math.floor(Date.now() / 1000) + 30 * 60;
+      // Link and hold expire together (Stripe minimum is 30 min).
+      const expiresUnix = Math.floor(holdExpiresAt.getTime() / 1000);
       const session = await s.s.checkout.sessions.create({
         mode: 'payment',
         ...sessionFee(s), // SIAMPAY-002
@@ -261,6 +282,8 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
         checkout_url: session.url,
         deposit_amount: deposit,
         hold_expires_at: holdExpiresAt.toISOString(),
+        label: ukLabel(startsAt),                 // read THIS back to the customer
+        treatment_name: tr.rows[0].name,
       };
     }
 
@@ -278,6 +301,8 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
       checkout_url: null,
       deposit_amount: 0,
       hold_expires_at: null,
+      label: ukLabel(startsAt),
+      treatment_name: tr.rows[0].name,
     };
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (_) { /* already rolled back */ }
@@ -390,6 +415,7 @@ async function listTherapists({ date } = {}) {
 }
 
 module.exports = {
+  ukLabel,
   getTreatments,
   getSpaInfo,
   checkAvailability,

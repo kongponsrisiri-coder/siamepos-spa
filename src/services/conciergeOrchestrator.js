@@ -58,6 +58,8 @@ const TOOL_DEFS = [
         treatment_id:  { type: 'integer' },
         slot_datetime: { type: 'string', description: 'exact slot_datetime (ISO 8601) returned by check_availability' },
         customer_name: { type: 'string', description: "the customer's name for the booking" },
+        customer_phone: { type: 'string', description: 'UK mobile number the customer gave (website chats only — on WhatsApp the number is already known)' },
+        customer_email: { type: 'string', description: 'email address the customer gave, for the receipt and confirmation' },
         therapist_id:  { type: 'integer', description: 'optional, if a specific therapist was chosen' },
       },
       required: ['treatment_id', 'slot_datetime', 'customer_name'],
@@ -78,8 +80,30 @@ function normalizePhone(from) {
   return String(from || '').replace(/^whatsapp:/i, '').trim();
 }
 
-function buildSystemPrompt(spaName, ttlMin) {
+// SPA-CHATBOT-FIX-001 — the calendar the model reasons with, in UK time.
+// Previously the prompt said only "Today's date is 2026-09-07" (UTC, no
+// weekday) and slots came as UTC ISO strings, so the model had to work out
+// weekdays itself — which is how a customer asking for Friday got Saturday.
+function ukCalendarContext(now = new Date()) {
+  const fmt = (d, o) => d.toLocaleString('en-GB', { timeZone: 'Europe/London', ...o });
+  const lines = [];
+  for (let i = 0; i < 8; i++) {
+    const d = new Date(now.getTime() + i * 86_400_000);
+    const ymd = d.toLocaleDateString('en-CA', { timeZone: 'Europe/London' });
+    const tag = i === 0 ? ' (TODAY)' : i === 1 ? ' (tomorrow)' : '';
+    lines.push(`  ${fmt(d, { weekday: 'long' })} ${ymd}${tag}`);
+  }
+  return `Right now it is ${fmt(now, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })} UK time (Europe/London).
+Calendar for the next days (use ONLY this to turn a weekday into a date):
+${lines.join('\n')}
+"This Friday" means the next Friday in this list. Always say the weekday AND the date when you offer or confirm a time, e.g. "Friday 11 September at 15:00". Use the "label" field the tools give you — never convert times yourself.`;
+}
+
+function buildSystemPrompt(spaName, ttlMin, channel = 'whatsapp') {
   const name = spaName || 'our spa';
+  const contactRule = channel === 'web'
+    ? `- This is the WEBSITE chat: you do NOT have the customer's phone number. Before holding a slot, ask for a UK mobile number (for the SMS confirmation) and/or an email address (for the receipt). Pass them to hold_slot as customer_phone / customer_email. Never say you will use "this WhatsApp number".`
+    : `- This is WhatsApp: the customer's number is already known, so confirm "I'll use this WhatsApp number" and ask for an email only if they'd like a receipt.`;
   return `You are Tara, the friendly booking assistant for ${name}, chatting with customers on the spa's website and WhatsApp. Your job is to help people learn about treatments, answer questions about the spa, and book an appointment by holding a slot and sending a secure payment link.
 
 WHO YOU ARE
@@ -99,8 +123,8 @@ WHAT YOU CAN DO
 
 HOW A BOOKING MUST GO — follow exactly
 1. Help the customer choose a treatment and a date/time from real available slots.
-2. Collect their name and confirm their phone (this WhatsApp number is usually fine).
-3. Read the details back and get a clear "yes": e.g. "To confirm: [treatment], [day date] at [time], under [name] — shall I hold it for you?"
+2. Collect their name and how to reach them (see CONTACT below).
+3. Read the details back and get a clear "yes", using the slot's label: e.g. "To confirm: [treatment], Friday 11 September at 15:00, under [name] — shall I hold it for you?"
 4. Only after "yes", call hold_slot. Then send the returned payment link and say the hold lasts ${ttlMin} minutes, and that the booking is confirmed once payment is received.
 5. Do NOT say the booking is "confirmed" or "booked" yet. The system sends a confirmation automatically once they've paid.
 
@@ -114,7 +138,10 @@ HARD RULES — never break these
 - Don't discuss anything outside the spa and its bookings. Politely steer back.
 - When taking details, briefly note their information is used only to manage their booking (GDPR).
 
-Today's date is ${new Date().toISOString().slice(0, 10)}. Treatment and slot times are in UK (Europe/London) time.`;
+CONTACT
+${contactRule}
+
+${ukCalendarContext()}`;
 }
 
 // ── Tool execution ─────────────────────────────────────────────────
@@ -134,7 +161,13 @@ async function execTool(name, input, ctx) {
         therapist_id: input.therapist_id,
         // Phone comes from the WhatsApp channel, never the model — the payment
         // link + confirmation must reach the real number.
-        customer: { name: input.customer_name || ctx.customerName || 'WhatsApp customer', phone: ctx.phone },
+        customer: {
+          name:    input.customer_name || ctx.customerName || (ctx.channel === 'web' ? 'Website customer' : 'WhatsApp customer'),
+          // WhatsApp: the channel's number wins. Website: only what the customer typed.
+          phone:   ctx.channel === 'web' ? (input.customer_phone || null) : ctx.phone,
+          email:   input.customer_email || null,
+          channel: ctx.channel,
+        },
       });
       return { result: r };
     }
@@ -168,8 +201,28 @@ async function loadConversation(phone) {
   const { rows } = await pool.query('SELECT * FROM concierge_conversations WHERE phone = $1', [phone]);
   return rows[0] || { phone, customer_name: null, messages: [], handoff: false };
 }
+// SPA-CHATBOT-FIX-001 — keep the transcript valid for the API after trimming.
+// A tool_result must directly follow its tool_use: cutting the window in the
+// middle of a pair made Anthropic return 400 ("unexpected tool_use_id") and
+// the bot fell back to "I'm having trouble" + handoff. Drop a leading
+// tool_result-only message, and a trailing assistant tool_use with no result.
+function sanitizeMessages(list) {
+  const msgs = Array.isArray(list) ? list.slice() : [];
+  const isToolResultMsg = (m) => m && m.role === 'user' && Array.isArray(m.content) && m.content.some((b) => b && b.type === 'tool_result');
+  const hasToolUse = (m) => m && m.role === 'assistant' && Array.isArray(m.content) && m.content.some((b) => b && b.type === 'tool_use');
+  while (msgs.length && (isToolResultMsg(msgs[0]) || msgs[0].role !== 'user')) msgs.shift();
+  while (msgs.length && hasToolUse(msgs[msgs.length - 1])) msgs.pop();
+  // Never two consecutive same-role messages (merge would be lossy; drop the older).
+  const out = [];
+  for (const m of msgs) {
+    if (out.length && out[out.length - 1].role === m.role) out.pop();
+    out.push(m);
+  }
+  return out;
+}
+
 async function saveConversation(phone, { customer_name, messages, handoff }) {
-  const trimmed = messages.slice(-MAX_TURNS);
+  const trimmed = sanitizeMessages(messages.slice(-MAX_TURNS));
   await pool.query(
     `INSERT INTO concierge_conversations (phone, customer_name, messages, handoff, updated_at)
      VALUES ($1,$2,$3::jsonb,$4, now())
@@ -198,15 +251,16 @@ async function handleInboundMessage({ from, body }) {
     return { skipped: true, reason: 'handoff' };
   }
 
+  const channel = /^web:/i.test(phone) ? 'web' : 'whatsapp';
   const spa = await tools.getSpaInfo().catch(() => ({ name: null }));
-  const system = buildSystemPrompt(spa.name, tools.HOLD_TTL_MIN);
+  const system = buildSystemPrompt(spa.name, tools.HOLD_TTL_MIN, channel);
 
-  const messages = Array.isArray(conv.messages) ? conv.messages.slice() : [];
+  const messages = sanitizeMessages(conv.messages);
   messages.push({ role: 'user', content: text });
 
   let handoff = false;
   let reply = '';
-  const ctx = { phone, customerName: conv.customer_name };
+  const ctx = { phone, customerName: conv.customer_name, channel };
 
   try {
     for (let step = 0; step < MAX_STEPS; step++) {
@@ -241,6 +295,51 @@ async function handleInboundMessage({ from, body }) {
   return { reply, handoff };
 }
 
+// SPA-CHATBOT-FIX-001 — after payment, confirm on whatever channel we have:
+// WhatsApp bookings get the WhatsApp message; website bookings get the
+// branded email (if we have an address) and the SMS (if we have a mobile).
+// Before this, a website customer who paid heard nothing at all.
+async function sendBookingConfirmationAny(appointmentId) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ap.*, c.name AS client_name, c.phone AS client_phone, c.email AS client_email,
+              t.name AS treatment_name, t.duration_minutes, t.price,
+              th.name AS therapist_name, r.name AS room_name
+         FROM appointments ap
+         LEFT JOIN clients c ON c.id = ap.client_id
+         LEFT JOIN treatments t ON t.id = ap.treatment_id
+         LEFT JOIN therapists th ON th.id = ap.therapist_id
+         LEFT JOIN rooms r ON r.id = ap.room_id
+        WHERE ap.id = $1`, [Number(appointmentId)]);
+    const a = rows[0];
+    if (!a) return { skipped: true, reason: 'not found' };
+    if (a.source === 'whatsapp') return sendBookingConfirmationWhatsApp(appointmentId);
+    const email = require('./emailService');
+    const client = { name: a.client_name, phone: a.client_phone, email: a.client_email };
+    const treatment = { name: a.treatment_name, duration_minutes: a.duration_minutes, price: a.price };
+    const out = {};
+    if (a.client_email) {
+      try {
+        let policyText = null;
+        try { const r = await pool.query("SELECT value FROM settings WHERE key = 'cancel_policy_text'"); policyText = r.rows[0]?.value || null; } catch (_) {}
+        await email.sendBookingConfirmation({
+          client, appointment: a, treatment, therapistName: a.therapist_name, roomName: a.room_name,
+          depositAmount: Number(a.deposit_amount || 0), totalAmount: Number(a.price_at_booking ?? a.price ?? 0), cancellationPolicy: policyText,
+        });
+        out.email = true;
+      } catch (e) { console.error('[concierge] confirm email', e.message); }
+    }
+    if (a.client_phone) {
+      try { await email.sendBookingSms({ client, appointment: a, treatment }); out.sms = true; }
+      catch (e) { console.error('[concierge] confirm sms', e.message); }
+    }
+    return { ok: true, ...out };
+  } catch (err) {
+    console.error('[concierge] sendBookingConfirmationAny', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
 // ── Public: proactive booking-confirmed message (called by the Stripe webhook)
 async function sendBookingConfirmationWhatsApp(appointmentId) {
   if (!twilio.isConfigured()) return { skipped: true, reason: 'twilio not configured' };
@@ -272,6 +371,9 @@ async function sendBookingConfirmationWhatsApp(appointmentId) {
 module.exports = {
   handleInboundMessage,
   sendBookingConfirmationWhatsApp,
+  sendBookingConfirmationAny,   // SPA-CHATBOT-FIX-001
+  sanitizeMessages,
+  ukCalendarContext,
   // exported for testing
   execTool,
   normalizePhone,

@@ -103,8 +103,9 @@ async function webhookHandler(req, res) {
           if (upd.rows[0]) {
             req.app?.get('io')?.emit('appointment_confirmed', upd.rows[0]);
             if (upd.rows[0].status === 'booked') {
-              conciergeOrchestrator.sendBookingConfirmationWhatsApp(link.appointment_id)
-                .catch((e) => console.error('[stripe] whatsapp confirm', e.message));
+              // SPA-CHATBOT-FIX-001 — WhatsApp, email or SMS depending on the channel.
+              conciergeOrchestrator.sendBookingConfirmationAny(link.appointment_id)
+                .catch((e) => console.error('[stripe] chat confirm', e.message));
             }
           }
         }
