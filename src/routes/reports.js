@@ -1,5 +1,6 @@
 const express = require('express');
 const { pool } = require('../db/dbAdapter');
+const { guardPast } = require('../services/historyLock'); // SPA-HISTORY-LOCK-001
 const { requireRole } = require('../middleware/auth');
 // SPA-RBAC-AUDIT-001 — money reports are owner/manager business: every report
 // GET (trading, voucher sales, therapist earnings, Z report, petty-cash list)
@@ -751,6 +752,7 @@ router.get('/petty-cash', requireRole('admin', 'manager'), async (req, res) => {
 // day's Z report — the Z screen sends the date being viewed, so an expense
 // typed in while reviewing a past day no longer lands on "today".
 router.post('/petty-cash', requireRole('admin', 'manager', 'reception'), async (req, res) => {
+  if (req.body?.date && await guardPast(req, res, { date: req.body.date })) return;
   const amount = Number(req.body?.amount);
   const reason = String(req.body?.reason || '').trim();
   if (!Number.isFinite(amount) || amount <= 0) {

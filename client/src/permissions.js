@@ -21,6 +21,7 @@ export function defaults() {
     p[r] = {};
     for (const s of ALL_SECTIONS) p[r][s] = r === 'manager' ? 'edit' : 'none';
     p[r].discounts = 'edit';
+    p[r].history_lock = 'off'; // SPA-HISTORY-LOCK-001
   }
   return p;
 }
@@ -59,3 +60,15 @@ export function canSeeAdmin() {
   if (role === 'admin') return true;
   return ALL_SECTIONS.some((s) => s !== 'discounts' && can(s));
 }
+
+// SPA-HISTORY-LOCK-001 — is this role blocked from editing past records?
+export function historyLocked() {
+  const role = getStaff()?.role;
+  if (!role || role === 'admin') return false;
+  return read()[role]?.history_lock === 'on';
+}
+export function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+export function isPastDay(ymd) { return String(ymd || '').slice(0, 10) < todayISO(); }

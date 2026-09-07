@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from 'react';
 import { api } from '../../api.js';
+import { historyLocked } from '../../permissions.js'; // SPA-HISTORY-LOCK-001
 
 const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 
@@ -335,7 +336,7 @@ function OverridesTab({ data, month, setMonth, onRefresh }) {
                   if (ov &&  isOff) { bg = '#fee2e2'; border = '1px solid #ef4444'; }
                   if (isToday) border = '2px solid var(--primary)';
                   return (
-                    <div key={dstr} onClick={() => setModal({ therapist: t, date: dstr })}
+                    <div key={dstr} onClick={() => { if (isPast && historyLocked()) { alert('Past rota days are locked for your role.'); return; } setModal({ therapist: t, date: dstr }); }}
                       title={ov?.note || (isOff ? 'Day off' : 'Working')}
                       style={{ textAlign:'center', fontSize:12, padding:'5px 2px', borderRadius:5,
                         background: bg, border, cursor: 'pointer',

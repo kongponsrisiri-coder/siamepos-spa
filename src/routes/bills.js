@@ -1,6 +1,7 @@
 const express = require('express');
 const Stripe = require('stripe');
 const { pool } = require('../db/dbAdapter');
+const { guardPast } = require('../services/historyLock'); // SPA-HISTORY-LOCK-001
 const { requireRole } = require('../middleware/auth');
 const { isOffline } = require('../services/syncService');
 const offlineQueue = require('../services/offlineQueue');
@@ -224,6 +225,7 @@ router.post('/', async (req, res) => {
 
 // PUT /api/bills/:id/tip  body: { tip }
 router.put('/:id/tip', async (req, res) => {
+  if (await guardPast(req, res, { billId: req.params.id })) return;
   const id = Number(req.params.id);
   const { tip } = req.body || {};
   const tipNum = Number(tip);
@@ -264,6 +266,7 @@ router.put('/:id/tip', async (req, res) => {
 // cleanly, but Reports → "by source" lets the owner see Treatwell vs
 // direct revenue so they don't double-count cash flow.
 router.post('/:id/pay', async (req, res) => {
+  if (await guardPast(req, res, { billId: req.params.id })) return;
   const id = Number(req.params.id);
   const { method, split_payments } = req.body || {};
   // A free-text external reference recorded against this payment — a pre-SiamEPOS
@@ -535,6 +538,7 @@ router.post('/:id/pay', async (req, res) => {
 //   body: { discount: number, reason?: string }
 // Whole-bill discount in £. total recomputed = subtotal - discount + tip.
 router.put('/:id/discount', requireRole('admin', 'manager', 'reception'), async (req, res) => {
+  if (await guardPast(req, res, { billId: req.params.id })) return;
   const id = Number(req.params.id);
   const { discount, reason } = req.body || {};
   const d = Number(discount);
@@ -574,6 +578,7 @@ router.put('/:id/discount', requireRole('admin', 'manager', 'reception'), async 
 // deposit auto-credit) so the resulting row is structurally identical
 // to what we'd have written if the right method had been picked first.
 router.put('/:id/method', requireRole('admin', 'manager'), async (req, res) => {
+  if (await guardPast(req, res, { billId: req.params.id })) return;
   const id = Number(req.params.id);
   const { method, split_payments } = req.body || {};
   const externalVoucherCode = (req.body && req.body.external_voucher_code)
@@ -696,6 +701,7 @@ router.get('/', async (req, res) => {
 
 // DELETE /api/bills/:id  — admin/manager only, resets appointment to booked
 router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
+  if (await guardPast(req, res, { billId: req.params.id })) return;
   const id = Number(req.params.id);
   const client = await pool.connect();
   try {
@@ -787,6 +793,7 @@ router.get('/:id/items', async (req, res) => {
 // POST /api/bills/:id/items  body { kind, name, quantity, unit_price }
 // Add a retail product / add-on / extra service line to an open bill.
 router.post('/:id/items', async (req, res) => {
+  if (await guardPast(req, res, { billId: req.params.id })) return;
   const id = Number(req.params.id);
   const { kind, name, quantity, unit_price } = req.body || {};
   // Only products / add-ons can be added manually — the single 'treatment'
@@ -820,6 +827,7 @@ router.post('/:id/items', async (req, res) => {
 
 // DELETE /api/bills/:id/items/:itemId — remove a line from an open bill.
 router.delete('/:id/items/:itemId', async (req, res) => {
+  if (await guardPast(req, res, { billId: req.params.id })) return;
   const id = Number(req.params.id);
   const itemId = Number(req.params.itemId);
   try {
@@ -845,6 +853,7 @@ router.delete('/:id/items/:itemId', async (req, res) => {
 // stamps refund_amount/refunded_at, and reopens the appointment to 'booked'
 // so it can be re-rung or cancelled.
 router.post('/:id/refund', requireRole('admin', 'manager'), async (req, res) => {
+  if (await guardPast(req, res, { billId: req.params.id })) return;
   const id = Number(req.params.id);
   const { reason } = req.body || {};
 

@@ -100,6 +100,24 @@ export default function PermissionsSection() {
                 ))}
               </React.Fragment>
             ))}
+            {/* SPA-HISTORY-LOCK-001 */}
+            <tr><td colSpan={2 + ROLES.length} style={{ padding: '10px 8px 4px', fontWeight: 800, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)' }}>Historical data</td></tr>
+            <tr style={{ borderTop: '1px solid var(--border)' }}>
+              <td style={{ ...cellStyle, textAlign: 'left', fontWeight: 600 }}>
+                Prevent editing past records
+                <div className="muted" style={{ fontSize: 11, fontWeight: 400 }}>Past bookings, past rota days, bills of past days, back-dated petty cash become read-only. Today and the future stay editable.</div>
+              </td>
+              <td style={{ ...cellStyle, color: '#6b7280' }}>never</td>
+              {ROLES.map(([r]) => (
+                <td key={r} style={cellStyle}>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', minHeight: 34 }}>
+                    <input type="checkbox" style={{ width: 20, height: 20, minHeight: 0 }} checked={perms[r]?.history_lock === 'on'}
+                      onChange={(e) => set(r, 'history_lock', e.target.checked ? 'on' : 'off')} />
+                    <span style={{ fontSize: 12, fontWeight: 700, color: perms[r]?.history_lock === 'on' ? '#b91c1c' : '#6b7280' }}>{perms[r]?.history_lock === 'on' ? '🔒 locked' : 'open'}</span>
+                  </label>
+                </td>
+              ))}
+            </tr>
           </tbody>
         </table>
       </div>

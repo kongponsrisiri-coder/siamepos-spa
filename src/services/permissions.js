@@ -14,6 +14,8 @@ const SECTIONS = [
   'booking', 'online', 'embed', 'colors', 'settings',
   'discounts', // till: checkout discount controls (not an admin page)
 ];
+// SPA-HISTORY-LOCK-001 — per-role flag, 'on' | 'off' (not a section level).
+const FLAGS = ['history_lock'];
 const ROLES = ['manager', 'reception', 'therapist'];
 const LEVELS = ['none', 'view', 'edit'];
 
@@ -23,6 +25,7 @@ function defaults() {
     p[r] = {};
     for (const s of SECTIONS) p[r][s] = r === 'manager' ? 'edit' : 'none';
     p[r].discounts = 'edit';
+    p[r].history_lock = 'off';
   }
   return p;
 }
@@ -42,6 +45,7 @@ async function load() {
           const v = saved?.[r]?.[s];
           if (LEVELS.includes(v)) perms[r][s] = v;
         }
+        for (const f of FLAGS) { const v = saved?.[r]?.[f]; if (v === 'on' || v === 'off') perms[r][f] = v; }
       }
     }
   } catch (e) { /* unreadable → defaults */ }
@@ -102,4 +106,4 @@ async function gate(req, res, next) {
   } catch (e) { return next(); }
 }
 
-module.exports = { SECTIONS, ROLES, LEVELS, defaults, load, invalidate, levelFor, sectionForRequest, gate };
+module.exports = { SECTIONS, ROLES, LEVELS, FLAGS, defaults, load, invalidate, levelFor, sectionForRequest, gate };

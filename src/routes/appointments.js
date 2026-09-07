@@ -1,6 +1,7 @@
 const express = require('express');
 const Stripe = require('stripe');
 const { pool } = require('../db/dbAdapter');
+const { guardPast } = require('../services/historyLock'); // SPA-HISTORY-LOCK-001
 const { computeAvailability, isTherapistWorking, buildAt, londonDateString } = require('../services/availability');
 const { bookingToken, sendOwnerNewBookingEmail, sendBookingSms } = require('../services/emailService');
 const { recomputeBillTotals, loadBillWithItems } = require('./bills');
@@ -449,6 +450,7 @@ router.post('/', async (req, res) => {
 //     parent bills both.
 // An open (unpaid) bill gets an 'Extended time' line so the total is right.
 router.post('/:id/extend', async (req, res) => {
+  if (await guardPast(req, res, { appointmentId: req.params.id })) return;
   const id = Number(req.params.id);
   const minutes = Number(req.body?.minutes);
   const overridePrice = req.body?.price;
@@ -579,6 +581,7 @@ router.post('/:id/extend', async (req, res) => {
 
 // PUT /api/appointments/:id  — reschedule / reassign / edit any field
 router.put('/:id', async (req, res) => {
+  if (await guardPast(req, res, { appointmentId: req.params.id })) return;
   const id = Number(req.params.id);
   const { therapist_id, room_id, starts_at, notes, treatment_id, client_id, status, therapist_requested, treatwell_payment_type, source } = req.body || {};
   try {
@@ -898,6 +901,8 @@ router.put('/:id', async (req, res) => {
 // conflicting booking once the swap takes effect.
 router.post('/swap', async (req, res) => {
   const { id_a, id_b } = req.body || {};
+  if (await guardPast(req, res, { appointmentId: id_a })) return;
+  if (await guardPast(req, res, { appointmentId: id_b })) return;
   if (!id_a || !id_b) return res.status(400).json({ error: 'id_a + id_b required' });
   if (Number(id_a) === Number(id_b)) return res.status(400).json({ error: 'cannot swap an appointment with itself' });
   const client = await pool.connect();
@@ -1072,6 +1077,7 @@ router.post('/:id/payment-link', async (req, res) => {
 // If a previous manual deposit is on the booking, this OVERWRITES it
 // (operator amending). Use DELETE /:id/deposit-manual to clear.
 router.post('/:id/deposit-manual', async (req, res) => {
+  if (await guardPast(req, res, { appointmentId: req.params.id })) return;
   const id = Number(req.params.id);
   const { amount, method } = req.body || {};
   const amt = Number(amount);
@@ -1115,6 +1121,7 @@ router.post('/:id/deposit-manual', async (req, res) => {
 // DELETE /api/appointments/:id/deposit-manual — clear a manual deposit
 // (operator mistake / refund-at-till). Refuses to touch online deposits.
 router.delete('/:id/deposit-manual', async (req, res) => {
+  if (await guardPast(req, res, { appointmentId: req.params.id })) return;
   const id = Number(req.params.id);
   try {
     const cur = await pool.query(
@@ -1175,6 +1182,7 @@ router.get('/deposit-summary', async (req, res) => {
 
 // PUT /api/appointments/:id/status  body: { status: 'in_progress'|'completed'|'cancelled'|'no_show' }
 router.put('/:id/status', async (req, res) => {
+  if (await guardPast(req, res, { appointmentId: req.params.id })) return;
   const id = Number(req.params.id);
   const { status } = req.body || {};
   const allowed = ['booked', 'in_progress', 'completed', 'cancelled', 'no_show'];
@@ -1206,6 +1214,7 @@ router.put('/:id/status', async (req, res) => {
 // booking itself is left as-is (cancel is a separate action) so the
 // operator can refund a deposit without cancelling, or cancel + refund.
 router.post('/:id/refund-deposit', async (req, res) => {
+  if (await guardPast(req, res, { appointmentId: req.params.id })) return;
   const id = Number(req.params.id);
   try {
     const cur = await pool.query(

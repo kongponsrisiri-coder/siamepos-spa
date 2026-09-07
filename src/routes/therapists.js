@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const { pool } = require('../db/dbAdapter');
+const { guardPast } = require('../services/historyLock'); // SPA-HISTORY-LOCK-001
 const { requireRole, requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -249,6 +250,7 @@ router.get('/:id/overrides', requireRole('admin', 'manager'), async (req, res) =
 // PUT /api/therapists/:id/overrides
 // body: { date, is_working, start_time?, end_time?, note? }
 router.put('/:id/overrides', requireRole('admin', 'manager'), async (req, res) => {
+  if (await guardPast(req, res, { date: req.body?.date })) return;
   const id = Number(req.params.id);
   const { date, is_working, start_time, end_time, note } = req.body || {};
   if (!date) return res.status(400).json({ error: 'date required (YYYY-MM-DD)' });
@@ -289,6 +291,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // Defaults is_working=false (a day-off block). Must be defined BEFORE the
 // /:date routes so 'range' isn't matched as a date param.
 router.put('/:id/overrides/range', requireRole('admin', 'manager'), async (req, res) => {
+  if (await guardPast(req, res, { date: req.body?.from })) return;
   const id = Number(req.params.id);
   const { from, to, is_working, start_time, end_time, note } = req.body || {};
   if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '')) {
@@ -325,6 +328,7 @@ router.put('/:id/overrides/range', requireRole('admin', 'manager'), async (req, 
 
 // DELETE /api/therapists/:id/overrides/range?from=&to=  — clear overrides across a range.
 router.delete('/:id/overrides/range', requireRole('admin', 'manager'), async (req, res) => {
+  if (await guardPast(req, res, { date: req.query?.from })) return;
   const id = Number(req.params.id);
   const { from, to } = req.query;
   if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '')) {
@@ -345,6 +349,7 @@ router.delete('/:id/overrides/range', requireRole('admin', 'manager'), async (re
 
 // DELETE /api/therapists/:id/overrides/:date  — restore weekly rota for that date
 router.delete('/:id/overrides/:date', requireRole('admin', 'manager'), async (req, res) => {
+  if (await guardPast(req, res, { date: req.params.date })) return;
   const id   = Number(req.params.id);
   const date = req.params.date;
   try {

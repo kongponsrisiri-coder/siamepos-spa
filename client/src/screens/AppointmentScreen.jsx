@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { api, getStaff } from '../api.js';
 import { socket } from '../socket.js';
 import { toast } from '../toast.js';
+import { historyLocked } from '../permissions.js'; // SPA-HISTORY-LOCK-001
 import NewAppointmentModal from '../components/NewAppointmentModal.jsx';
 import BlockTimeModal from '../components/BlockTimeModal.jsx';
 import ExtendModal from '../components/ExtendModal.jsx'; // SPA-EXTEND-001
@@ -365,7 +366,7 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwap
 // ══════════════════════════════════════════════════════════════════════════════
 // VERTICAL TIMELINE
 // ══════════════════════════════════════════════════════════════════════════════
-function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder, onSwap, onMove, onBlockRange, isMobile, isTouch, moveFor }) {
+function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder, onSwap, onMove, onBlockRange, isMobile, isTouch, moveFor, blockMode, readOnly }) {
   // SPA-SWAP — track which appointment block is being dragged so the
   // drop target can highlight + we can fire the swap on drop.
   const [draggedApptId, setDraggedApptId] = useState(null);
@@ -402,28 +403,40 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   const minsLabel = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
   const draggedAppt = draggedApptId ? appointments.find(a => a.id === draggedApptId) : null;
 
-  // SPA-BLOCK-DRAG-001 — pointer handlers for press-and-hold block selection.
+  // SPA-BLOCK-DRAG-002 — drag-to-select a block range.
+  //   mouse: press on an empty slot and drag — no hold needed. A press without
+  //          movement is still a normal click (new booking).
+  //   touch: in Block mode (toolbar 🚫 Block on a touch device) the finger
+  //          drags immediately — the columns switch to touch-action:none so
+  //          the browser can't turn the gesture into a scroll. Outside Block
+  //          mode a long-press (350 ms) still starts a selection.
   function holdStart(e, col) {
-    if (col.isOff || e.target !== e.currentTarget || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    if (readOnly || col.isOff || e.target !== e.currentTarget || (e.pointerType === 'mouse' && e.button !== 0)) return;
     const el = e.currentTarget;
     const mins = ySnap(e.clientY, el);
     clearTimeout(holdRef.current?.timer);
-    holdRef.current = { colId: col.id, colName: col.name, mins, x: e.clientX, y: e.clientY, armed: false, el };
-    holdRef.current.timer = setTimeout(() => {
-      if (!holdRef.current) return;
-      holdRef.current.armed = true;
-      try { el.setPointerCapture(e.pointerId); } catch { /* not supported */ }
-      if (navigator.vibrate) { try { navigator.vibrate(15); } catch { /* ignore */ } }
-      setBlockDrag({ colId: col.id, colName: col.name, startMins: mins, endMins: mins + 15 });
-    }, 350);
+    const immediate = e.pointerType === 'mouse' || blockMode;
+    holdRef.current = { colId: col.id, colName: col.name, mins, x: e.clientX, y: e.clientY, armed: false, el, immediate, pointerId: e.pointerId };
+    if (!immediate) {
+      holdRef.current.timer = setTimeout(() => {
+        const h = holdRef.current; if (!h) return;
+        h.armed = true;
+        try { el.setPointerCapture(e.pointerId); } catch { /* unsupported */ }
+        if (navigator.vibrate) { try { navigator.vibrate(15); } catch { /* ignore */ } }
+        setBlockDrag({ colId: col.id, colName: col.name, startMins: mins, endMins: mins + 15 });
+      }, 350);
+    }
   }
   function holdMove(e) {
     const h = holdRef.current;
     if (!h) return;
     if (!h.armed) {
-      // Moved before the hold fired → it's a scroll/click, not a hold.
-      if (Math.abs(e.clientX - h.x) > 8 || Math.abs(e.clientY - h.y) > 8) { clearTimeout(h.timer); holdRef.current = null; }
-      return;
+      const moved = Math.abs(e.clientX - h.x) > 6 || Math.abs(e.clientY - h.y) > 6;
+      if (!moved) return;
+      if (!h.immediate) { clearTimeout(h.timer); holdRef.current = null; return; } // touch outside Block mode → scroll
+      h.armed = true;                                                              // mouse / Block mode → start selecting
+      try { h.el.setPointerCapture(h.pointerId); } catch { /* unsupported */ }
+      setBlockDrag({ colId: h.colId, colName: h.colName, startMins: h.mins, endMins: h.mins + 15 });
     }
     e.preventDefault();
     const m = ySnap(e.clientY, h.el);
@@ -444,7 +457,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   }
 
   function apptHoldStart(e, a) {
-    if (!isTouch || e.pointerType === 'mouse') return;
+    if (readOnly || !isTouch || e.pointerType === 'mouse') return;
     const el = e.currentTarget;
     clearTimeout(apptHoldRef.current?.timer);
     apptHoldRef.current = { appt: a, x: e.clientX, y: e.clientY, armed: false, el };
@@ -614,7 +627,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
         WebkitOverflowScrolling: 'touch',
       }}
     >
-      <div className="spa-timeline-grid" style={{ minWidth: LBL_W_USE + columns.length * COL_W_USE, flex: 'none', position: 'relative', overflowY: 'visible' }}>
+      <div className="spa-timeline-grid" onContextMenu={e => e.preventDefault()} style={{ minWidth: LBL_W_USE + columns.length * COL_W_USE, flex: 'none', position: 'relative', overflowY: 'visible' }}>
 
         {/* ── Sticky header ── */}
         <div ref={headerRef} style={{
@@ -719,7 +732,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   width: COL_W_USE, flexShrink: 0, position: 'relative', height: totalH,
                   borderLeft: '1px solid var(--border)',
                   cursor: col.isOff ? 'default' : 'crosshair',
-                  touchAction: (blockDrag || (isTouch && draggedApptId)) ? 'none' : 'pan-y',
+                  touchAction: (blockDrag || blockMode || (isTouch && draggedApptId)) ? 'none' : 'pan-y',
                   background: col.isOff
                     ? 'repeating-linear-gradient(135deg, #f5f5f5 0px, #f5f5f5 8px, #ececec 8px, #ececec 16px)'
                     : (dragOverColId === col.id && draggedApptId ? '#fdf6ec' : 'white'),
@@ -732,6 +745,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                 onClick={col.isOff ? undefined : e => {
                   if (e.target !== e.currentTarget) return;
                   if (suppressClickRef.current) return; // SPA-BLOCK-DRAG-001 — hold just ended
+                  if (readOnly) { toast('🔒 Past day is read-only for your role', 'error'); return; }
                   // SPA-TABLET-001 — tap-to-move: a booking is armed ('↔ Move'),
                   // this tap picks its new slot → same confirm box as drag-drop.
                   if (moveFor) {
@@ -849,7 +863,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   const isDropTarget   = dragOverApptId === a.id && draggedApptId && draggedApptId !== a.id;
                   return (
                     <div key={a.id}
-                      draggable={!isMobile && !isTouch && swappable}
+                      draggable={!isMobile && !isTouch && swappable && !readOnly}
                       onDragStart={e => {
                         if (isMobile || isTouch || !swappable) return;
                         e.dataTransfer.effectAllowed = 'move';
@@ -1111,6 +1125,8 @@ export default function AppointmentScreen() {
   const [extendFor, setExtendFor] = useState(null); // SPA-EXTEND-001
   const [moveFor, setMoveFor] = useState(null);     // SPA-TABLET-001 — tap-to-move (touch has no drag)
   const isTouch = useIsTouch();
+  const [blockMode, setBlockMode] = useState(false);  // SPA-BLOCK-DRAG-002 — touch: drag selects a block range
+  const pastLocked = historyLocked() && date < todayISO(); // SPA-HISTORY-LOCK-001
   const [, setColorsVer] = useState(0); // bumped after custom timetable colours load
 
   // SPA-COLOR-CODES — load the spa's custom timetable colours once, then
@@ -1357,7 +1373,7 @@ export default function AppointmentScreen() {
             </button>
             <button
               className="gold"
-              onClick={() => setModal({})}
+              onClick={() => setModal({})} disabled={pastLocked}
               style={{ flex: 1, minHeight: 44, fontSize: 14, fontWeight: 700 }}>
               + New
             </button>
@@ -1379,8 +1395,10 @@ export default function AppointmentScreen() {
             {view === 'timeline' && (
               <button onClick={() => setShowTurnModal(true)} style={{ fontSize: 13 }} title="Set today's column order">🔢 Set turn order</button>
             )}
-            <button onClick={() => setBlockModal({})} style={{ fontSize: 13 }} title="Block time — hold a slot with no booking">🚫 Block</button>
-            <button className="primary" onClick={() => setModal({})}>+ New</button>
+            <button onClick={() => { if (pastLocked) return; if (isTouch) setBlockMode(m => !m); else setBlockModal({}); }} disabled={pastLocked}
+              style={{ fontSize: 13, ...(blockMode ? { background: '#4b5563', color: 'white', borderColor: '#4b5563', fontWeight: 700 } : {}) }}
+              title={isTouch ? 'Block time — tap, then drag over the timetable' : 'Block time — or drag over an empty area of the timetable'}>{blockMode ? '✕ Done blocking' : '🚫 Block'}</button>
+            <button className="primary" onClick={() => setModal({})} disabled={pastLocked}>+ New</button>
           </div>
         </div>
       )}
@@ -1482,7 +1500,7 @@ export default function AppointmentScreen() {
         workingTherapists.length === 0 && appointments.length === 0 ? (
           <div className="card" style={{ textAlign: 'center', padding: 40 }}>
             <div className="muted">No therapists are scheduled to work on this day.</div>
-            <button className="primary" onClick={() => setModal({})} style={{ marginTop: 12 }}>+ Book anyway</button>
+            <button className="primary" onClick={() => setModal({})} disabled={pastLocked} style={{ marginTop: 12 }}>+ Book anyway</button>
           </div>
         ) : (
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 8, position: 'relative' }}>
@@ -1499,9 +1517,11 @@ export default function AppointmentScreen() {
               selected={selected}
               onSelect={setSelected}
               onSlotClick={({ therapistId, time }) => setModal({ therapistId, time })}
-              onBlockRange={({ therapistId, time, minutes }) => setBlockModal({ therapistId, time, minutes })} // SPA-BLOCK-DRAG-001
+              onBlockRange={({ therapistId, time, minutes }) => { setBlockMode(false); setBlockModal({ therapistId, time, minutes }); }} // SPA-BLOCK-DRAG-002
               isTouch={isTouch}
               moveFor={moveFor}
+              blockMode={blockMode}
+              readOnly={pastLocked}
               onEditClick={appt => setModal({ appointment: appt })}
               onColumnReorder={handleColumnReorder}
               onSwap={async (idA, idB) => {
@@ -1541,7 +1561,7 @@ export default function AppointmentScreen() {
               // SPA-BLOCK-EASY-001 — a block's bar: what/when + Remove. No
               // Edit (the form needs a treatment a block doesn't have), no
               // Start/Checkout (nothing to bill).
-              <div style={{ background: 'var(--navy)', color: 'white', padding: '11px 16px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
+              <div className={pastLocked ? 'perm-readonly' : undefined} style={{ background: 'var(--navy)', color: 'white', padding: '11px 16px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>🚫 Blocked time{selected.notes ? ` — ${selected.notes}` : ''}</div>
                   <div style={{ fontSize: 12, color: 'var(--gold)' }}>
@@ -1557,7 +1577,7 @@ export default function AppointmentScreen() {
               </div>
             )}
             {selected && !isMobile && selected.source !== 'block' && (
-              <div style={{ background: 'var(--navy)', color: 'white', padding: '11px 16px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
+              <div className={pastLocked ? 'perm-readonly' : undefined} style={{ background: 'var(--navy)', color: 'white', padding: '11px 16px', borderRadius: 10, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', flexShrink: 0 }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{selected.client_name || 'Walk-in'} — {selected.treatment_name}</div>
                   <div style={{ fontSize: 12, color: 'var(--gold)' }}>
@@ -1681,13 +1701,25 @@ export default function AppointmentScreen() {
           {appointments.length === 0 && (
             <div className="card" style={{ textAlign: 'center', padding: 40 }}>
               <div className="muted">No appointments for this date.</div>
-              <button className="primary" onClick={() => setModal({})} style={{ marginTop: 12 }}>+ Book the first one</button>
+              <button className="primary" onClick={() => setModal({})} disabled={pastLocked} style={{ marginTop: 12 }}>+ Book the first one</button>
             </div>
           )}
         </div>
       )}
 
       {/* ── Mobile action sheet (slides up on appointment tap) ─────────────── */}
+      {blockMode && !moveFor && (
+        <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', top: 60, zIndex: 9500, background: '#1f2937', color: 'white', borderRadius: 999, padding: '10px 18px', fontWeight: 800, fontSize: 14, boxShadow: '0 8px 24px rgba(0,0,0,0.3)', display: 'flex', gap: 12, alignItems: 'center', maxWidth: '92vw' }}>
+          <span>🚫 Drag over the timetable to block time</span>
+          <button onClick={() => setBlockModal({})} style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.4)', borderRadius: 999, padding: '6px 12px', minHeight: 32, fontWeight: 700 }}>Type it instead</button>
+          <button onClick={() => setBlockMode(false)} style={{ background: 'white', color: '#1f2937', border: 'none', borderRadius: 999, padding: '6px 12px', minHeight: 32, fontWeight: 700 }}>Done</button>
+        </div>
+      )}
+      {pastLocked && (
+        <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', color: '#92400e', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600, margin: '0 0 8px' }}>
+          🔒 {date} is in the past — read-only for your role. Ask a manager or the owner to change past records.
+        </div>
+      )}
       {moveFor && (
         <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', top: 60, zIndex: 9500, background: 'var(--gold)', color: 'var(--navy)', borderRadius: 999, padding: '10px 18px', fontWeight: 800, fontSize: 14, boxShadow: '0 8px 24px rgba(13,27,62,0.3)', display: 'flex', gap: 12, alignItems: 'center', maxWidth: '92vw' }}>
           <span>↔ Tap where to move <strong>{moveFor.client_name || 'this booking'}</strong> ({fmtTime(moveFor.starts_at)})</span>
@@ -1698,7 +1730,7 @@ export default function AppointmentScreen() {
         <ExtendModal appt={extendFor} onClose={() => setExtendFor(null)}
           onDone={(r) => { load(); toast(r?.mode === 'handover' ? '✓ Extended — hand-over booked' : `✓ Extended +${r?.minutes} min`); }} />
       )}
-      {selected && isMobile && (
+      {selected && isMobile && !pastLocked && (
         <MobileActionSheet
           appt={selected}
           onClose={() => setSelected(null)}
