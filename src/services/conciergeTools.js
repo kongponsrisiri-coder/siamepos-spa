@@ -15,6 +15,7 @@
 
 const Stripe = require('stripe');
 const { pool } = require('../db/dbAdapter');
+const { promoFor, applyPromo } = require('./promotions'); // SPA-PROMO-TIME-001
 const { computeAvailability } = require('./availability');
 
 // SIAMPAY-002 — own keys OR SiamPay platform mode (see services/stripeGateway).
@@ -110,11 +111,17 @@ async function checkAvailability({ treatment_id, date, therapist_id } = {}) {
     date: String(date).slice(0, 10),
     therapist_id: therapist_id ? Number(therapist_id) : null,
   });
-  return slots.map((s) => ({
-    slot_datetime: s.starts_at,                       // ISO 8601 (UTC) — pass back verbatim to hold_slot
-    label:         ukLabel(s.starts_at),              // e.g. "Friday 11 September, 15:00" — UK time, quote THIS to the customer
-    therapist_id:  (s.therapists && s.therapists[0]) || null,
-  }));
+  const out = [];
+  for (const s of slots) {
+    const promo = await promoFor(s.starts_at, 'online'); // SPA-PROMO-TIME-001
+    out.push({
+      slot_datetime: s.starts_at,                       // ISO 8601 (UTC) — pass back verbatim to hold_slot
+      label:         ukLabel(s.starts_at) + (promo ? ` (${promo.name}: ${promo.percent}% off)` : ''),
+      promo:         promo || null,                     // mention the discount when offering this time
+      therapist_id:  (s.therapists && s.therapists[0]) || null,
+    });
+  }
+  return out;
 }
 
 // Find-or-create a client from concierge-supplied contact details. Mirrors the
@@ -177,6 +184,7 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
     if (!tr.rows[0]) { await client.query('ROLLBACK'); throw badRequest('This treatment is not available for online booking'); }
     const ends_at = new Date(startsAt.getTime() + tr.rows[0].duration_minutes * 60_000);
     const priceAtBooking = Number(tr.rows[0].price || 0);
+    const holdPromo = await promoFor(startsAt, 'online'); // SPA-PROMO-TIME-001
 
     const cli = await findOrCreateClient(client, { ...customer, source: channel === 'web' ? 'online' : 'whatsapp' });
 
@@ -203,8 +211,8 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
     const ap = await client.query(
       `INSERT INTO appointments
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
-          status, source, notes, payment_status, price_at_booking, hold_expires_at)
-       SELECT $1,$2,$3,$4,$5,$6,'held',$10,$7,'none',$8,$9
+          status, source, notes, payment_status, price_at_booking, hold_expires_at, promo_percent, promo_name)
+       SELECT $1,$2,$3,$4,$5,$6,'held',$10,$7,'none',$8,$9,$11,$12
        WHERE NOT EXISTS (
          SELECT 1 FROM appointments a
          WHERE a.status NOT IN ('cancelled','no_show')
@@ -214,14 +222,15 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
        )
        RETURNING *`,
       [cli.id, Number(treatment_id), therapistId, roomId, startsAt.toISOString(), ends_at.toISOString(),
-       notes || null, priceAtBooking, holdExpiresAt.toISOString(), channel === 'web' ? 'online' : 'whatsapp'],
+       notes || null, priceAtBooking, holdExpiresAt.toISOString(), channel === 'web' ? 'online' : 'whatsapp',
+       holdPromo ? holdPromo.percent : 0, holdPromo ? holdPromo.name : null],
     );
     if (!ap.rows[0]) { await client.query('ROLLBACK'); const e = badRequest('That slot was just taken'); e.status = 409; throw e; }
     const appt = ap.rows[0];
 
     // Decide payment. Deposit due + Stripe configured → hosted checkout link.
     const policy  = await loadDepositPolicy();
-    const deposit = computeDeposit(policy, priceAtBooking);
+    const deposit = computeDeposit(policy, applyPromo(priceAtBooking, holdPromo).discounted); // SPA-PROMO-TIME-001
     const s = stripeClient();
 
     // SEPOS-SPA-AUDIT W3 — if a deposit is DUE but Stripe isn't configured, do
@@ -285,6 +294,7 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
         expires_label: holdExpiresAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }), // e.g. "11:45" UK time — tell the customer
         label: ukLabel(startsAt),                 // read THIS back to the customer
         treatment_name: tr.rows[0].name,
+        promo: holdPromo || null, total_price: applyPromo(priceAtBooking, holdPromo).discounted,
       };
     }
 

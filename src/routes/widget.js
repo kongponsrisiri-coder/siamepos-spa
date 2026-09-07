@@ -4,6 +4,7 @@
 const express = require('express');
 const Stripe = require('stripe');
 const { gateway, piFee } = require('../services/stripeGateway'); // SIAMPAY-002
+const { promoFor, applyPromo } = require('../services/promotions'); // SPA-PROMO-TIME-001
 const { pool } = require('../db/dbAdapter');
 const { computeAvailability, getTherapistWorkingWindow, londonDateString } = require('../services/availability');
 const { sendBookingConfirmation, sendVoucherGiftEmail, sendOwnerNewBookingEmail, sendBookingSms, parseBookingToken } = require('../services/emailService');
@@ -195,7 +196,13 @@ router.get('/availability', async (req, res) => {
     const earliest = Date.now() + leadTimeMinMs;
     const filtered = slots.filter((s) => new Date(s.starts_at).getTime() >= earliest);
     // Public output is leaner: don't expose internal therapist/room IDs.
-    res.json({ slots: filtered.map((s) => ({ starts_at: s.starts_at, ends_at: s.ends_at })) });
+    // SPA-PROMO-TIME-001 — tell the widget which times carry a promotion.
+    const out = [];
+    for (const sl of filtered) {
+      const promo = await promoFor(sl.starts_at, 'online');
+      out.push({ starts_at: sl.starts_at, ends_at: sl.ends_at, promo: promo || null });
+    }
+    res.json({ slots: out });
   } catch (err) {
     console.error('[widget] availability', err);
     res.status(400).json({ error: err.message || 'server error' });
@@ -246,10 +253,13 @@ router.post('/payment-intent', async (req, res) => {
     );
     if (!tr.rows[0]) return res.status(400).json({ error: 'This treatment isn’t available for online booking' });
     const policy = await loadDepositPolicy();
-    const deposit = computeDeposit(policy, tr.rows[0].price);
+    // SPA-PROMO-TIME-001 — the deposit is a share of the DISCOUNTED price.
+    const promo = await promoFor(b.starts_at, 'online');
+    const priced = applyPromo(tr.rows[0].price, promo);
+    const deposit = computeDeposit(policy, priced.discounted);
     if (deposit <= 0) {
       // Policy says no deposit — the widget should call /book directly.
-      return res.json({ deposit_amount: 0, skip_payment: true });
+      return res.json({ deposit_amount: 0, skip_payment: true, total_amount: priced.discounted, list_price: Number(tr.rows[0].price), promo: promo || null });
     }
     const intent = await s.s.paymentIntents.create({
       amount: Math.round(deposit * 100),
@@ -268,7 +278,9 @@ router.post('/payment-intent', async (req, res) => {
       client_secret:  intent.client_secret,
       intent_id:      intent.id,
       deposit_amount: deposit,
-      total_amount:   Number(tr.rows[0].price),
+      total_amount:   priced.discounted,          // SPA-PROMO-TIME-001 — what the customer pays in total
+      list_price:     Number(tr.rows[0].price),
+      promo:          promo || null,
     });
   } catch (err) {
     console.error('[widget] payment-intent', err);
@@ -319,7 +331,7 @@ router.post('/book', async (req, res) => {
   const s = stripeClient();
   if (policy.deposit_model !== 'none' && s) {
     const tr0 = await pool.query('SELECT price FROM treatments WHERE id = $1', [b.treatment_id]);
-    depositAmount = computeDeposit(policy, tr0.rows[0]?.price);
+    depositAmount = computeDeposit(policy, applyPromo(tr0.rows[0]?.price, await promoFor(b.starts_at, 'online')).discounted); // SPA-PROMO-TIME-001
     if (depositAmount > 0) {
       if (!b.payment_intent_id) return res.status(400).json({ error: 'payment_intent_id required (deposit due)' });
       let intent;
@@ -332,7 +344,7 @@ router.post('/book', async (req, res) => {
       // deposit the policy requires for THIS treatment's price. Previously we
       // blindly took intent.amount_received, so a tampered/low PaymentIntent
       // could underpay the deposit. Require an exact match (±1 penny rounding).
-      const requiredPence = Math.round(computeDeposit(policy, tr0.rows[0]?.price) * 100);
+      const requiredPence = Math.round(computeDeposit(policy, applyPromo(tr0.rows[0]?.price, await promoFor(b.starts_at, 'online')).discounted) * 100);
       if (Math.abs(intent.amount_received - requiredPence) > 1) {
         return res.status(402).json({ error: 'deposit amount does not match the required deposit' });
       }
@@ -370,6 +382,7 @@ router.post('/book', async (req, res) => {
     );
     if (!tr.rows[0]) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'This treatment isn’t available for online booking' }); }
     const ends_at = new Date(new Date(b.starts_at).getTime() + tr.rows[0].duration_minutes * 60_000);
+    const bookPromo = await promoFor(b.starts_at, 'online'); // SPA-PROMO-TIME-001
     const priceAtBooking = Number(tr.rows[0].price || 0);
 
     // Find or create client. Match by email if given, otherwise by phone.
@@ -448,8 +461,8 @@ router.post('/book', async (req, res) => {
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
           status, source, notes,
           deposit_amount, deposit_stripe_id, payment_status,
-          price_at_booking, therapist_requested)
-       SELECT $1,$2,$3,$4,$5,$6,'booked','online',$7,$8,$9,$10,$11,$12
+          price_at_booking, therapist_requested, promo_percent, promo_name)
+       SELECT $1,$2,$3,$4,$5,$6,'booked','online',$7,$8,$9,$10,$11,$12,$13,$14
        WHERE NOT EXISTS (
          SELECT 1 FROM appointments a
          WHERE a.status NOT IN ('cancelled','no_show')
@@ -465,6 +478,8 @@ router.post('/book', async (req, res) => {
         depositAmount > 0 ? 'deposit_paid' : 'none',
         priceAtBooking,
         therapistRequested,
+        bookPromo ? bookPromo.percent : 0,   // SPA-PROMO-TIME-001
+        bookPromo ? bookPromo.name : null,
       ],
     );
     // 0 rows inserted → the overlap re-check fired: another booking took this

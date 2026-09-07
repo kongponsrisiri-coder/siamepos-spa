@@ -175,7 +175,8 @@ router.post('/', async (req, res) => {
     // the snapshot column existed (already backfilled by the migration,
     // but the COALESCE is belt-and-braces).
     const ap = await pool.query(
-      `SELECT a.id, a.source, COALESCE(a.price_at_booking, t.price) AS price, t.name AS treatment_name
+      `SELECT a.id, a.source, COALESCE(a.price_at_booking, t.price) AS price, t.name AS treatment_name,
+              a.promo_percent, a.promo_name
        FROM appointments a LEFT JOIN treatments t ON t.id = a.treatment_id
        WHERE a.id = $1`,
       [appointment_id],
@@ -186,11 +187,16 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'This is a time block, not a booking — there is nothing to check out.' });
     }
     const subtotal = Number(ap.rows[0].price || 0);
+    // SPA-PROMO-TIME-001 — a time-window promotion captured on the booking
+    // becomes the bill's discount line, named on the receipt.
+    const promoPct  = Number(ap.rows[0].promo_percent || 0);
+    const promoDisc = promoPct > 0 ? +((subtotal * promoPct) / 100).toFixed(2) : 0;
+    const promoName = promoPct > 0 ? `${ap.rows[0].promo_name || 'Promotion'} ${promoPct}% off` : null;
 
     const { rows } = await pool.query(
-      `INSERT INTO bills (appointment_id, subtotal, tip, total)
-       VALUES ($1, $2, 0, $2) RETURNING *`,
-      [appointment_id, subtotal],
+      `INSERT INTO bills (appointment_id, subtotal, tip, total, discount, discount_reason)
+       VALUES ($1, $2, 0, $2 - $3, $3, $4) RETURNING *`,
+      [appointment_id, subtotal, promoDisc, promoName],
     );
     // SPA-BILL-ITEMS — seed the treatment as the first line item so the
     // checkout starts from the service and the operator can add retail /

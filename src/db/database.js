@@ -546,6 +546,9 @@ async function initSchema() {
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS extended_minutes INT NOT NULL DEFAULT 0;
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS extension_price  NUMERIC(10,2) NOT NULL DEFAULT 0;
     ALTER TABLE appointments ADD COLUMN IF NOT EXISTS extension_of     INT REFERENCES appointments(id) ON DELETE CASCADE;
+    -- SPA-PROMO-TIME-001 — time-window promotion captured at booking time.
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS promo_percent NUMERIC(5,2) NOT NULL DEFAULT 0;
+    ALTER TABLE appointments ADD COLUMN IF NOT EXISTS promo_name    TEXT;
 
     -- Backfill existing rows so the column is never NULL going forward.
     -- For past bookings the "right" price is unknowable; we set the

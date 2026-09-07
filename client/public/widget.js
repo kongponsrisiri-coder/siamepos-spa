@@ -314,6 +314,8 @@
       var pi = out[1];
       state.depositAmount = Number(pi.deposit_amount || 0);
       state.totalAmount   = Number(pi.total_amount   || 0);
+      state.listPrice     = Number(pi.list_price     || pi.total_amount || 0); // SPA-PROMO-TIME-001
+      state.promo         = pi.promo || null;
       if (pi.skip_payment) {
         // Server confirmed no deposit due → book through.
         return submitBooking(null);
@@ -614,6 +616,15 @@
     ]));
 
     wrap.appendChild(h('label', { className: 'ses-label' }, ['Available times']));
+    (function () {
+      var promos = {};
+      state.slots.forEach(function (s) { if (s.promo && s.promo.percent) promos[s.promo.name + '|' + s.promo.percent] = s.promo; });
+      var keys = Object.keys(promos);
+      if (keys.length) {
+        wrap.appendChild(h('div', { style: 'background:#fffbeb;border:1px solid #f59e0b;color:#92400e;border-radius:8px;padding:8px 12px;font-size:13px;margin:0 0 10px' },
+          [keys.map(function (k) { return '🏷 ' + promos[k].name + ': ' + promos[k].percent + '% off on the times marked -' + promos[k].percent + '%'; }).join(' · ')]));
+      }
+    })();
     if (!state.slots.length) {
       wrap.appendChild(h('div', { className: 'ses-muted' }, [
         'No availability for this date. Tap Back to try a different day or therapist.',
@@ -622,10 +633,16 @@
       var grid = h('div', { className: 'ses-slot-grid' }, []);
       state.slots.forEach(function (s) {
         var selected = state.slot === s.starts_at;
+        // SPA-PROMO-TIME-001 — times inside a promotion window show the discount.
+        var slotKids = [fmtTime(s.starts_at)];
+        if (s.promo && s.promo.percent) {
+          slotKids.push(h('span', { style: 'display:block;font-size:10px;font-weight:800;color:#b45309;margin-top:2px' }, ['-' + s.promo.percent + '%']));
+        }
         grid.appendChild(h('div', {
           className: 'ses-slot' + (selected ? ' selected' : ''),
-          onClick: function () { state.slot = s.starts_at; render(); },
-        }, [fmtTime(s.starts_at)]));
+          title: s.promo ? s.promo.name + ' — ' + s.promo.percent + '% off' : '',
+          onClick: function () { state.slot = s.starts_at; state.slotPromo = s.promo || null; render(); },
+        }, slotKids));
       });
       wrap.appendChild(grid);
     }
@@ -712,8 +729,12 @@
     var bal = +(tot - dep).toFixed(2);
     wrap.appendChild(h('div', { className: 'ses-card', style: 'display:block;cursor:default;background:#fdf6ec;border-color:#e0c884' }, [
       h('div', { style: 'display:flex;justify-content:space-between;font-size:13px;color:#7a4f1e' }, [
-        h('span', {}, ['Treatment']), h('span', {}, ['£' + tot.toFixed(2)]),
+        h('span', {}, ['Treatment']), h('span', {}, ['£' + Number(state.listPrice || tot).toFixed(2)]),
       ]),
+      // SPA-PROMO-TIME-001 — the promotion as its own line
+      (state.promo && state.promo.percent) ? h('div', { style: 'display:flex;justify-content:space-between;font-size:13px;color:#b45309;font-weight:700' }, [
+        h('span', {}, ['🏷 ' + state.promo.name + ' (' + state.promo.percent + '% off)']), h('span', {}, ['-£' + (Number(state.listPrice || 0) - tot).toFixed(2)]),
+      ]) : null,
       h('div', { style: 'display:flex;justify-content:space-between;font-size:14px;font-weight:700;color:#1e3a6e;margin-top:6px' }, [
         h('span', {}, ['Deposit now']), h('span', {}, ['£' + dep.toFixed(2)]),
       ]),

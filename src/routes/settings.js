@@ -63,6 +63,7 @@ router.put('/', settingsAuth, async (req, res) => {
     // update_kv_settings). No-op in cloud mode.
     await offlineQueue.enqueue('update_setting', { key, value: stored });
     if (key === 'role_permissions') require('../services/permissions').invalidate(); // SPA-RBAC-001
+    if (key === 'time_promotions') require('../services/promotions').invalidate(); // SPA-PROMO-TIME-001
     // SPA-LOYALTY-001 / SPA-BRAND-VOUCHER-001 — loyalty config (terms/ladder)
     // is printed on loyalty cards, and the BRAND COLOURS are painted on EVERY
     // Wallet pass (loyalty + voucher). A change should refresh registered

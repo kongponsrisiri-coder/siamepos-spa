@@ -2,6 +2,7 @@ const express = require('express');
 const Stripe = require('stripe');
 const { pool } = require('../db/dbAdapter');
 const { guardPast } = require('../services/historyLock'); // SPA-HISTORY-LOCK-001
+const { promoFor } = require('../services/promotions'); // SPA-PROMO-TIME-001
 const { computeAvailability, isTherapistWorking, buildAt, londonDateString } = require('../services/availability');
 const { bookingToken, sendOwnerNewBookingEmail, sendBookingSms } = require('../services/emailService');
 const { recomputeBillTotals, loadBillWithItems } = require('./bills');
@@ -334,11 +335,15 @@ router.post('/', async (req, res) => {
     // room with transaction-scoped advisory locks, then re-check inside the lock so
     // only the first booking inserts. SQLite is single-writer, so the plain
     // statement is already atomic there. Swap (/swap) is a separate handler.
+    // SPA-PROMO-TIME-001 — staff-entered bookings inside a promo window carry
+    // the promotion too (the bill applies it). Marketplace/online bookings are
+    // priced by their own channel; blocks have no price.
+    const tillPromo = (!isBlock && !['treatwell', 'fresha', 'online'].includes(validSource)) ? await promoFor(starts_at, 'till') : null;
     const insertSql = `INSERT INTO appointments
          (client_id, treatment_id, therapist_id, room_id, starts_at, ends_at,
           status, source, notes, therapist_requested, price_at_booking, treatwell_payment_type,
-          created_by)
-       SELECT $1,$2,$3,$4,$5,$6,'booked',$7,$8,$9,$10,$11,$12
+          created_by, promo_percent, promo_name)
+       SELECT $1,$2,$3,$4,$5,$6,'booked',$7,$8,$9,$10,$11,$12,$13,$14
        WHERE NOT EXISTS (
          SELECT 1 FROM appointments a
          WHERE a.status NOT IN ('cancelled','no_show')
@@ -352,6 +357,7 @@ router.post('/', async (req, res) => {
       starts_at, ends_at, validSource, notes || null, !!therapist_requested,
       priceAtBooking, validTwType,
       req.staff?.id || null, // SPA-AUDIT-TRAIL-001 — who booked it
+      tillPromo ? tillPromo.percent : 0, tillPromo ? tillPromo.name : null, // SPA-PROMO-TIME-001
     ];
     let appt;
     if ((process.env.DB_MODE || '').toLowerCase() === 'local') {
