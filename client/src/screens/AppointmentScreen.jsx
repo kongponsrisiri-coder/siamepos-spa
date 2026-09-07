@@ -381,6 +381,9 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   // the block's end. { colId, colName, startMins, endMins } while dragging.
   const [blockDrag, setBlockDrag] = useState(null);
   const holdRef = useRef(null);     // { timer, colId, colName, mins, x, y, armed, el }
+  // SPA-TABLET-001 — finger drag of a booking: press-and-hold lifts it, slide,
+  // release on a column → same confirm box as mouse drag / tap-to-move.
+  const apptHoldRef = useRef(null); // { timer, appt, x, y, armed, el }
   const suppressClickRef = useRef(false);
   const nowRef       = useRef(null);
   const containerRef = useRef(null);
@@ -438,6 +441,50 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
       if (b && onBlockRange) onBlockRange({ therapistId: b.colId, therapistName: b.colName, time: minsLabel(b.startMins), minutes: b.endMins - b.startMins });
       return null;
     });
+  }
+
+  function apptHoldStart(e, a) {
+    if (!isTouch || e.pointerType === 'mouse') return;
+    const el = e.currentTarget;
+    clearTimeout(apptHoldRef.current?.timer);
+    apptHoldRef.current = { appt: a, x: e.clientX, y: e.clientY, armed: false, el };
+    apptHoldRef.current.timer = setTimeout(() => {
+      if (!apptHoldRef.current) return;
+      apptHoldRef.current.armed = true;
+      try { el.setPointerCapture(e.pointerId); } catch { /* unsupported */ }
+      if (navigator.vibrate) { try { navigator.vibrate(15); } catch { /* ignore */ } }
+      setDraggedApptId(a.id);
+    }, 300);
+  }
+  function apptHoldMove(e) {
+    const h = apptHoldRef.current;
+    if (!h) return;
+    if (!h.armed) {
+      if (Math.abs(e.clientX - h.x) > 8 || Math.abs(e.clientY - h.y) > 8) { clearTimeout(h.timer); apptHoldRef.current = null; }
+      return;
+    }
+    e.preventDefault();
+    // The column under the finger (pointer capture doesn't affect elementFromPoint).
+    const under = document.elementFromPoint(e.clientX, e.clientY);
+    const colEl = under && under.closest ? under.closest('[data-col-id]') : null;
+    if (!colEl || colEl.dataset.colOff === '1') { setDragPreview(null); return; }
+    const mins = ySnap(e.clientY, colEl);
+    const colId = Number(colEl.dataset.colId), colName = colEl.dataset.colName || '';
+    setDragPreview(p => (p && p.colId === colId && p.mins === mins) ? p : { colId, colName, mins });
+  }
+  function apptHoldEnd() {
+    const h = apptHoldRef.current;
+    if (!h) return;
+    clearTimeout(h.timer);
+    apptHoldRef.current = null;
+    if (!h.armed) return;
+    suppressClickRef.current = true;
+    setTimeout(() => { suppressClickRef.current = false; }, 400);
+    setDragPreview(p => {
+      if (p) setPendingMove({ apptId: h.appt.id, appt: h.appt, colId: p.colId, colName: p.colName, mins: p.mins });
+      return null;
+    });
+    setDraggedApptId(null);
   }
 
   // Responsive dimensions
@@ -667,12 +714,12 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
             }
 
             return (
-              <div key={col.id}
+              <div key={col.id} data-col-id={col.id} data-col-name={col.name} data-col-off={col.isOff ? '1' : '0'}
                 style={{
                   width: COL_W_USE, flexShrink: 0, position: 'relative', height: totalH,
                   borderLeft: '1px solid var(--border)',
                   cursor: col.isOff ? 'default' : 'crosshair',
-                  touchAction: blockDrag ? 'none' : 'pan-y',
+                  touchAction: (blockDrag || (isTouch && draggedApptId)) ? 'none' : 'pan-y',
                   background: col.isOff
                     ? 'repeating-linear-gradient(135deg, #f5f5f5 0px, #f5f5f5 8px, #ececec 8px, #ececec 16px)'
                     : (dragOverColId === col.id && draggedApptId ? '#fdf6ec' : 'white'),
@@ -824,10 +871,16 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                         setDraggedApptId(null); setDragOverApptId(null);
                       }}
                       onDragEnd={() => { setDraggedApptId(null); setDragOverApptId(null); }}
-                      onClick={e => { e.stopPropagation(); onSelect(isSel ? null : a); }}
+                      onPointerDown={swappable ? e => apptHoldStart(e, a) : undefined}
+                      onPointerMove={apptHoldMove}
+                      onPointerUp={apptHoldEnd}
+                      onPointerCancel={apptHoldEnd}
+                      onClick={e => { e.stopPropagation(); if (suppressClickRef.current) return; onSelect(isSel ? null : a); }}
                       onDoubleClick={e => { e.stopPropagation(); !isMobile && onEditClick && onEditClick(a); }}
                       style={{
                         position: 'absolute', left: 3, right: 3, top, height,
+                        ...(isBeingDragged && isTouch ? { transform: 'scale(1.04)', boxShadow: '0 10px 24px rgba(13,27,62,0.35)', zIndex: 30, opacity: 0.85 } : {}),
+                        touchAction: isTouch ? 'pan-y' : undefined,
                         borderRadius: isMobile ? 6 : 7,
                         cursor: !isMobile && swappable ? 'grab' : 'pointer',
                         background: isSel ? COL_COLORS[ci % COL_COLORS.length] : s.bg,
