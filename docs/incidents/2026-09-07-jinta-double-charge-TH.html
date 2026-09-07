@@ -1,0 +1,120 @@
+<title>รายงานเหตุการณ์ Jinta 7 ก.ย.</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Prompt:wght@500;600&family=Sarabun:wght@400;600;700&display=swap">
+<style>
+  :root {
+    --bg: #f7f3ec;        /* warm paper, biased toward the gold accent */
+    --paper: #ffffff;
+    --ink: #17203a;       /* navy-black */
+    --ink-2: #4b5266;
+    --muted: #7a7f8f;
+    --line: #e4ddd0;
+    --navy: #0D1B3E;
+    --gold: #B8952F;
+    --warn-bg: #fff4dc;
+    --warn-ink: #7a4b00;
+    --warn-line: #e8b95a;
+    --ok-bg: #e9f5ec;
+    --ok-ink: #1e5a35;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141826; --paper: #1c2133; --ink: #f1ecdf; --ink-2: #c9c4b6; --muted: #8f94a3; --line: #2f3549;
+      --navy: #e7dcc0; --gold: #d8b45a; --warn-bg: #3a2c0f; --warn-ink: #f3d48a; --warn-line: #8a6a24; --ok-bg: #16301f; --ok-ink: #9ad4ac;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141826; --paper: #1c2133; --ink: #f1ecdf; --ink-2: #c9c4b6; --muted: #8f94a3; --line: #2f3549;
+    --navy: #e7dcc0; --gold: #d8b45a; --warn-bg: #3a2c0f; --warn-ink: #f3d48a; --warn-line: #8a6a24; --ok-bg: #16301f; --ok-ink: #9ad4ac;
+  }
+  body { background: var(--bg); color: var(--ink); font-family: 'Sarabun', 'Noto Sans Thai', system-ui, sans-serif; font-size: 17px; line-height: 1.75; }
+  main { max-width: 720px; margin: 0 auto; padding: 40px 20px 64px; }
+  .eyebrow { font-family: 'Prompt', 'Sarabun', sans-serif; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: var(--gold); font-weight: 600; }
+  h1 { font-family: 'Prompt', 'Sarabun', sans-serif; font-weight: 600; font-size: 30px; line-height: 1.3; margin: 6px 0 4px; color: var(--navy); text-wrap: balance; }
+  .meta { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+  h2 { font-family: 'Prompt', 'Sarabun', sans-serif; font-weight: 600; font-size: 20px; margin: 36px 0 10px; color: var(--navy); }
+  p { margin: 0 0 12px; color: var(--ink); }
+  .lead { font-size: 18px; color: var(--ink); background: var(--paper); border-left: 4px solid var(--gold); padding: 14px 18px; margin: 0 0 8px; }
+  ul, ol { margin: 0 0 12px; padding-left: 22px; }
+  li { margin: 4px 0; }
+  .callout { border-radius: 10px; padding: 14px 18px; margin: 12px 0; }
+  .callout.warn { background: var(--warn-bg); color: var(--warn-ink); border: 1px solid var(--warn-line); }
+  .callout.ok { background: var(--ok-bg); color: var(--ok-ink); }
+  .callout strong { font-weight: 700; }
+  .timeline { overflow-x: auto; background: var(--paper); border: 1px solid var(--line); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-family: 'Prompt', 'Sarabun', sans-serif; font-weight: 500; font-size: 13px; color: var(--muted); letter-spacing: .04em; }
+  tr:last-child td { border-bottom: none; }
+  td.t { font-variant-numeric: tabular-nums; white-space: nowrap; font-weight: 600; color: var(--navy); }
+  td.pay { color: var(--warn-ink); font-weight: 600; }
+  .steps li { margin: 8px 0; }
+  .draft { background: var(--paper); border: 1px dashed var(--line); border-radius: 10px; padding: 16px 18px; white-space: pre-wrap; font-size: 16px; color: var(--ink-2); }
+  .sig { margin-top: 36px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); padding-top: 14px; }
+</style>
+
+<main>
+  <div class="eyebrow">SiamEPOS Spa · รายงานเหตุการณ์</div>
+  <h1>ลูกค้าถูกเก็บเงิน 2 ครั้ง แต่ไม่มีการจองเกิดขึ้น</h1>
+  <div class="meta">ร้าน Jinta Thai Massage · วันจันทร์ที่ 7 กันยายน 2026 เวลา 08:13–08:14 · จัดทำโดยทีมพัฒนา SiamEPOS วันที่ 8 กันยายน 2026</div>
+
+  <p class="lead">ลูกค้าไม่ได้จองสำเร็จค่ะ ระบบปฏิเสธการจองทั้งสองครั้งเพราะเวลานั้นเพิ่งถูกบล็อกไป
+  แต่ระบบเก็บเงินไปก่อนจะตรวจครั้งสุดท้าย ลูกค้าจึงถูกตัดบัตร 2 ครั้ง (£110 + £110) โดยไม่มีคิวในตาราง
+  ต้อง<strong>คืนเงินทั้งสองรายการ</strong>ให้ลูกค้าค่ะ</p>
+
+  <h2>สรุปสั้น ๆ</h2>
+  <ul>
+    <li>ในตารางนัดของร้านวันที่ 7 ก.ย. <strong>ไม่มีการจองของลูกค้าเลย</strong> มีเฉพาะช่วงเวลาที่พี่บล็อกไว้เท่านั้น</li>
+    <li>ใน Stripe มีรายการชำระเงินสำเร็จ 2 รายการ รายการละ £110 เวลา 08:13 และ 08:14</li>
+    <li>พี่บล็อกเวลาของวันนั้นระหว่าง 08:11–08:15 ซึ่งเป็นช่วงเดียวกับที่ลูกค้ากำลังกดจองพอดี</li>
+  </ul>
+
+  <h2>ลำดับเหตุการณ์</h2>
+  <div class="timeline">
+    <table>
+      <thead><tr><th>เวลา</th><th>เกิดอะไรขึ้น</th></tr></thead>
+      <tbody>
+        <tr><td class="t">ก่อน 08:11</td><td>ลูกค้าเปิดหน้าจองบนเว็บไซต์ ระบบแสดงเวลาว่างของวันนั้น (ตอนนั้นยังไม่มีการบล็อก)</td></tr>
+        <tr><td class="t">08:11–08:15</td><td>พี่บล็อกเวลาบนตารางของพนักงานทีละช่วง (10:00–11:00, 11:00–12:00, 12:00–13:00, 13:00–15:00, 15:00–15:15)</td></tr>
+        <tr><td class="t">08:13</td><td class="pay">ลูกค้ากรอกบัตรและชำระเงิน £110 สำเร็จ → ระบบตรวจช่องเวลาอีกครั้ง พบว่าเพิ่งถูกบล็อก → <strong>ปฏิเสธการจอง</strong> หน้าจอลูกค้าขึ้นว่า "Booking failed — please try again"</td></tr>
+        <tr><td class="t">08:14</td><td class="pay">ลูกค้าลองใหม่ ชำระเงิน £110 อีกครั้ง → ถูกปฏิเสธซ้ำด้วยเหตุผลเดิม</td></tr>
+        <tr><td class="t">หลังจากนั้น</td><td>ลูกค้าไม่ได้รับอีเมล/SMS ยืนยันใด ๆ เพราะไม่มีการจองเกิดขึ้น เงินค้างอยู่ใน Stripe ของร้าน</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>ทำไมระบบถึงทำแบบนี้</h2>
+  <p>ขั้นตอนการจองออนไลน์ในปัจจุบันคือ <strong>เก็บเงินก่อน แล้วค่อยตรวจว่าเวลายังว่างอยู่ไหม</strong>
+  ปกติสองขั้นนี้ห่างกันไม่กี่วินาทีจึงไม่มีปัญหา แต่ครั้งนี้พี่กำลังบล็อกเวลาอยู่พอดี
+  พอระบบตรวจครั้งสุดท้ายจึงเห็นว่าเวลานั้นไม่ว่างแล้ว และปฏิเสธการจอง โดยที่เงินถูกตัดไปแล้ว
+  และระบบไม่ได้คืนเงินให้อัตโนมัติ นี่คือจุดบกพร่องของระบบ ไม่ใช่ความผิดของพี่หรือของลูกค้าค่ะ</p>
+
+  <div class="callout warn"><strong>ข้อสังเกต:</strong> การบล็อกทำงานถูกต้อง — ลูกค้าจองเข้าเวลาที่บล็อกไม่ได้จริง ๆ ปัญหาคือระบบไม่ควรเก็บเงินก่อนจะยืนยันว่าจองได้</div>
+
+  <h2>สิ่งที่ต้องทำตอนนี้</h2>
+  <ol class="steps">
+    <li><strong>คืนเงินทั้ง 2 รายการ (£110 + £110) ใน Stripe</strong> เปิด Stripe → Payments → เลือกรายการเวลา 08:13 และ 08:14 ของวันที่ 7 ก.ย. → กด Refund ทั้งสองรายการ ค่าธรรมเนียม Stripe ของรายการที่คืนเงินจะไม่ถูกคืนตามนโยบายของ Stripe</li>
+    <li><strong>ติดต่อลูกค้า</strong> ชื่อและอีเมลของลูกค้าอยู่ในรายละเอียดของรายการชำระเงินใน Stripe แจ้งว่าได้คืนเงินแล้ว และเสนอเวลาจองใหม่ให้หากลูกค้าต้องการ (มีร่างข้อความด้านล่าง)</li>
+    <li><strong>ไม่ต้องยกเลิกอะไรในตารางนัด</strong> เพราะไม่มีการจองถูกสร้างขึ้น</li>
+  </ol>
+
+  <h2>สิ่งที่ SiamEPOS จะแก้ไข</h2>
+  <ul>
+    <li><strong>จองก่อน จ่ายทีหลัง</strong> — ระบบจะ "ถือคิว" ให้ลูกค้าก่อนเปิดหน้าชำระเงิน เหมือนที่แชทบอทของเราทำอยู่แล้ว ถ้าลูกค้าไม่จ่ายภายในเวลาที่กำหนด คิวจะถูกปล่อยคืนอัตโนมัติ</li>
+    <li><strong>คืนเงินอัตโนมัติ</strong> — หากการจองล้มเหลวหลังชำระเงินไม่ว่าด้วยเหตุผลใด ระบบจะคืนเงินทันทีและแจ้งลูกค้าชัดเจนว่าไม่ถูกเก็บเงิน</li>
+  </ul>
+  <div class="callout ok">จนกว่าจะแก้ไขเสร็จ แนะนำให้<strong>บล็อกเวลาล่วงหน้าตั้งแต่ตอนปิดร้านหรือเช้าตรู่</strong> ก่อนช่วงที่ลูกค้ามักจองออนไลน์ เพื่อลดโอกาสชนกันแบบนี้ค่ะ</div>
+
+  <h2>ร่างข้อความถึงลูกค้า</h2>
+  <div class="draft">สวัสดีค่ะ คุณ[ชื่อลูกค้า]
+
+ทางร้าน Jinta Thai Massage ต้องขออภัยอย่างสูงค่ะ เมื่อเช้าวันที่ 7 กันยายน ระบบจองออนไลน์ของเราขัดข้อง ทำให้บัตรของคุณถูกตัดเงิน 2 ครั้ง (รายการละ £110) ทั้งที่การจองไม่สำเร็จ
+
+ทางร้านได้คืนเงินทั้ง 2 รายการเรียบร้อยแล้ว เงินจะกลับเข้าบัตรภายใน 5–10 วันทำการตามรอบของธนาคาร
+
+หากคุณยังต้องการจองคิว กรุณาแจ้งวันและเวลาที่สะดวก ทางร้านยินดีจองให้ทันทีค่ะ
+
+ขอบคุณและขออภัยอีกครั้งค่ะ
+Jinta Thai Massage · +44 7442 242369</div>
+
+  <div class="sig">รายงานนี้อ้างอิงจากข้อมูลในระบบ SiamEPOS ของร้าน (ตารางนัดและช่วงเวลาที่บล็อกวันที่ 7 ก.ย. 2026) และรายการชำระเงินใน Stripe บัญชี Jinta Thai Massage · หากต้องการให้ทีมช่วยตรวจสอบเพิ่มเติม ติดต่อ info@siamepos.co.uk</div>
+</main>
