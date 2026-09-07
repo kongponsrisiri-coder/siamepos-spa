@@ -502,3 +502,24 @@ tbody tr:hover td { background: var(--navy-muted); }
   pointer-events: none !important;
   opacity: 0.55;
 }
+
+/* ── SPA-TABLET-001 — touch pack (iPad / Android tablets / phones) ───────── */
+/* Remove the 300 ms tap delay + accidental double-tap zoom on every control. */
+button, a, input, select, textarea, [role="button"] { touch-action: manipulation; }
+/* Long-press on the timetable must not start iOS text selection / callouts. */
+.spa-timeline-grid, .spa-timeline-grid * {
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+}
+@media (pointer: coarse) {
+  /* Apple's 44 pt minimum tap target, everywhere. */
+  button, [role="button"] { min-height: 44px !important; padding-top: 8px; padding-bottom: 8px; font-size: 15px; }
+  input, select, textarea { min-height: 44px; font-size: 16px; /* 16px stops iOS auto-zoom on focus */ }
+  .admin-sidebar button { min-height: 48px !important; }
+  /* Hover states are meaningless on touch — stop buttons sticking 'hovered' after a tap. */
+  button:hover:not(:disabled) { background: var(--surface); border-color: var(--border); color: var(--text-2); }
+  button.primary:hover:not(:disabled) { background: var(--navy); border-color: var(--navy); color: white; }
+  button.gold:hover:not(:disabled)    { background: var(--gold); border-color: var(--gold); }
+  .muted { font-size: 14px; }
+  body { font-size: 15px; }
+}

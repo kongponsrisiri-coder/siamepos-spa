@@ -10,6 +10,20 @@ import ExtendModal from '../components/ExtendModal.jsx'; // SPA-EXTEND-001
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function pad(n) { return String(n).padStart(2, '0'); }
+// SPA-TABLET-001 — "is this a finger?" Width alone is wrong: an iPad is
+// 768–1024px wide and got the mouse layout (tiny hour rows, HTML5 drag that
+// never fires on touch). pointer: coarse is the real signal.
+function useIsTouch() {
+  const [t, setT] = useState(() => typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  useEffect(() => {
+    if (!window.matchMedia) return;
+    const mq = window.matchMedia('(pointer: coarse)');
+    const on = () => setT(mq.matches);
+    mq.addEventListener ? mq.addEventListener('change', on) : mq.addListener(on);
+    return () => { mq.removeEventListener ? mq.removeEventListener('change', on) : mq.removeListener(on); };
+  }, []);
+  return t;
+}
 function fmtTime(iso) {
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
 }
@@ -147,7 +161,7 @@ function toLocalMins(iso) { const d = new Date(iso); return d.getHours() * 60 + 
 // ── Mobile action sheet ───────────────────────────────────────────────────────
 // Slides up from bottom when owner taps an appointment on their phone.
 // Shows full details + tap-to-call + action buttons.
-function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwapRequest, onRemoveBlock, onExtend }) {
+function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwapRequest, onRemoveBlock, onExtend, onMoveRequest }) {
   const s = apptStyle(appt);
   // SPA-BLOCK-EASY-001 — a time block is not a booking: no client, no
   // treatment, no checkout. The sheet collapses to "what is this" + Remove.
@@ -292,6 +306,14 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwap
             </button>
           )}
 
+          {/* SPA-TABLET-001 — tap-to-move */}
+          {onMoveRequest && !['completed', 'cancelled', 'no_show'].includes(appt.status) && (
+            <button
+              onClick={() => { onMoveRequest(appt); onClose(); }}
+              style={{ flex: 1, minWidth: 80, minHeight: 52, borderRadius: 12, border: '1px solid var(--border)', background: 'white', fontWeight: 600, fontSize: 14, color: '#374151' }}>
+              ↔ Move
+            </button>
+          )}
           {/* SPA-EXTEND-001 — ต่อเวลานวด */}
           {onExtend && ['booked', 'in_progress'].includes(appt.status) && !appt.extension_of && (
             <button
@@ -343,7 +365,7 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwap
 // ══════════════════════════════════════════════════════════════════════════════
 // VERTICAL TIMELINE
 // ══════════════════════════════════════════════════════════════════════════════
-function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder, onSwap, onMove, onBlockRange, isMobile }) {
+function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder, onSwap, onMove, onBlockRange, isMobile, isTouch, moveFor }) {
   // SPA-SWAP — track which appointment block is being dragged so the
   // drop target can highlight + we can fire the swap on drop.
   const [draggedApptId, setDraggedApptId] = useState(null);
@@ -442,7 +464,10 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   // On desktop fit the whole day below the (measured) header so 09:00–22:00 is
   // visible at once. Tiny buffer for borders/rounding.
   const gridH   = containerH > 100 ? containerH - headerH - (isMobile ? 0 : 4) : NUM_HOURS * 64;
-  const HOUR_H  = isMobile ? 64 : Math.floor(gridH / NUM_HOURS);
+  // SPA-TABLET-001 — never squeeze an hour below a tappable height: fingers
+  // need ~56px (a 30-min booking = 28px), a mouse 40px. If the day then
+  // doesn't fit, the grid scrolls (the container is already overflowY:auto).
+  const HOUR_H  = isMobile ? 64 : Math.max(Math.floor(gridH / NUM_HOURS), isTouch ? 56 : 40);
   const totalH  = HOUR_H * NUM_HOURS;
 
   function minsToPx(mins) { return ((mins - DAY_START * 60) / 60) * HOUR_H; }
@@ -542,7 +567,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
         WebkitOverflowScrolling: 'touch',
       }}
     >
-      <div style={{ minWidth: LBL_W_USE + columns.length * COL_W_USE, flex: 'none', position: 'relative', overflowY: 'visible' }}>
+      <div className="spa-timeline-grid" style={{ minWidth: LBL_W_USE + columns.length * COL_W_USE, flex: 'none', position: 'relative', overflowY: 'visible' }}>
 
         {/* ── Sticky header ── */}
         <div ref={headerRef} style={{
@@ -562,7 +587,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
             const isDragTarget = dragOver === ci && dragSrc !== null && dragSrc !== ci;
             return (
               <div key={col.id}
-                draggable={!isMobile}
+                draggable={!isMobile && !isTouch}
                 onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; setDragSrc(ci); }}
                 onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDragOver(ci); }}
                 onDragLeave={() => setDragOver(null)}
@@ -578,7 +603,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   textAlign: 'center',
                   borderLeft: isDragTarget ? '2px solid var(--gold)' : '1px solid rgba(255,255,255,0.18)',
                   opacity: col.isOff ? 0.55 : dragSrc === ci ? 0.4 : 1,
-                  cursor: isMobile ? 'default' : 'grab',
+                  cursor: (isMobile || isTouch) ? 'default' : 'grab',
                   background: isDragTarget ? 'rgba(201,168,76,0.2)' : 'transparent',
                   transition: 'background 0.1s, border-color 0.1s',
                   userSelect: 'none',
@@ -660,6 +685,13 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                 onClick={col.isOff ? undefined : e => {
                   if (e.target !== e.currentTarget) return;
                   if (suppressClickRef.current) return; // SPA-BLOCK-DRAG-001 — hold just ended
+                  // SPA-TABLET-001 — tap-to-move: a booking is armed ('↔ Move'),
+                  // this tap picks its new slot → same confirm box as drag-drop.
+                  if (moveFor) {
+                    const mins = ySnap(e.clientY, e.currentTarget);
+                    setPendingMove({ apptId: moveFor.id, appt: moveFor, colId: col.id, colName: col.name, mins });
+                    return;
+                  }
                   if (!onSlotClick) return;
                   const rect = e.currentTarget.getBoundingClientRect();
                   const clickY = e.clientY - rect.top;
@@ -770,9 +802,9 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   const isDropTarget   = dragOverApptId === a.id && draggedApptId && draggedApptId !== a.id;
                   return (
                     <div key={a.id}
-                      draggable={!isMobile && swappable}
+                      draggable={!isMobile && !isTouch && swappable}
                       onDragStart={e => {
-                        if (isMobile || !swappable) return;
+                        if (isMobile || isTouch || !swappable) return;
                         e.dataTransfer.effectAllowed = 'move';
                         e.dataTransfer.setData('text/plain', String(a.id));
                         setDraggedApptId(a.id);
@@ -812,7 +844,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                       {/* Client name — SPA-REQ-BADGE: full-size star when the
                           client asked for THIS therapist by name (was a 9px
                           speck nobody noticed; the whole point is awareness). */}
-                      <div style={{ fontSize: isMobile ? 11 : 12, fontWeight: 700, color: isSel ? 'white' : s.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.3 }}>
+                      <div style={{ fontSize: isMobile ? 11 : isTouch ? 13 : 12, fontWeight: 700, color: isSel ? 'white' : s.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.3 }}>
                         {isReq && <span style={{ marginRight: 3 }}>❤️</span>}
                         {isExt && <span style={{ marginRight: 3 }} title="Extended time — longer than the standard treatment">⭐</span>}
                         {Boolean(a.client_pregnant) && !isBlockAppt && (
@@ -1024,6 +1056,8 @@ export default function AppointmentScreen() {
   // (some prefer it to drag). Holds the appointment being swapped, or null.
   const [swapFor, setSwapFor] = useState(null);
   const [extendFor, setExtendFor] = useState(null); // SPA-EXTEND-001
+  const [moveFor, setMoveFor] = useState(null);     // SPA-TABLET-001 — tap-to-move (touch has no drag)
+  const isTouch = useIsTouch();
   const [, setColorsVer] = useState(0); // bumped after custom timetable colours load
 
   // SPA-COLOR-CODES — load the spa's custom timetable colours once, then
@@ -1413,6 +1447,8 @@ export default function AppointmentScreen() {
               onSelect={setSelected}
               onSlotClick={({ therapistId, time }) => setModal({ therapistId, time })}
               onBlockRange={({ therapistId, time, minutes }) => setBlockModal({ therapistId, time, minutes })} // SPA-BLOCK-DRAG-001
+              isTouch={isTouch}
+              moveFor={moveFor}
               onEditClick={appt => setModal({ appointment: appt })}
               onColumnReorder={handleColumnReorder}
               onSwap={async (idA, idB) => {
@@ -1430,6 +1466,7 @@ export default function AppointmentScreen() {
                   // (drag doesn't change days — that requires the
                   // Edit modal).
                   const newStartsAt = new Date(`${date}T${newTime}:00`).toISOString();
+                  setMoveFor(null);
                   await api.put(`/appointments/${apptId}`, {
                     therapist_id: Number(newTherapistId),
                     starts_at:    newStartsAt,
@@ -1494,6 +1531,11 @@ export default function AppointmentScreen() {
                   {!['completed', 'cancelled', 'no_show'].includes(selected.status) && (
                     <button style={{ background: 'rgba(255,255,255,0.15)', color: 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 7, padding: '7px 14px', cursor: 'pointer' }}
                       onClick={() => setSwapFor(selected)}>⇄ Swap</button>
+                  )}
+                  {/* SPA-TABLET-001 — tap-to-move: drag never fires on touch */}
+                  {!['completed', 'cancelled', 'no_show'].includes(selected.status) && (
+                    <button style={{ background: moveFor?.id === selected.id ? 'var(--gold)' : 'rgba(255,255,255,0.15)', color: moveFor?.id === selected.id ? 'var(--navy)' : 'white', border: '1px solid rgba(255,255,255,0.3)', borderRadius: 7, padding: '7px 14px', cursor: 'pointer', fontWeight: moveFor?.id === selected.id ? 800 : 500 }}
+                      onClick={() => setMoveFor(moveFor?.id === selected.id ? null : selected)}>{moveFor?.id === selected.id ? '✕ Stop moving' : '↔ Move'}</button>
                   )}
                   {/* SPA-EXTEND-001 — ต่อเวลานวด */}
                   {['booked', 'in_progress'].includes(selected.status) && !selected.extension_of && (
@@ -1593,6 +1635,12 @@ export default function AppointmentScreen() {
       )}
 
       {/* ── Mobile action sheet (slides up on appointment tap) ─────────────── */}
+      {moveFor && (
+        <div style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', top: 60, zIndex: 9500, background: 'var(--gold)', color: 'var(--navy)', borderRadius: 999, padding: '10px 18px', fontWeight: 800, fontSize: 14, boxShadow: '0 8px 24px rgba(13,27,62,0.3)', display: 'flex', gap: 12, alignItems: 'center', maxWidth: '92vw' }}>
+          <span>↔ Tap where to move <strong>{moveFor.client_name || 'this booking'}</strong> ({fmtTime(moveFor.starts_at)})</span>
+          <button onClick={() => setMoveFor(null)} style={{ background: 'var(--navy)', color: 'white', border: 'none', borderRadius: 999, padding: '6px 12px', minHeight: 32, fontWeight: 700 }}>Cancel</button>
+        </div>
+      )}
       {extendFor && (
         <ExtendModal appt={extendFor} onClose={() => setExtendFor(null)}
           onDone={(r) => { load(); toast(r?.mode === 'handover' ? '✓ Extended — hand-over booked' : `✓ Extended +${r?.minutes} min`); }} />
@@ -1604,6 +1652,7 @@ export default function AppointmentScreen() {
           onEdit={appt => setModal({ appointment: appt })}
           onStatus={setStatus}
           onExtend={setExtendFor}
+          onMoveRequest={(a) => { setMoveFor(a); setSelected(null); }}
           onCheckout={startCheckout}
           onSwapRequest={appt => setSwapFor(appt)}
           onRemoveBlock={removeBlock}

@@ -39,7 +39,9 @@ async function request(method, path, body) {
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  if (res.status === 401) {
+  // SPA-TABLET-001 — a 401 from the login endpoints is a WRONG PIN / password,
+  // not an expired session: fall through so the screen can say 'Wrong PIN'.
+  if (res.status === 401 && !path.startsWith('/auth/login') && !path.startsWith('/auth/owner')) {
     clearAuth();
     if (!window.location.pathname.startsWith('/login')) {
       window.location.href = '/login';
