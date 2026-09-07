@@ -282,6 +282,7 @@ async function holdSlot({ treatment_id, slot_datetime, customer, therapist_id, n
         checkout_url: session.url,
         deposit_amount: deposit,
         hold_expires_at: holdExpiresAt.toISOString(),
+        expires_label: holdExpiresAt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' }), // e.g. "11:45" UK time — tell the customer
         label: ukLabel(startsAt),                 // read THIS back to the customer
         treatment_name: tr.rows[0].name,
       };
