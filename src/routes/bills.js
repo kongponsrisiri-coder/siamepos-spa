@@ -193,10 +193,13 @@ router.post('/', async (req, res) => {
     const promoDisc = promoPct > 0 ? +((subtotal * promoPct) / 100).toFixed(2) : 0;
     const promoName = promoPct > 0 ? `${ap.rows[0].promo_name || 'Promotion'} ${promoPct}% off` : null;
 
+    // HOTFIX 8 Sep: never do arithmetic on untyped params ($2 - $3 → Postgres
+    // "operator is not unique: unknown - unknown", which broke every checkout
+    // for ~1h). Compute in JS; works on Postgres and SQLite alike.
     const { rows } = await pool.query(
       `INSERT INTO bills (appointment_id, subtotal, tip, total, discount, discount_reason)
-       VALUES ($1, $2, 0, $2 - $3, $3, $4) RETURNING *`,
-      [appointment_id, subtotal, promoDisc, promoName],
+       VALUES ($1, $2, 0, $3, $4, $5) RETURNING *`,
+      [appointment_id, subtotal, +(subtotal - promoDisc).toFixed(2), promoDisc, promoName],
     );
     // SPA-BILL-ITEMS — seed the treatment as the first line item so the
     // checkout starts from the service and the operator can add retail /
