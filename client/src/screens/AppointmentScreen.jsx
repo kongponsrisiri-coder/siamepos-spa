@@ -500,6 +500,21 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
     setDraggedApptId(null);
   }
 
+  // SPA-ZOOM-FREE-001 — with touch-action 'auto' the browser may start a
+  // scroll the moment the finger moves. React's touch handlers are passive,
+  // so register a NON-passive touchmove on the scroll container that cancels
+  // the browser's scroll only while a hold has actually armed a drag (block
+  // range or booking). Everything else — pan, pinch-zoom, taps — stays native.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onTouchMove = (e) => {
+      if ((holdRef.current && holdRef.current.armed) || (apptHoldRef.current && apptHoldRef.current.armed)) e.preventDefault();
+    };
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    return () => el.removeEventListener('touchmove', onTouchMove);
+  }, []);
+
   // Responsive dimensions
   const COL_W_USE = isMobile ? COL_W_MOB : COL_W;
   const LBL_W_USE = isMobile ? LBL_W_MOB : LBL_W;
