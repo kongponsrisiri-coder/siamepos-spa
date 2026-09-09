@@ -732,7 +732,8 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   width: COL_W_USE, flexShrink: 0, position: 'relative', height: totalH,
                   borderLeft: '1px solid var(--border)',
                   cursor: col.isOff ? 'default' : 'crosshair',
-                  touchAction: (blockDrag || blockMode || (isTouch && draggedApptId)) ? 'none' : 'pan-y',
+                  // SPA-ZOOM-FREE-001 — pinch-zoom must stay possible on the grid; only a live drag turns it off.
+                  touchAction: (blockDrag || blockMode || (isTouch && draggedApptId)) ? 'none' : 'pan-y pinch-zoom',
                   background: col.isOff
                     ? 'repeating-linear-gradient(135deg, #f5f5f5 0px, #f5f5f5 8px, #ececec 8px, #ececec 16px)'
                     : (dragOverColId === col.id && draggedApptId ? '#fdf6ec' : 'white'),
@@ -894,7 +895,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                       style={{
                         position: 'absolute', left: 3, right: 3, top, height,
                         ...(isBeingDragged && isTouch ? { transform: 'scale(1.04)', boxShadow: '0 10px 24px rgba(13,27,62,0.35)', zIndex: 30, opacity: 0.85 } : {}),
-                        touchAction: isTouch ? 'pan-y' : undefined,
+                        touchAction: isTouch ? 'pan-y pinch-zoom' : undefined,
                         borderRadius: isMobile ? 6 : 7,
                         cursor: !isMobile && swappable ? 'grab' : 'pointer',
                         background: isSel ? COL_COLORS[ci % COL_COLORS.length] : s.bg,

@@ -505,6 +505,7 @@ tbody tr:hover td { background: var(--navy-muted); }
 
 /* ── SPA-TABLET-001 — touch pack (iPad / Android tablets / phones) ───────── */
 /* Remove the 300 ms tap delay + accidental double-tap zoom on every control. */
+/* pinch-zoom stays allowed everywhere (SPA-ZOOM-FREE-001); manipulation only removes the double-tap delay on controls. */
 button, a, input, select, textarea, [role="button"] { touch-action: manipulation; }
 /* Long-press on the timetable must not start iOS text selection / callouts. */
 .spa-timeline-grid, .spa-timeline-grid * {
