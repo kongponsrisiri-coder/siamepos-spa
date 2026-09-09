@@ -523,3 +523,8 @@ button, a, input, select, textarea, [role="button"] { touch-action: manipulation
   .muted { font-size: 14px; }
   body { font-size: 15px; }
 }
+
+/* ── SPA-ZOOM-LOCK-001 — no pinch / double-tap zoom anywhere in the till ─── */
+html, body { touch-action: pan-x pan-y; -ms-touch-action: pan-x pan-y; }
+/* iOS zooms the page when a field under 16px gets focus — never below 16px. */
+input, select, textarea { font-size: 16px; }

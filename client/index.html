@@ -2,7 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <script>
+      // SPA-ZOOM-LOCK-001 — the till is an app, not a web page: no pinch /
+      // double-tap zoom on tablets. iOS ignores user-scalable=no, so also block
+      // its gesture events; touch-action in CSS covers Chrome/Android.
+      ['gesturestart', 'gesturechange', 'gestureend'].forEach(function (ev) {
+        document.addEventListener(ev, function (e) { e.preventDefault(); }, { passive: false });
+      });
+      document.addEventListener('touchmove', function (e) { if (e.scale !== undefined && e.scale !== 1) e.preventDefault(); }, { passive: false });
+      var lastTouch = 0;
+      document.addEventListener('touchend', function (e) {
+        var now = Date.now();
+        if (now - lastTouch < 300 && !(e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable]'))) e.preventDefault();
+        lastTouch = now;
+      }, { passive: false });
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>SiamEPOS Spa</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
