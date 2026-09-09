@@ -524,7 +524,8 @@ button, a, input, select, textarea, [role="button"] { touch-action: manipulation
   body { font-size: 15px; }
 }
 
-/* ── SPA-ZOOM-LOCK-001 — no pinch / double-tap zoom anywhere in the till ─── */
-html, body { touch-action: pan-x pan-y; -ms-touch-action: pan-x pan-y; }
-/* iOS zooms the page when a field under 16px gets focus — never below 16px. */
+/* ── SPA-ZOOM-FREE-001 (9 Sep) — zoom is ALLOWED. Highbury staff run the till in
+   "desktop site" mode on a phone and zoom to read the timetable; a zoom lock
+   (shipped for an hour on 9 Sep) took that away. Only the iOS focus-zoom is
+   prevented, by keeping form fields at 16px. */
 input, select, textarea { font-size: 16px; }
