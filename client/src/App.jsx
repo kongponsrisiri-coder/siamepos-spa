@@ -14,6 +14,8 @@ import ClientProfileScreen from './screens/ClientProfileScreen.jsx';
 import AdminScreen         from './screens/AdminScreen.jsx';
 import NewBookingAlert     from './components/NewBookingAlert.jsx'; // SPA-NOTIFY-LIVE-001
 import { canSeeAdmin, refreshPermissions } from './permissions.js'; // SPA-RBAC-001
+import SpaSetupScreen from './screens/SpaSetupScreen.jsx'; // SPA-ANDROID-001
+import { needsSetup } from './apiBase.js';
 
 // Brand CI: var(--navy) navy · var(--gold) gold · Cormorant Garamond headings
 
@@ -337,6 +339,14 @@ function AppShell({ children }) {
 }
 
 export default function App() {
+  // SPA-ANDROID-001 — the Android app has no baked-in spa address: ask once,
+  // before login, then reload so every module picks the choice up. Web builds
+  // always have an address, so this never fires there.
+  const [setupDone, setSetupDone] = useState(false);
+  if (needsSetup() && !setupDone) {
+    return <SpaSetupScreen onDone={() => { setSetupDone(true); window.location.reload(); }} />;
+  }
+
   // SEPOS-SPA-LICENSE-001 — desktop offline license lock. Poll the local license
   // state; if the subscription has lapsed (grace expired / clock rollback) the
   // till is locked. Fails open everywhere else (cloud/web, or until the signing

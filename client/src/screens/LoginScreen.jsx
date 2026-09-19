@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, setAuth } from '../api.js';
 import { NAVY, GOLD, LOGO_PX, applyBrandTheme } from '../theme.js';
+import { canChangeSpa, clearApiBase, getApiBase } from '../apiBase.js'; // SPA-ANDROID-001
 
 // SPA-BRAND-001 — white-label login, ported from the restaurant EPOS. Split
 // panel: a customizable brand panel (spa logo + name + colours + adjustable
@@ -179,6 +180,18 @@ export default function LoginScreen() {
             </div>
           )}
           <a href="/owner-login" style={{ display: 'inline-block', marginTop: 26, color: GOLD_ON_LIGHT, fontSize: 14, textDecoration: 'none', fontWeight: 700, fontFamily: SANS }}>Sign in with email instead →</a>
+          {/* SPA-ANDROID-001 — only the Android app can switch spa; on the web
+              the address is part of the site, so the link never renders. */}
+          {canChangeSpa() && (
+            <div style={{ marginTop: 18, fontSize: 12, color: '#9a9484', fontFamily: SANS }}>
+              Connected to {(getApiBase() || '').replace(/^https?:\/\//, '')}
+              {' · '}
+              <button
+                onClick={() => { if (confirm('Change which spa this tablet connects to? You will be signed out.')) { clearApiBase(); localStorage.removeItem('spa_token'); localStorage.removeItem('spa_staff'); window.location.reload(); } }}
+                style={{ background: 'transparent', border: 'none', padding: 0, minHeight: 0, color: GOLD_ON_LIGHT, fontWeight: 700, fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}
+              >Change spa</button>
+            </div>
+          )}
         </div>
       ) : (
         <div style={{ width: '100%', maxWidth: 300, textAlign: 'center' }}>

@@ -2,10 +2,15 @@
 
 import { toast } from './toast.js'; // SPA-SAVE-TOAST — app-wide save/error feedback
 
-const API_BASE = import.meta.env.VITE_API_BASE || '';
+import { getApiBase } from './apiBase.js';   // SPA-ANDROID-001
+
+// Read on every call: the Android app sets this at first-run setup, the web
+// builds have it baked in. A getter (not a const) so changing the shop takes
+// effect without a rebuild.
+const API_BASE_FALLBACK = import.meta.env.VITE_API_BASE || '';
 
 // SPA-CERTS-001 — raw-fetch helpers for auth-gated binary endpoints (files).
-export function apiBase() { return API_BASE; }
+export function apiBase() { return getApiBase() || API_BASE_FALLBACK; }
 export function authHeader() {
   const t = localStorage.getItem('spa_token');
   return t ? { authorization: `Bearer ${t}` } : {};
@@ -34,7 +39,7 @@ async function request(method, path, body) {
   const headers = { 'content-type': 'application/json' };
   const token = getToken();
   if (token) headers.authorization = `Bearer ${token}`;
-  const res = await fetch(`${API_BASE}/api${path}`, {
+  const res = await fetch(`${apiBase()}/api${path}`, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -81,7 +86,7 @@ export const recheckLicense  = () => api.post('/license-recheck', {});
 // Validates a PIN without changing the current session token.
 // Returns the staff object ({ id, name, role }) or throws on failure.
 export async function loginPin(pin) {
-  const res = await fetch(`${API_BASE}/api/auth/login`, {
+  const res = await fetch(`${apiBase()}/api/auth/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ pin }),

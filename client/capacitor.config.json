@@ -1,0 +1,7 @@
+{
+  "appId": "uk.co.siamepos.spa",
+  "appName": "SiamEPOS Spa",
+  "webDir": "dist",
+  "server": { "androidScheme": "http" },
+  "android": { "allowMixedContent": true }
+}

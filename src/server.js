@@ -63,6 +63,13 @@ const ALLOWED_ORIGINS = [
   'https://www.siamepos.com',
   'http://localhost:5173',
   'http://localhost:3000',
+  // SPA-ANDROID-001 — the Android app (Capacitor) serves its bundled files
+  // from a local scheme, so these are the origins the till sends from a phone
+  // or tablet. They are not reachable from a browser.
+  'http://localhost',
+  'https://localhost',
+  'capacitor://localhost',
+  'ionic://localhost',
   ...(process.env.ALLOWED_ORIGINS || '')
     .split(',')
     .map((o) => o.trim())
