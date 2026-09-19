@@ -388,12 +388,18 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   // SPA-BLOCK-RESIZE-001 — dragging a block's top or bottom edge changes its
   // start or end time in place. { appt, edge:'top'|'bottom', startMins, endMins }
   const [resize, setResize] = useState(null);
+  // SPA-FIT-001 — on a phone the day used to open on two greyed-out "Off"
+  // columns while the therapists actually working sat off-screen. Off-duty
+  // columns are folded away when the screen can't hold everyone; one tap
+  // brings them back.
+  const [showOff, setShowOff] = useState(false);
   const resizeRef = useRef(null);
   const suppressClickRef = useRef(false);
   const nowRef       = useRef(null);
   const containerRef = useRef(null);
   const headerRef    = useRef(null);
   const [containerH, setContainerH] = useState(0);
+  const [containerW, setContainerW] = useState(0);   // SPA-FIT-001 — columns size to the screen
   const [headerH,    setHeaderH]    = useState(HEADER_H);
   const [dragSrc,  setDragSrc]  = useState(null);
   const [dragOver, setDragOver] = useState(null);
@@ -570,7 +576,11 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   // is what stops the 22:00 row being clipped at the bottom.
   useEffect(() => {
     const measure = () => {
-      if (containerRef.current) setContainerH(containerRef.current.getBoundingClientRect().height);
+      if (containerRef.current) {
+        const r = containerRef.current.getBoundingClientRect();
+        setContainerH(r.height);
+        setContainerW(r.width);        // SPA-FIT-001
+      }
       if (headerRef.current)    setHeaderH(headerRef.current.getBoundingClientRect().height);
     };
     const ro = new ResizeObserver(measure);
@@ -633,6 +643,28 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
     columns.sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  // ── SPA-FIT-001 — make the day fit the screen ────────────────────────────
+  // Two things used to push the timetable off the edge of a phone or tablet:
+  // a FIXED column width (110 mobile / 154 desktop), and off-duty therapists
+  // taking the first columns. Now: off-duty fold away when space is tight,
+  // and the remaining columns share the width evenly, down to a floor that
+  // keeps a name and a booking readable.
+  const allColumns = columns;
+  const offCount   = allColumns.filter((c) => c.isOff).length;
+  const workingCount = allColumns.length - offCount;
+  const MIN_COL = isMobile ? 84 : 104;     // below this a name/booking is unreadable
+  const MAX_COL = isMobile ? COL_W_MOB : COL_W;
+  // -6px: the card's own borders, so the grid never overhangs by a hair.
+  const avail   = Math.max(0, containerW - LBL_W_USE - 6);
+  // Would everyone fit at the minimum width? If not, and some are off, fold them.
+  const fitsAll = avail === 0 || allColumns.length * MIN_COL <= avail;
+  const foldOff = !showOff && offCount > 0 && workingCount > 0 && !fitsAll;
+  columns = foldOff ? allColumns.filter((c) => !c.isOff) : allColumns;
+  const colCount = Math.max(1, columns.length);
+  const COL_W_FIT = avail > 0
+    ? Math.max(MIN_COL, Math.min(MAX_COL, Math.floor(avail / colCount)))
+    : COL_W_USE;
+
   const now     = new Date();
   const nowMins = now.getHours() * 60 + now.getMinutes();
   const showNow = nowMins >= DAY_START * 60 && nowMins <= DAY_END * 60;
@@ -687,7 +719,17 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
         WebkitOverflowScrolling: 'touch',
       }}
     >
-      <div className="spa-timeline-grid" onContextMenu={e => e.preventDefault()} style={{ minWidth: LBL_W_USE + columns.length * COL_W_USE, flex: 'none', position: 'relative', overflowY: 'visible' }}>
+      {/* SPA-FIT-001 — off-duty staff are folded away when the screen is
+          tight; this brings them back without leaving the day. */}
+      {(foldOff || (showOff && offCount > 0)) && (
+        <div style={{ position: 'sticky', left: 0, zIndex: 25, padding: '4px 6px', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            onClick={() => setShowOff((v) => !v)}
+            style={{ fontSize: 11, padding: '3px 10px', minHeight: 26, borderRadius: 999, border: '1px solid var(--border)', background: 'white', color: 'var(--muted)', fontWeight: 700 }}
+          >{foldOff ? `+ ${offCount} off today` : `Hide ${offCount} off`}</button>
+        </div>
+      )}
+      <div className="spa-timeline-grid" onContextMenu={e => e.preventDefault()} style={{ minWidth: LBL_W_USE + columns.length * COL_W_FIT, flex: 'none', position: 'relative', overflowY: 'visible' }}>
 
         {/* ── Sticky header ── */}
         <div ref={headerRef} style={{
@@ -718,7 +760,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                 }}
                 onDragEnd={() => { setDragSrc(null); setDragOver(null); }}
                 style={{
-                  width: COL_W_USE, flexShrink: 0,
+                  width: COL_W_FIT, flexShrink: 0,
                   padding: isMobile ? '7px 4px' : '8px 8px',
                   textAlign: 'center',
                   borderLeft: isDragTarget ? '2px solid var(--gold)' : '1px solid rgba(255,255,255,0.18)',
@@ -789,7 +831,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
             return (
               <div key={col.id} data-col-id={col.id} data-col-name={col.name} data-col-off={col.isOff ? '1' : '0'}
                 style={{
-                  width: COL_W_USE, flexShrink: 0, position: 'relative', height: totalH,
+                  width: COL_W_FIT, flexShrink: 0, position: 'relative', height: totalH,
                   borderLeft: '1px solid var(--border)',
                   cursor: col.isOff ? 'default' : 'crosshair',
                   // SPA-ZOOM-FREE-001 — pinch-zoom must stay possible on the grid; only a live drag turns it off.
