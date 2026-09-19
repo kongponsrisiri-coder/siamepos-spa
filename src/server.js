@@ -147,6 +147,18 @@ app.get('/my-booking.html', (_req, res) => {
 
 // SEPOS-SPA-PAYLINK-001 — landing page a payment-link customer returns to after
 // Stripe Checkout (success_url / cancel_url). Public, no auth.
+// SPA-ANDROID-001 — one short, memorable link for the Android app that always
+// points at the current build, so a client never needs a version number:
+//   https://<spa-api>/app       → the APK itself (tablet taps it, installs)
+//   https://<spa-api>/app/notes → the release page (what changed, install help)
+// Bump ANDROID_APK_VERSION when a new APK is published to siamepos-releases.
+const ANDROID_APK_VERSION = '1.0.0';
+const APK_BASE = 'https://github.com/kongponsrisiri-coder/siamepos-releases/releases';
+app.get('/app', (_req, res) =>
+  res.redirect(302, `${APK_BASE}/download/spa-v${ANDROID_APK_VERSION}/SiamEPOS-Spa-v${ANDROID_APK_VERSION}.apk`));
+app.get('/app/notes', (_req, res) =>
+  res.redirect(302, `${APK_BASE}/tag/spa-v${ANDROID_APK_VERSION}`));
+
 // SPA-PAYLINK-SEND-001 — short payment-link redirect (public; the customer taps it from an SMS/email).
 app.get('/pay/:code', paymentLinkRoutes.resolveShortCode);
 

@@ -27,6 +27,28 @@ cp app/build/outputs/apk/release/app-release.apk \
 Bump `versionCode` (+1) and `versionName` in `client/android/app/build.gradle`
 before every release. Name the file by version, never "latest".
 
+## Publishing (the link the client downloads from)
+
+Same channel as the restaurant app: a GitHub release on the public
+`kongponsrisiri-coder/siamepos-releases` repo, tagged `spa-v<version>`.
+
+```bash
+gh release create spa-v1.0.1 \
+  ~/Documents/SiamEPOS-Android/SiamEPOS-Spa-v1.0.1.apk#SiamEPOS-Spa-v1.0.1.apk \
+  -R kongponsrisiri-coder/siamepos-releases \
+  --title "SiamEPOS Spa (Android) v1.0.1" --notes "what changed"
+```
+
+The page to send a client is the release page; the tablet can also hit the
+asset directly:
+
+- page: `https://github.com/kongponsrisiri-coder/siamepos-releases/releases/tag/spa-v<version>`
+- file: `https://github.com/kongponsrisiri-coder/siamepos-releases/releases/download/spa-v<version>/SiamEPOS-Spa-v<version>.apk`
+
+A short link that always points at the newest build lives on the spa API:
+`https://spa-api.siamepos.co.uk/app` (302 → the release asset). Update
+`ANDROID_APK_VERSION` in `src/server.js` when a new version goes out.
+
 ## Adding a new spa to the first-run list
 
 Edit `KNOWN_SPAS` in `client/src/apiBase.js`, then rebuild. A client whose spa
