@@ -40,13 +40,15 @@ const SOURCE_LABEL = {
 };
 
 const METHOD_STYLE = {
-  cash:      { color: '#9a3412', label: '💵 Cash' },
-  card:      { color: '#9d174d', label: '💳 Card' },
+  // SPA-REVENUE-CHANNEL-001 — the daily cash-up counts only money taken IN the
+  // shop; website money is its own line so card totals match the terminal.
+  cash:      { color: '#9a3412', label: '💵 Cash (in person)' },
+  card:      { color: '#9d174d', label: '💳 Card (in person)' },
   voucher:   { color: '#14532d', label: '🎁 Voucher' },
   deposit:   { color: '#1e3a6e', label: '🌐 Deposit (prepaid online)' },
   treatwell: { color: '#854d0e', label: '🌐 Treatwell' },
   split:     { color: '#4c1d95', label: '⇄ Split' },
-  online:    { color: '#0891b2', label: '🌐 Online prepayment' },
+  online:    { color: '#0891b2', label: '🌐 Online (website payments)' },
   external:  { color: '#334155', label: '🧾 Already paid (external)' },
   unknown:   { color: '#6b7280', label: '— Unknown' },
 };

@@ -242,8 +242,16 @@ app.use('/api', (req, res, next) => {
   return requireAuth(req, res, () => permissions.gate(req, res, next));
 });
 app.get('/api/permissions', requireAuth, async (_req, res) => {
-  try { res.json({ permissions: await permissions.load(), sections: permissions.SECTIONS, roles: permissions.ROLES }); }
-  catch (e) { res.status(500).json({ error: 'server error' }); }
+  try {
+    const custom = await permissions.loadCustomRoles();
+    res.json({
+      permissions: await permissions.load(),
+      sections: permissions.SECTIONS,
+      roles: permissions.BUILTIN_ROLES,
+      custom_roles: custom,                 // SPA-RBAC-002
+      actions: permissions.ACTIONS,
+    });
+  } catch (e) { res.status(500).json({ error: 'server error' }); }
 });
 app.use('/api/concierge-admin', requireAuth, conciergeAdminRoutes); // SPA-WEBCHAT-AI-001 — staff chat inbox
 app.use('/api/certificates', requireAuth, require('./routes/certificates')); // SPA-CERTS-001 — qualification certificates

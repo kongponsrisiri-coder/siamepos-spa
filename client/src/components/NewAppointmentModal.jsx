@@ -584,7 +584,7 @@ export default function NewAppointmentModal({
   useEffect(() => {
     if (!clientQuery.trim()) { setClients([]); return; }
     const id = setTimeout(() => {
-      api.get(`/clients?q=${encodeURIComponent(clientQuery)}`).then(r => setClients(r.clients || []));
+      api.get(`/clients/search?q=${encodeURIComponent(clientQuery)}`).then(r => setClients(r.clients || []));
     }, 250);
     return () => clearTimeout(id);
   }, [clientQuery]);
@@ -597,7 +597,7 @@ export default function NewAppointmentModal({
     const q = phone.length >= 5 ? phone : (name.length >= 2 ? name : '');
     if (!q) { setDupMatches([]); return; }
     const id = setTimeout(() => {
-      api.get(`/clients?q=${encodeURIComponent(q)}`)
+      api.get(`/clients/search?q=${encodeURIComponent(q)}`)
         .then(r => setDupMatches((r.clients || []).slice(0, 5)))
         .catch(() => setDupMatches([]));
     }, 300);

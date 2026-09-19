@@ -1,6 +1,7 @@
 const express = require('express');
 const Stripe = require('stripe');
 const { pool } = require('../db/dbAdapter');
+const { denyAction } = require('../services/permissions'); // SPA-RBAC-002
 const { guardPast } = require('../services/historyLock'); // SPA-HISTORY-LOCK-001
 const { requireRole } = require('../middleware/auth');
 const { isOffline } = require('../services/syncService');
@@ -710,6 +711,7 @@ router.get('/', async (req, res) => {
 
 // DELETE /api/bills/:id  — admin/manager only, resets appointment to booked
 router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
+  if (await denyAction(req, res, 'void_bills')) return;
   if (await guardPast(req, res, { billId: req.params.id })) return;
   const id = Number(req.params.id);
   const client = await pool.connect();
@@ -862,6 +864,7 @@ router.delete('/:id/items/:itemId', async (req, res) => {
 // stamps refund_amount/refunded_at, and reopens the appointment to 'booked'
 // so it can be re-rung or cancelled.
 router.post('/:id/refund', requireRole('admin', 'manager'), async (req, res) => {
+  if (await denyAction(req, res, 'refunds')) return;
   if (await guardPast(req, res, { billId: req.params.id })) return;
   const id = Number(req.params.id);
   const { reason } = req.body || {};

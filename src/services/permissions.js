@@ -16,40 +16,83 @@ const SECTIONS = [
 ];
 // SPA-HISTORY-LOCK-001 — per-role flag, 'on' | 'off' (not a section level).
 const FLAGS = ['history_lock'];
-const ROLES = ['manager', 'reception', 'therapist'];
+const BUILTIN_ROLES = ['manager', 'reception', 'therapist'];
+const ROLES = BUILTIN_ROLES; // back-compat export
 const LEVELS = ['none', 'view', 'edit'];
 
-function defaults() {
+// SPA-RBAC-002 — ACTION permissions: things a role may DO, as opposed to
+// screens it may see. 'on' / 'off' per role; admin is always on.
+// `default` reproduces the behaviour that existed before this feature, except
+// manage_sessions, which the owner asked to be admin-only (SPA-SESSIONS-LOCK-001).
+const ACTIONS = [
+  { key: 'edit_schedule',   label: 'Add / move / cancel bookings',            default: { manager: 'on',  reception: 'on',  therapist: 'on'  } },
+  { key: 'refunds',         label: 'Issue refunds (bills and deposits)',      default: { manager: 'on',  reception: 'off', therapist: 'off' } },
+  { key: 'void_bills',      label: 'Void / delete a bill',                    default: { manager: 'on',  reception: 'off', therapist: 'off' } },
+  { key: 'manage_sessions', label: 'Sell / edit / void session packages',     default: { manager: 'off', reception: 'off', therapist: 'off' } },
+];
+const ACTION_KEYS = ACTIONS.map((a) => a.key);
+
+// A role the owner invented has no access until they grant it — safe by default.
+function blankRole() {
+  const o = {};
+  for (const s of SECTIONS) o[s] = 'none';
+  o.discounts = 'off';
+  o.history_lock = 'off';
+  for (const a of ACTION_KEYS) o[a] = 'off';
+  return o;
+}
+
+function defaults(customRoles = []) {
   const p = {};
-  for (const r of ROLES) {
+  for (const r of BUILTIN_ROLES) {
     p[r] = {};
     for (const s of SECTIONS) p[r][s] = r === 'manager' ? 'edit' : 'none';
     p[r].discounts = 'edit';
     p[r].history_lock = 'off';
+    for (const a of ACTIONS) p[r][a.key] = a.default[r] || 'off';
   }
+  for (const r of customRoles) p[r.key] = blankRole();
   return p;
 }
 
 let cache = { at: 0, perms: null };
 const TTL_MS = 15_000;
 
+// SPA-RBAC-002 — roles the owner created, stored as [{key,label}].
+async function loadCustomRoles() {
+  try {
+    const { rows } = await pool.query(`SELECT value FROM settings WHERE key = 'custom_roles'`);
+    if (!rows[0]?.value) return [];
+    const arr = JSON.parse(rows[0].value);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((r) => ({
+        key: String(r.key || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 24),
+        label: String(r.label || r.key || '').slice(0, 40),
+      }))
+      .filter((r) => r.key && !BUILTIN_ROLES.includes(r.key) && r.key !== 'admin');
+  } catch (e) { return []; }
+}
+
 async function load() {
   if (cache.perms && Date.now() - cache.at < TTL_MS) return cache.perms;
-  const perms = defaults();
+  const custom = await loadCustomRoles();
+  const perms = defaults(custom);
   try {
     const { rows } = await pool.query(`SELECT value FROM settings WHERE key = 'role_permissions'`);
     if (rows[0]?.value) {
       const saved = JSON.parse(rows[0].value);
-      for (const r of ROLES) {
+      for (const r of Object.keys(perms)) {
         for (const s of SECTIONS) {
           const v = saved?.[r]?.[s];
           if (LEVELS.includes(v)) perms[r][s] = v;
         }
         for (const f of FLAGS) { const v = saved?.[r]?.[f]; if (v === 'on' || v === 'off') perms[r][f] = v; }
+        for (const a of ACTION_KEYS) { const v = saved?.[r]?.[a]; if (v === 'on' || v === 'off') perms[r][a] = v; }
       }
     }
   } catch (e) { /* unreadable → defaults */ }
-  cache = { at: Date.now(), perms };
+  cache = { at: Date.now(), perms, custom };
   return perms;
 }
 function invalidate() { cache = { at: 0, perms: null }; }
@@ -58,6 +101,28 @@ async function levelFor(role, section) {
   if (role === 'admin') return 'edit';
   const perms = await load();
   return perms[role]?.[section] || 'none';
+}
+
+// SPA-RBAC-002 — may this role perform this action? Admin always may.
+async function actionAllowed(role, action) {
+  if (role === 'admin') return true;
+  if (!ACTION_KEYS.includes(action)) return true;   // unknown action = ungated
+  const perms = await load();
+  return perms[role]?.[action] === 'on';
+}
+
+// Express guard. Usage: if (await denyAction(req, res, 'refunds')) return;
+async function denyAction(req, res, action) {
+  try {
+    if (!req.staff) { res.status(401).json({ error: 'not authenticated' }); return true; }
+    if (await actionAllowed(req.staff.role, action)) return false;
+    const label = (ACTIONS.find((a) => a.key === action) || {}).label || action;
+    res.status(403).json({
+      error: `Your role can't do this: ${label}. Ask an admin.`,
+      code: 'action_not_allowed', action,
+    });
+    return true;
+  } catch (e) { return false; }
 }
 
 const WRITE = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -106,4 +171,5 @@ async function gate(req, res, next) {
   } catch (e) { return next(); }
 }
 
-module.exports = { SECTIONS, ROLES, LEVELS, FLAGS, defaults, load, invalidate, levelFor, sectionForRequest, gate };
+module.exports = { SECTIONS, ROLES, BUILTIN_ROLES, LEVELS, FLAGS, ACTIONS, ACTION_KEYS,
+  loadCustomRoles, actionAllowed, denyAction, blankRole, defaults, load, invalidate, levelFor, sectionForRequest, gate };

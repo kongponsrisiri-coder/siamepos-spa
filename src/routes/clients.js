@@ -13,14 +13,60 @@ const router = express.Router();
 // appointments (excluding cancelled / no-show) and bills (paid only) —
 // any client with no appointments still appears with zeros, so newly
 // created profiles aren't hidden.
+// SPA-SEARCH-001 — type-ahead search.
+// GET /api/clients/search?q=s  → up to 25 matches, no aggregates, ranked:
+//   1 name/alias STARTS WITH q   2 any later WORD starts with q
+//   3 phone digits / email start with q   4 contains q anywhere
+// Case-insensitive throughout. Backs the Clients dropdown and the booking
+// form, so one keystroke returns instantly; the heavier list query below
+// still powers the full list with visits and spend.
+router.get('/search', async (req, res) => {
+  const q = (req.query.q || '').toString().trim();
+  if (!q) return res.json({ clients: [] });
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 25, 1), 50);
+  try {
+    const pre  = `${q.toLowerCase()}%`;
+    const word = `% ${q.toLowerCase()}%`;
+    const any  = `%${q.toLowerCase()}%`;
+    const digits = q.replace(/[^0-9]/g, '');
+    const { rows } = await pool.query(
+      `SELECT id, name, alias, phone, email,
+              CASE
+                WHEN lower(name) LIKE $1 OR lower(COALESCE(alias,'')) LIKE $1 THEN 1
+                WHEN lower(name) LIKE $2 OR lower(COALESCE(alias,'')) LIKE $2 THEN 2
+                WHEN lower(COALESCE(email,'')) LIKE $1
+                  OR ($4 <> '' AND replace(replace(COALESCE(phone,''),' ',''),'-','') LIKE $4 || '%') THEN 3
+                ELSE 4
+              END AS rank
+         FROM clients
+        WHERE lower(name) LIKE $3
+           OR lower(COALESCE(alias,'')) LIKE $3
+           OR lower(COALESCE(email,'')) LIKE $3
+           OR ($4 <> '' AND replace(replace(COALESCE(phone,''),' ',''),'-','') LIKE '%' || $4 || '%')
+        ORDER BY rank, name ASC
+        LIMIT $5`,
+      [pre, word, any, digits, limit],
+    );
+    res.json({ clients: rows });
+  } catch (err) {
+    console.error('[clients] search', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 router.get('/', async (req, res) => {
   const q = (req.query.q || '').toString().trim();
   try {
     const params = [];
     let where = '';
     if (q) {
-      params.push(`%${q}%`);
-      where = `WHERE c.name ILIKE $1 OR c.phone ILIKE $1 OR c.email ILIKE $1`;
+      // SPA-SEARCH-001 — name, alias, email or phone digits; case-insensitive.
+      params.push(`%${q.toLowerCase()}%`);
+      params.push(q.replace(/[^0-9]/g, ''));
+      where = `WHERE lower(c.name) LIKE $1
+                  OR lower(COALESCE(c.alias,'')) LIKE $1
+                  OR lower(COALESCE(c.email,'')) LIKE $1
+                  OR ($2 <> '' AND replace(replace(COALESCE(c.phone,''),' ',''),'-','') LIKE '%' || $2 || '%')`;
     }
     // acquisition_source = the `source` of this client's earliest
     // non-cancelled appointment. Lets the operator see who first reached
@@ -29,6 +75,7 @@ router.get('/', async (req, res) => {
       `SELECT
          c.id,
          c.name,
+         c.alias,
          c.phone,
          c.email,
          c.date_of_birth,
@@ -102,14 +149,14 @@ router.post('/', async (req, res) => {
     const { rows } = await pool.query(
       `INSERT INTO clients
          (name, phone, email, date_of_birth, emergency_contact_name, emergency_contact_phone,
-          gp_name, gp_surgery, gdpr_consent, gdpr_consent_at, marketing_consent, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, CASE WHEN $9 THEN now() ELSE NULL END, $10, $11)
+          gp_name, gp_surgery, gdpr_consent, gdpr_consent_at, marketing_consent, notes, alias)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, CASE WHEN $9 THEN now() ELSE NULL END, $10, $11, $12)
        RETURNING *`,
       [
         b.name, b.phone || null, b.email || null, b.date_of_birth || null,
         b.emergency_contact_name || null, b.emergency_contact_phone || null,
         b.gp_name || null, b.gp_surgery || null,
-        !!b.gdpr_consent, !!b.marketing_consent, b.notes || null,
+        !!b.gdpr_consent, !!b.marketing_consent, b.notes || null, b.alias || null,
       ],
     );
     await offlineQueue.enqueue('create_client', { localId: rows[0].id });
@@ -139,13 +186,14 @@ router.put('/:id', async (req, res) => {
          gdpr_consent_at         = CASE WHEN $10 = TRUE AND gdpr_consent IS DISTINCT FROM TRUE THEN now()
                                         ELSE gdpr_consent_at END,
          marketing_consent       = COALESCE($11, marketing_consent),
-         notes                   = COALESCE($12, notes)
+         notes                   = COALESCE($12, notes),
+         alias                   = COALESCE($13, alias)
        WHERE id = $1 RETURNING *`,
       [
         id, b.name, b.phone, b.email, b.date_of_birth,
         b.emergency_contact_name, b.emergency_contact_phone,
         b.gp_name, b.gp_surgery,
-        b.gdpr_consent, b.marketing_consent, b.notes,
+        b.gdpr_consent, b.marketing_consent, b.notes, b.alias,
       ],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });

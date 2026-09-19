@@ -1,16 +1,23 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../api.js';
+import { getCustomRoles } from '../../permissions.js'; // SPA-RBAC-002
 
 // Till staff who sign in but are NOT bookable practitioners. They live in the
 // same `therapists` table (role-based) but are kept out of the booking widget,
 // rota and therapist pickers by their role. Therapists are managed separately
 // under the Therapists tab.
-const ROLES = [
+const BASE_ROLES = [
   { value: 'reception', label: 'Reception' },
   { value: 'manager',   label: 'Manager' },
   { value: 'admin',     label: 'Admin' },
 ];
-const roleLabel = (r) => ROLES.find((x) => x.value === r)?.label || r;
+// SPA-RBAC-002 — roles the owner created in Admin → Roles & Permissions can be
+// assigned here too.
+function allRoles() {
+  return [...BASE_ROLES, ...getCustomRoles().map((r) => ({ value: r.key, label: r.label }))];
+}
+const ROLES = BASE_ROLES; // back-compat for any other reference in this file
+const roleLabel = (r) => allRoles().find((x) => x.value === r)?.label || r;
 
 export default function StaffSection() {
   const [list, setList]    = useState([]);
@@ -94,7 +101,7 @@ export default function StaffSection() {
               <div>
                 <label>Role</label>
                 <select value={editing.role || 'reception'} onChange={(e) => setEdit({ ...editing, role: e.target.value })}>
-                  {ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                  {allRoles().map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
               </div>
               <div>

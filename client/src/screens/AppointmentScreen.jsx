@@ -366,7 +366,7 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwap
 // ══════════════════════════════════════════════════════════════════════════════
 // VERTICAL TIMELINE
 // ══════════════════════════════════════════════════════════════════════════════
-function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder, onSwap, onMove, onBlockRange, isMobile, isTouch, moveFor, blockMode, readOnly }) {
+function TimelineView({ appointments, therapistColumns, workingTherapists, selected, onSelect, onSlotClick, onEditClick, onColumnReorder, onSwap, onMove, onBlockRange, onResize, isMobile, isTouch, moveFor, blockMode, readOnly }) {
   // SPA-SWAP — track which appointment block is being dragged so the
   // drop target can highlight + we can fire the swap on drop.
   const [draggedApptId, setDraggedApptId] = useState(null);
@@ -385,6 +385,10 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   // SPA-TABLET-001 — finger drag of a booking: press-and-hold lifts it, slide,
   // release on a column → same confirm box as mouse drag / tap-to-move.
   const apptHoldRef = useRef(null); // { timer, appt, x, y, armed, el }
+  // SPA-BLOCK-RESIZE-001 — dragging a block's top or bottom edge changes its
+  // start or end time in place. { appt, edge:'top'|'bottom', startMins, endMins }
+  const [resize, setResize] = useState(null);
+  const resizeRef = useRef(null);
   const suppressClickRef = useRef(false);
   const nowRef       = useRef(null);
   const containerRef = useRef(null);
@@ -514,6 +518,47 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
     el.addEventListener('touchmove', onTouchMove, { passive: false });
     return () => el.removeEventListener('touchmove', onTouchMove);
   }, []);
+
+  // SPA-BLOCK-RESIZE-001 — edge drag. The column under the block is the
+  // measuring stick, so the maths matches the grid exactly.
+  function resizeStart(e, a, edge) {
+    if (readOnly) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const colEl = e.currentTarget.closest('[data-col-id]');
+    if (!colEl) return;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* unsupported */ }
+    const startMins = toLocalMins(a.starts_at);
+    const endMins   = toLocalMins(a.ends_at);
+    resizeRef.current = { appt: a, edge, colEl, startMins, endMins, el: e.currentTarget, pointerId: e.pointerId };
+    setResize({ apptId: a.id, edge, startMins, endMins });
+  }
+  function resizeMove(e) {
+    const r = resizeRef.current;
+    if (!r) return;
+    e.preventDefault();
+    const m = ySnap(e.clientY, r.colEl);
+    setResize((cur) => {
+      if (!cur) return cur;
+      return r.edge === 'bottom'
+        ? { ...cur, endMins: Math.max(r.startMins + 15, m + 15) }
+        : { ...cur, startMins: Math.min(r.endMins - 15, m) };
+    });
+  }
+  function resizeEnd() {
+    const r = resizeRef.current;
+    if (!r) return;
+    resizeRef.current = null;
+    suppressClickRef.current = true;
+    setTimeout(() => { suppressClickRef.current = false; }, 300);
+    setResize((cur) => {
+      if (cur && onResize) {
+        const changed = cur.startMins !== r.startMins || cur.endMins !== r.endMins;
+        if (changed) onResize(r.appt, cur.startMins, cur.endMins);
+      }
+      return null;
+    });
+  }
 
   // Responsive dimensions
   const COL_W_USE = isMobile ? COL_W_MOB : COL_W;
@@ -851,8 +896,10 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
 
                 {/* Appointment blocks */}
                 {col.appts.map(a => {
-                  const startM = toLocalMins(a.starts_at);
-                  const endM   = toLocalMins(a.ends_at);
+                  // SPA-BLOCK-RESIZE-001 — draw the live size while an edge is dragged.
+                  const rz = resize && resize.apptId === a.id ? resize : null;
+                  const startM = rz ? rz.startMins : toLocalMins(a.starts_at);
+                  const endM   = rz ? rz.endMins   : toLocalMins(a.ends_at);
                   const top    = minsToPx(startM);
                   const height = Math.max(minsToPx(endM) - minsToPx(startM) - 2, 26);
                   const isSel  = selected?.id === a.id;
@@ -876,14 +923,20 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   const isExt = !isBlockAppt && (
                     Number(a.extended_minutes) > 0 || Boolean(a.extension_of)
                     || (a.duration_minutes != null && (endM - startM) > Number(a.duration_minutes)));
-                  const swappable = !isBlockAppt && !['completed', 'cancelled', 'no_show'].includes(a.status);
+                  const isFinal   = ['completed', 'cancelled', 'no_show'].includes(a.status);
+                  // Swapping trades two BOOKINGS — a block has no client, so it
+                  // is never swappable. SPA-BLOCK-MOVE-001: it IS movable and
+                  // resizable, which used to mean delete-and-recreate.
+                  const swappable = !isBlockAppt && !isFinal;
+                  const movable   = !isFinal && !readOnly;
+                  const resizable = isBlockAppt && movable;
                   const isBeingDragged = draggedApptId === a.id;
                   const isDropTarget   = dragOverApptId === a.id && draggedApptId && draggedApptId !== a.id;
                   return (
                     <div key={a.id}
-                      draggable={!isMobile && !isTouch && swappable && !readOnly}
+                      draggable={!isMobile && !isTouch && movable}
                       onDragStart={e => {
-                        if (isMobile || isTouch || !swappable) return;
+                        if (isMobile || isTouch || !movable) return;
                         e.dataTransfer.effectAllowed = 'move';
                         e.dataTransfer.setData('text/plain', String(a.id));
                         setDraggedApptId(a.id);
@@ -903,18 +956,21 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                         setDraggedApptId(null); setDragOverApptId(null);
                       }}
                       onDragEnd={() => { setDraggedApptId(null); setDragOverApptId(null); }}
-                      onPointerDown={swappable ? e => apptHoldStart(e, a) : undefined}
+                      onPointerDown={movable ? e => apptHoldStart(e, a) : undefined}
                       onPointerMove={apptHoldMove}
                       onPointerUp={apptHoldEnd}
                       onPointerCancel={apptHoldEnd}
                       onClick={e => { e.stopPropagation(); if (suppressClickRef.current) return; onSelect(isSel ? null : a); }}
+                      // SPA-BLOCK-RESIZE-001 — children (the two grab bars) set
+                      // this so the block's own drag never starts on a resize.
+                      data-appt-id={a.id}
                       onDoubleClick={e => { e.stopPropagation(); !isMobile && onEditClick && onEditClick(a); }}
                       style={{
                         position: 'absolute', left: 3, right: 3, top, height,
                         ...(isBeingDragged && isTouch ? { transform: 'scale(1.04)', boxShadow: '0 10px 24px rgba(13,27,62,0.35)', zIndex: 30, opacity: 0.85 } : {}),
                         touchAction: isBeingDragged ? 'none' : 'auto',
                         borderRadius: isMobile ? 6 : 7,
-                        cursor: !isMobile && swappable ? 'grab' : 'pointer',
+                        cursor: !isMobile && movable ? 'grab' : 'pointer',
                         background: isSel ? COL_COLORS[ci % COL_COLORS.length] : s.bg,
                         border: isDropTarget
                           ? '3px dashed var(--gold)'
@@ -926,6 +982,39 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                         WebkitTapHighlightColor: 'transparent',
                         touchAction: 'manipulation',
                       }}>
+                      {/* SPA-BLOCK-RESIZE-001 — grab bars on a block's edges.
+                          Dragging one changes the time in place; no delete and
+                          re-create. Bars are 10px so a finger can find them. */}
+                      {resizable && (
+                        <>
+                          <div
+                            onPointerDown={e => resizeStart(e, a, 'top')}
+                            onPointerMove={resizeMove}
+                            onPointerUp={resizeEnd}
+                            onPointerCancel={resizeEnd}
+                            title="Drag to change the start time"
+                            style={{ position: 'absolute', top: -2, left: 0, right: 0, height: 11, cursor: 'ns-resize', zIndex: 12, touchAction: 'none',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div style={{ width: 26, height: 3, borderRadius: 2, background: isSel ? 'rgba(255,255,255,0.85)' : 'rgba(31,41,55,0.55)' }} />
+                          </div>
+                          <div
+                            onPointerDown={e => resizeStart(e, a, 'bottom')}
+                            onPointerMove={resizeMove}
+                            onPointerUp={resizeEnd}
+                            onPointerCancel={resizeEnd}
+                            title="Drag to change the end time"
+                            style={{ position: 'absolute', bottom: -2, left: 0, right: 0, height: 11, cursor: 'ns-resize', zIndex: 12, touchAction: 'none',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <div style={{ width: 26, height: 3, borderRadius: 2, background: isSel ? 'rgba(255,255,255,0.85)' : 'rgba(31,41,55,0.55)' }} />
+                          </div>
+                        </>
+                      )}
+                      {/* While resizing, show the live times on the block. */}
+                      {rz && (
+                        <div style={{ position: 'absolute', top: 2, right: 4, fontSize: 10, fontWeight: 800, color: '#1f2937', background: 'rgba(255,255,255,0.9)', borderRadius: 4, padding: '1px 5px', zIndex: 13 }}>
+                          {minsLabel(rz.startMins)}–{minsLabel(rz.endMins)}
+                        </div>
+                      )}
                       {/* Client name — SPA-REQ-BADGE: full-size star when the
                           client asked for THIS therapist by name (was a 9px
                           speck nobody noticed; the whole point is awareness). */}
@@ -1536,6 +1625,25 @@ export default function AppointmentScreen() {
               onSelect={setSelected}
               onSlotClick={({ therapistId, time }) => setModal({ therapistId, time })}
               onBlockRange={({ therapistId, time, minutes }) => { setBlockMode(false); setBlockModal({ therapistId, time, minutes }); }} // SPA-BLOCK-DRAG-002
+              // SPA-BLOCK-RESIZE-001 — auto-saves the new start/end; no modal,
+              // no delete-and-recreate. A clash comes back as a 409 and the
+              // timetable reloads to the real state.
+              onResize={async (appt, startMins, endMins) => {
+                const pad2 = (n) => String(n).padStart(2, '0');
+                const hhmm = (m) => `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
+                const body = { duration_minutes: endMins - startMins };
+                if (startMins !== toLocalMins(appt.starts_at)) {
+                  body.starts_at = new Date(`${date}T${hhmm(startMins)}:00`).toISOString();
+                }
+                try {
+                  await api.put(`/appointments/${appt.id}`, body);
+                  toast(`✓ Block ${hhmm(startMins)}–${hhmm(endMins)}`);
+                  load();
+                } catch (e) {
+                  toast(e.data?.error || e.message || 'Could not resize the block', 'error');
+                  load();
+                }
+              }}
               isTouch={isTouch}
               moveFor={moveFor}
               blockMode={blockMode}

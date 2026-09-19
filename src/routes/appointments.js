@@ -1,6 +1,7 @@
 const express = require('express');
 const Stripe = require('stripe');
 const { pool } = require('../db/dbAdapter');
+const { denyAction } = require('../services/permissions'); // SPA-RBAC-002
 const { guardPast } = require('../services/historyLock'); // SPA-HISTORY-LOCK-001
 const { promoFor } = require('../services/promotions'); // SPA-PROMO-TIME-001
 const { computeAvailability, isTherapistWorking, buildAt, londonDateString } = require('../services/availability');
@@ -587,15 +588,21 @@ router.post('/:id/extend', async (req, res) => {
 
 // PUT /api/appointments/:id  — reschedule / reassign / edit any field
 router.put('/:id', async (req, res) => {
+  if (await denyAction(req, res, 'edit_schedule')) return;
   if (await guardPast(req, res, { appointmentId: req.params.id })) return;
   const id = Number(req.params.id);
-  const { therapist_id, room_id, starts_at, notes, treatment_id, client_id, status, therapist_requested, treatwell_payment_type, source } = req.body || {};
+  const { therapist_id, room_id, starts_at, notes, treatment_id, client_id, status, therapist_requested, treatwell_payment_type, source, duration_minutes } = req.body || {};
   try {
-    // Recompute ends_at if starts_at or treatment changed.
+    // SPA-BLOCK-RESIZE-001 — an explicit duration (dragging a block's edge on
+    // the timetable) overrides the treatment-derived length. Bounded 5 min–12 h.
+    const explicitDuration = Number(duration_minutes) > 0
+      ? Math.min(Math.max(Math.round(Number(duration_minutes)), 5), 12 * 60)
+      : null;
+    // Recompute ends_at if starts_at, treatment or duration changed.
     let newEnds = null;
     let effectiveStart = null;
     let effectiveDuration = null;
-    if (starts_at || treatment_id) {
+    if (starts_at || treatment_id || explicitDuration) {
       const cur = await pool.query(
         `SELECT a.starts_at, a.ends_at, a.treatment_id, t.duration_minutes
          FROM appointments a LEFT JOIN treatments t ON t.id = a.treatment_id
@@ -614,6 +621,7 @@ router.put('/:id', async (req, res) => {
         dur = Math.max(5, Math.round(
           (new Date(cur.rows[0].ends_at).getTime() - new Date(cur.rows[0].starts_at).getTime()) / 60_000));
       }
+      if (explicitDuration) dur = explicitDuration;     // SPA-BLOCK-RESIZE-001
       effectiveDuration = dur;
       newEnds = new Date(new Date(effectiveStart).getTime() + dur * 60_000);
     }
@@ -625,7 +633,8 @@ router.put('/:id', async (req, res) => {
     // search so editing its own notes / status doesn't trip the check.
     const needsConflictCheck =
       therapist_id !== undefined || room_id !== undefined ||
-      starts_at    !== undefined || treatment_id !== undefined;
+      starts_at    !== undefined || treatment_id !== undefined ||
+      explicitDuration !== null;   // SPA-BLOCK-RESIZE-001 — a longer block can hit the next booking
 
     // SEPOS-SPA-BUGHUNT #1 — hoisted so the final UPDATE can re-use them for a
     // race-safe move guard (see below), not just the friendly upfront check.
@@ -906,6 +915,7 @@ router.put('/:id', async (req, res) => {
 // (therapist on shift at the OTHER booking's time) AND have no other
 // conflicting booking once the swap takes effect.
 router.post('/swap', async (req, res) => {
+  if (await denyAction(req, res, 'edit_schedule')) return;
   const { id_a, id_b } = req.body || {};
   if (await guardPast(req, res, { appointmentId: id_a })) return;
   if (await guardPast(req, res, { appointmentId: id_b })) return;
@@ -1220,6 +1230,7 @@ router.put('/:id/status', async (req, res) => {
 // booking itself is left as-is (cancel is a separate action) so the
 // operator can refund a deposit without cancelling, or cancel + refund.
 router.post('/:id/refund-deposit', async (req, res) => {
+  if (await denyAction(req, res, 'refunds')) return;
   if (await guardPast(req, res, { appointmentId: req.params.id })) return;
   const id = Number(req.params.id);
   try {

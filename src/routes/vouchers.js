@@ -2,6 +2,7 @@
 const express = require('express');
 const { pool } = require('../db/dbAdapter');
 const { requireRole } = require('../middleware/auth');
+const { denyAction } = require('../services/permissions'); // SPA-SESSIONS-LOCK-001 / SPA-RBAC-002
 const { sendVoucherGiftEmail } = require('../services/emailService');
 const { buildAt } = require('../services/availability');
 const { isOffline, pushVoucherOp } = require('../services/syncService');
@@ -147,6 +148,10 @@ router.post('/', async (req, res) => {
     voucher_type, total_sessions, treatment_id, recipient_email, payment_method,
   } = req.body || {};
   const isSessions = voucher_type === 'sessions';
+  // SPA-SESSIONS-LOCK-001 — selling a session package is an admin action by
+  // default (the owner can grant it to a role in Roles & Permissions).
+  // Monetary gift vouchers are unaffected.
+  if (isSessions && await denyAction(req, res, 'manage_sessions')) return;
   const isComp = payment_method === 'comp';
   // Comp vouchers may carry £0 (pure free sessions); paid vouchers need a value.
   if (isComp ? !(Number(value) >= 0) : (!value || Number(value) <= 0)) {
@@ -225,6 +230,9 @@ router.put('/:id', async (req, res) => {
   const id = Number(req.params.id);
   const { purchased_by, purchased_for, client_id, expires_at, notes, status } = req.body || {};
   try {
+    // SPA-SESSIONS-LOCK-001 — same lock when the row is a session package.
+    const kind = await pool.query('SELECT voucher_type FROM vouchers WHERE id = $1', [id]);
+    if (kind.rows[0]?.voucher_type === 'sessions' && await denyAction(req, res, 'manage_sessions')) return;
     const allowed = ['active', 'cancelled'];
     const { rows } = await pool.query(
       `UPDATE vouchers SET

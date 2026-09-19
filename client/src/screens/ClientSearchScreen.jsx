@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 
@@ -52,19 +52,36 @@ export default function ClientSearchScreen() {
   const [showTop, setShowTop] = useState(false);     // back-to-top FAB
   const navigate              = useNavigate();
 
-  async function load(query) {
-    setLoading(true);
-    try {
-      const r = await api.get(`/clients${query ? `?q=${encodeURIComponent(query)}` : ''}`);
-      setClients(r.clients);
-    } finally { setLoading(false); }
-  }
+  // SPA-SEARCH-001 — typing hits the light /clients/search endpoint (name,
+  // alias, phone, email; prefix matches first) so the list narrows on the
+  // FIRST letter. The full list with visits and spend loads when the box is
+  // empty. `seq` drops out-of-order replies so a slow "S" can't overwrite
+  // the results for "Smi".
+  const seq = useRef(0);
+  const [searching, setSearching] = useState(false);
 
-  useEffect(() => { load(''); }, []);
+  const load = useCallback(async (query) => {
+    const mine = ++seq.current;
+    const typing = !!query;
+    typing ? setSearching(true) : setLoading(true);
+    try {
+      const r = typing
+        ? await api.get(`/clients/search?q=${encodeURIComponent(query)}&limit=50`)
+        : await api.get('/clients');
+      if (mine === seq.current) setClients(r.clients || []);
+    } catch {
+      if (mine === seq.current) setClients([]);
+    } finally {
+      if (mine === seq.current) { setSearching(false); setLoading(false); }
+    }
+  }, []);
+
+  useEffect(() => { load(''); }, [load]);
   useEffect(() => {
-    const id = setTimeout(() => load(q), 250);
+    // 90 ms is below the eye's "instant" threshold but still coalesces a fast typist.
+    const id = setTimeout(() => load(q.trim()), q.trim() ? 90 : 0);
     return () => clearTimeout(id);
-  }, [q]);
+  }, [q, load]);
 
   // Back-to-top appears once the list is scrolled a screen or so down.
   useEffect(() => {
@@ -107,6 +124,11 @@ export default function ClientSearchScreen() {
       </div>
 
       {loading && <div className="muted">Loading…</div>}
+      {!loading && q.trim() && (
+        <div className="muted" style={{ fontSize: 12 }}>
+          {searching ? 'Searching…' : `${clients.length} match${clients.length === 1 ? '' : 'es'} for “${q.trim()}”`}
+        </div>
+      )}
 
       <div className="col" style={{ gap: 6 }}>
         {sortClients(clients, sort).map((c) => {
@@ -126,7 +148,10 @@ export default function ClientSearchScreen() {
             >
               <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600 }}>{c.name}</div>
+                  <div style={{ fontWeight: 600 }}>
+                    {c.name}
+                    {c.alias ? <span className="muted" style={{ fontWeight: 400, marginLeft: 6 }}>&ldquo;{c.alias}&rdquo;</span> : null}
+                  </div>
                   <div className="muted" style={{ fontSize: 13 }}>
                     {c.phone || '—'} · {c.email || '—'}
                   </div>
@@ -189,7 +214,7 @@ export default function ClientSearchScreen() {
 
 function NewClientModal({ onClose, onCreated }) {
   const [b, setB] = useState({
-    name: '', phone: '', email: '', date_of_birth: '',
+    name: '', alias: '', phone: '', email: '', date_of_birth: '',
     emergency_contact_name: '', emergency_contact_phone: '',
     gp_name: '', gp_surgery: '',
     gdpr_consent: true, marketing_consent: false, notes: '',
@@ -215,6 +240,8 @@ function NewClientModal({ onClose, onCreated }) {
         <h3 style={{ marginTop: 0 }}>New Client</h3>
         <div className="col">
           <div><label>Full name *</label><input value={b.name} onChange={(e) => set('name', e.target.value)} /></div>
+          <div><label>Nickname / alias <span className="muted" style={{ fontSize: 12 }}>(optional — also searched)</span></label>
+            <input value={b.alias} onChange={(e) => set('alias', e.target.value)} placeholder="e.g. Nok" /></div>
           <div className="row">
             <div style={{ flex: 1 }}><label>Phone</label><input value={b.phone} onChange={(e) => set('phone', e.target.value)} /></div>
             <div style={{ flex: 1 }}><label>Email</label><input type="email" value={b.email} onChange={(e) => set('email', e.target.value)} /></div>

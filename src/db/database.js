@@ -820,6 +820,18 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_ingestion_log_ref    ON ingestion_log (external_ref);
     CREATE INDEX IF NOT EXISTS idx_ingestion_log_status ON ingestion_log (status, created_at);
     ALTER TABLE clients ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'direct';
+
+    -- SPA-SEARCH-001 — nickname / alias the shop knows the client by (Thai
+    -- nicknames, "the lady from no.12"). Searched alongside the full name.
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS alias TEXT;
+    -- Prefix search: lower(...) text_pattern_ops makes "smi%" an index scan.
+    CREATE INDEX IF NOT EXISTS idx_clients_name_prefix  ON clients (lower(name) text_pattern_ops);
+    CREATE INDEX IF NOT EXISTS idx_clients_alias_prefix ON clients (lower(alias) text_pattern_ops);
+
+    -- SPA-REVENUE-CHANNEL-001 — where a voucher/session package was SOLD, so
+    -- website sales never land in the till's physical card total.
+    ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT 'till';
+
   `);
 
   // ── Unique-index backstops (SEPOS-SPA-BUGHUNT follow-up) ────────────────

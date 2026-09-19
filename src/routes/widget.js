@@ -709,8 +709,8 @@ router.post('/vouchers', async (req, res) => {
          (code, initial_value, remaining_value, purchased_by, purchased_for,
           recipient_email, payment_method, notes, expires_at, treatment_id,
           stripe_payment_intent_id,
-          voucher_type, total_sessions, sessions_remaining)
-       VALUES ($1,$2,$2,$3,$4,$5,'card',$6,$7,$8,$9,$10,$11,$11) RETURNING *`,
+          voucher_type, total_sessions, sessions_remaining, channel)
+       VALUES ($1,$2,$2,$3,$4,$5,'card',$6,$7,$8,$9,$10,$11,$11,'online') RETURNING *`,
       [
         code,
         voucherValue,

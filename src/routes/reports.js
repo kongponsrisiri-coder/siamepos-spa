@@ -82,6 +82,11 @@ async function billsByMethod(baseWhere, params) {
 //   • already_paid — bills covered by money that came in EARLIER, so not counted
 //                    again today: voucher redemptions, 'external' (already paid),
 //                    and the online-deposit portion at bill close.
+// SPA-REVENUE-CHANNEL-001 — the till's 'card' line must mean "taken on the
+// card machine in the shop". Website money (online voucher / session sales
+// and online prepayments) is its own line so the daily cash-up reconciles
+// against the physical terminal, not against Stripe.
+const ONLINE_METHOD = 'online';
 const MONEY_IN_METHODS = new Set(['cash', 'card', 'treatwell', 'fresha']);
 const ALREADY_PAID_METHODS = new Set(['voucher', 'external', 'deposit']);
 function buildPaymentBreakdown(byMethodRows, voucherSalesRows, prepay) {
@@ -92,12 +97,16 @@ function buildPaymentBreakdown(byMethodRows, voucherSalesRows, prepay) {
       const a = ensure(r.payment_method); a.n += Number(r.n || 0); a.revenue += Number(r.revenue || 0);
     }
   }
-  for (const r of (voucherSalesRows || [])) {                 // voucher sale → its buy method
-    const a = ensure(r.payment_method || 'card');
+  for (const r of (voucherSalesRows || [])) {
+    // SPA-REVENUE-CHANNEL-001 — a voucher bought ON THE WEBSITE is online money,
+    // never part of the shop's card-machine total; a voucher bought at the till
+    // still folds into the method it was paid with.
+    const bucket = (r.channel === 'online') ? ONLINE_METHOD : (r.payment_method || 'card');
+    const a = ensure(bucket);
     a.n += Number(r.n || 0); a.revenue += Number(r.revenue || 0); a.voucher_portion += Number(r.revenue || 0);
   }
   if (prepay && Number(prepay.total) > 0) {                   // online prepayments
-    const a = ensure('online'); a.n += Number(prepay.count || 0); a.revenue += Number(prepay.total || 0);
+    const a = ensure(ONLINE_METHOD); a.n += Number(prepay.count || 0); a.revenue += Number(prepay.total || 0);
   }
   const money_taken = Object.values(agg)
     .map((r) => ({ ...r, revenue: +r.revenue.toFixed(2), voucher_portion: +r.voucher_portion.toFixed(2) }))
@@ -230,12 +239,13 @@ router.get('/trading', requireRole('admin', 'manager'), async (req, res) => {
     const voucherSalesByMethod = await pool.query(
       `SELECT
          COALESCE(payment_method, 'unknown') AS payment_method,
+         COALESCE(channel, 'till')           AS channel,
          COUNT(*)::int                       AS n,
          COALESCE(SUM(initial_value), 0)::numeric AS revenue
        FROM vouchers
        WHERE purchased_at::date = $1::date
          AND COALESCE(payment_method, '') <> 'comp'
-       GROUP BY COALESCE(payment_method, 'unknown')
+       GROUP BY COALESCE(payment_method, 'unknown'), COALESCE(channel, 'till')
        ORDER BY revenue DESC`,
       [date],
     );
@@ -491,13 +501,15 @@ router.get('/therapist', requireRole('admin', 'manager'), async (req, res) => {
     );
     // Voucher sales + online prepayments over the range, for the clear breakdown.
     const vSales = await pool.query(
-      `SELECT COALESCE(payment_method, 'card') AS payment_method, COUNT(*)::int AS n,
+      `SELECT COALESCE(payment_method, 'card') AS payment_method,
+              COALESCE(channel, 'till') AS channel,
+              COUNT(*)::int AS n,
               COALESCE(SUM(initial_value), 0)::numeric AS revenue
        FROM vouchers
        WHERE ($1::date IS NULL OR purchased_at::date >= $1::date)
          AND ($2::date IS NULL OR purchased_at::date <= $2::date)
          AND COALESCE(payment_method, '') <> 'comp'
-       GROUP BY COALESCE(payment_method, 'card')`,
+       GROUP BY COALESCE(payment_method, 'card'), COALESCE(channel, 'till')`,
       [from || null, to || null],
     );
     const dep = await pool.query(
@@ -609,12 +621,13 @@ router.get('/z-report', requireRole('admin', 'manager'), async (req, res) => {
     const voucherSalesByMethod = await pool.query(
       `SELECT
          COALESCE(payment_method, 'unknown') AS payment_method,
+         COALESCE(channel, 'till')           AS channel,
          COUNT(*)::int                       AS n,
          COALESCE(SUM(initial_value), 0)::numeric AS revenue
        FROM vouchers
        WHERE purchased_at::date = $1::date
          AND COALESCE(payment_method, '') <> 'comp'
-       GROUP BY COALESCE(payment_method, 'unknown')
+       GROUP BY COALESCE(payment_method, 'unknown'), COALESCE(channel, 'till')
        ORDER BY revenue DESC`,
       [date],
     );

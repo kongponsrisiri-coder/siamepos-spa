@@ -215,6 +215,7 @@ function ProfileView({ client }) {
     <div className="card">
       {row('Phone', client.phone)}
       {row('Email', client.email)}
+      {client.alias ? row('Nickname', client.alias) : null}
       {row('Date of birth', fmtDate(client.date_of_birth))}
       {row('Emergency contact', [client.emergency_contact_name, client.emergency_contact_phone].filter(Boolean).join(' · '))}
       {row('GP', [client.gp_name, client.gp_surgery].filter(Boolean).join(' · '))}
@@ -232,6 +233,7 @@ function ProfileEditor({ draft, setDraft, onCancel, onSave }) {
   return (
     <div className="card col">
       <div><label>Full name</label><input value={draft.name || ''} onChange={(e) => set('name', e.target.value)} /></div>
+      <div><label>Nickname / alias</label><input value={draft.alias || ''} onChange={(e) => set('alias', e.target.value)} placeholder="also searched in Clients" /></div>
       <div className="row">
         <div style={{ flex: 1 }}><label>Phone</label><input value={draft.phone || ''} onChange={(e) => set('phone', e.target.value)} /></div>
         <div style={{ flex: 1 }}><label>Email</label><input type="email" value={draft.email || ''} onChange={(e) => set('email', e.target.value)} /></div>

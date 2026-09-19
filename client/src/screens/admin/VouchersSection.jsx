@@ -1,6 +1,7 @@
 // Admin → Vouchers — sell gift vouchers, track redemptions, link to clients
 import React, { useEffect, useState, useCallback } from 'react';
 import { api, getStaff } from '../../api.js';
+import { canDo } from '../../permissions.js'; // SPA-SESSIONS-LOCK-001
 
 function fmtMoney(n) { return `£${Number(n || 0).toFixed(2)}`; }
 function fmtDate(d)  { return d ? new Date(d).toLocaleDateString('en-GB') : '—'; }
@@ -268,11 +269,15 @@ function CreateVoucherModal({ onClose, onSaved }) {
                 className={type === 'monetary' ? 'primary' : ''}
                 style={{ flex: 1, padding: '10px 14px', fontSize: 13, fontWeight: 600 }}
               >💷 Money voucher</button>
-              <button
-                onClick={() => { setType('sessions'); setValue(''); }}
-                className={type === 'sessions' ? 'primary' : ''}
-                style={{ flex: 1, padding: '10px 14px', fontSize: 13, fontWeight: 600 }}
-              >🎟 Session bundle</button>
+              {/* SPA-SESSIONS-LOCK-001 — selling a session package is an
+                  admin action unless the owner grants it to the role. */}
+              {canDo('manage_sessions') && (
+                <button
+                  onClick={() => { setType('sessions'); setValue(''); }}
+                  className={type === 'sessions' ? 'primary' : ''}
+                  style={{ flex: 1, padding: '10px 14px', fontSize: 13, fontWeight: 600 }}
+                >🎟 Session bundle</button>
+              )}
             </div>
 
             {/* Sessions-only — treatment + count */}

@@ -3,10 +3,10 @@ import { api } from '../../api.js';
 
 function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
 const KIND_LABEL = { treatment: '💆 Treatments', retail: '🛍 Products', addon: '➕ Add-ons' };
-const PM_LABEL = { card: '💳 Card', cash: '💵 Cash', treatwell: '🌐 Treatwell', online: '🌐 Online prepayment', split: '⇄ Split', voucher: '🎁 Voucher' };
+const PM_LABEL = { card: '💳 Card (in person)', cash: '💵 Cash (in person)', treatwell: '🌐 Treatwell', online: '🌐 Online (website)', split: '⇄ Split', voucher: '🎁 Voucher' };
 const AP_LABEL = { voucher: '🎁 Voucher redeemed', external: '🧾 Already paid (external)', deposit: '🌐 Deposit (prepaid online)' };
 // Plain labels (no emoji) for the CSV export.
-const PM_PLAIN = { card: 'Card', cash: 'Cash', treatwell: 'Treatwell', online: 'Online prepayment', split: 'Split', voucher: 'Voucher' };
+const PM_PLAIN = { card: 'Card (in person)', cash: 'Cash (in person)', treatwell: 'Treatwell', online: 'Online (website)', split: 'Split', voucher: 'Voucher' };
 const AP_PLAIN = { voucher: 'Voucher redeemed', external: 'Already paid (external)', deposit: 'Deposit (prepaid online)' };
 // Local-time YYYY-MM-DD — toISOString returns UTC, which rolls over to
 // "tomorrow" between 23:00 and 00:00 local for any TZ ahead of UTC.
