@@ -133,6 +133,7 @@ const SECTIONS = {
 export default function AdminScreen() {
   const [tab, setTab] = useState('trading');
   const [, setPermsVer] = useState(0); // SPA-RBAC-001 — re-render after the matrix loads
+  const [pickerOpen, setPickerOpen] = useState(false); // SPA-ADMIN-NAV-001 — mobile section menu
   const [openGroups, setOpenGroups] = useState(() => {
     try { const raw = localStorage.getItem(OPEN_GROUPS_KEY); if (raw) { const a = JSON.parse(raw); if (Array.isArray(a)) return new Set(a); } } catch {}
     const init = groupContaining('trading');
@@ -178,6 +179,7 @@ export default function AdminScreen() {
       </div>
     );
   }
+  const currentLabel = (GROUPS.flatMap((g) => g.items).find((i) => i.k === tab) || {}).label || 'Admin';
   const Current = SECTIONS[tab] || TradingSection;
   const readOnly = tab !== 'permissions' && sectionLevel(tab) === 'view';
 
@@ -220,10 +222,25 @@ export default function AdminScreen() {
         </div>
 
         {isMobile ? (
-          // Mobile: flat horizontal tab strip of every section (no collapse).
-          visibleGroups.flatMap((g) => g.items).map((item) => (
-            <NavItem key={item.k} item={item} active={tab === item.k} onClick={() => setTab(item.k)} />
-          ))
+          // SPA-ADMIN-NAV-001 — on a phone the old strip put ~20 sections in a
+          // horizontal scroller: everything past "Clients" was off the edge and
+          // the active tab was pink-on-pink. Now one button shows where you are
+          // and opens the full, grouped list.
+          <button
+            onClick={() => setPickerOpen(true)}
+            style={{
+              width: '100%', height: 48, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              gap: 10, padding: '0 16px', background: 'rgba(255,255,255,0.12)', border: 'none',
+              borderBottom: '2px solid var(--gold)', color: 'white', fontSize: 15, fontWeight: 700,
+              fontFamily: 'system-ui, -apple-system, sans-serif',
+            }}
+          >
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+              <span style={{ color: 'var(--gold)' }}>☰</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: '#fff' }}>{currentLabel}</span>
+            </span>
+            <span style={{ color: 'var(--gold)', fontSize: 12 }}>Change ▾</span>
+          </button>
         ) : (
           // Desktop: collapsible drop-list groups to save vertical space.
           visibleGroups.map((group) => {
@@ -271,7 +288,50 @@ export default function AdminScreen() {
         background: 'var(--bg)',
         padding: '24px 28px',
       }}>
-        {readOnly && (
+        {/* SPA-ADMIN-NAV-001 — full-screen grouped picker (phones only) */}
+      {pickerOpen && isMobile && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setPickerOpen(false); }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(13,27,62,0.55)', zIndex: 9000, display: 'flex', alignItems: 'flex-end' }}
+        >
+          <div style={{
+            width: '100%', maxHeight: '82vh', overflowY: 'auto', background: 'var(--navy)',
+            borderRadius: '16px 16px 0 0', paddingBottom: 'calc(12px + env(safe-area-inset-bottom, 0px))',
+          }}>
+            <div style={{ position: 'sticky', top: 0, background: 'var(--navy)', padding: '14px 18px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.12)' }}>
+              <span style={{ color: 'var(--gold)', fontWeight: 800, fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Admin sections</span>
+              <button onClick={() => setPickerOpen(false)} style={{ background: 'transparent', border: 'none', color: 'white', fontSize: 22, minHeight: 0, padding: 0 }}>×</button>
+            </div>
+            {visibleGroups.map((group) => (
+              <div key={group.title} style={{ padding: '10px 0 4px' }}>
+                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', padding: '0 18px 6px' }}>{group.title}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, padding: '0 14px' }}>
+                  {group.items.map((item) => {
+                    const on = tab === item.k;
+                    return (
+                      <button key={item.k}
+                        onClick={() => { setTab(item.k); setPickerOpen(false); }}
+                        style={{
+                          minHeight: 48, borderRadius: 10, textAlign: 'left', padding: '0 12px',
+                          // White chip for the current section: --gold on
+                          // --navy is unreadable once a spa overrides its brand
+                          // colours (Highbury's gold-on-magenta). White always works.
+                          background: on ? '#ffffff' : 'rgba(255,255,255,0.10)',
+                          color: on ? 'var(--navy)' : 'white',
+                          border: on ? '2px solid var(--gold)' : '1px solid rgba(255,255,255,0.22)',
+                          boxShadow: on ? '0 2px 10px rgba(0,0,0,0.22)' : 'none',
+                          fontWeight: on ? 800 : 600, fontSize: 14,
+                        }}>{item.label}</button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {readOnly && (
           <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', color: '#92400e', borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 12 }}>
             👁 View only — your role can see this section but not change it.
           </div>

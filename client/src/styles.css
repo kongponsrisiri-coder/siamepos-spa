@@ -422,14 +422,13 @@ tbody tr:hover td { background: var(--navy-muted); }
   }
   .admin-sidebar .admin-panel-label  { display: none; }
   .admin-sidebar .admin-group-label  { display: none; }
+  /* SPA-ADMIN-NAV-001 — the phone nav is now ONE button that opens a grouped
+     picker, so the strip no longer needs to scroll sideways. */
   .admin-sidebar button {
-    flex-shrink: 0;
-    width: auto !important;   /* override inline width:100% so tabs sit side-by-side, not one-per-row */
+    flex: 1;
+    width: 100% !important;
     height: 48px;
-    padding: 0 14px !important;
     border-left: none !important;
-    border-bottom: 3px solid transparent !important;
-    font-size: 12px !important;
     white-space: nowrap;
   }
   .admin-sidebar button[data-active="true"] {
