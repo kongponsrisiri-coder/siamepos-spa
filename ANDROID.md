@@ -70,3 +70,28 @@ client never has to wait for an app update.
 The app's requests come from `http://localhost` (Capacitor), so those origins
 are in `ALLOWED_ORIGINS` in `src/server.js`. A new tenant deploy needs no extra
 CORS setup.
+
+## Booking notifications (SPA-PUSH-001)
+
+Real notifications — the tablet buzzes with the app closed — go through
+Firebase Cloud Messaging. Two pieces, both one-off:
+
+**1. The app** needs `client/android/app/google-services.json` (Firebase →
+Project settings → Your apps → Android app `uk.co.siamepos.spa`). Without it
+the APK still builds and runs; push is simply off. Add the file, rebuild,
+publish.
+
+**2. Each spa cloud** needs `FCM_SERVICE_ACCOUNT` — the service-account JSON
+(Firebase → Project settings → Service accounts → Generate new private key),
+pasted whole or base64-encoded. Without it the server returns
+`{ skipped: true }` and nothing else changes.
+
+One Firebase project covers every spa: the app id is the same everywhere, and
+each cloud keeps its own device list in `push_devices`.
+
+What fires a notification: a booking from the website widget, Treatwell
+(webhook or email), Fresha, or a chatbot hold once it is paid. Bookings typed
+at the till stay silent, same rule as the on-screen alert card.
+
+Admin → Mobile App shows whether push is on and has a **Send a test
+notification** button.

@@ -832,6 +832,21 @@ async function initSchema() {
     -- website sales never land in the till's physical card total.
     ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT 'till';
 
+    -- SPA-PUSH-001 — tablets/phones that should buzz when a booking lands.
+    -- One row per device token; a device re-registers on every sign-in, so a
+    -- token that stops working is simply pruned when Firebase rejects it.
+    CREATE TABLE IF NOT EXISTS push_devices (
+      id           SERIAL PRIMARY KEY,
+      token        TEXT NOT NULL UNIQUE,
+      platform     TEXT NOT NULL DEFAULT 'android',
+      staff_id     INT REFERENCES therapists(id) ON DELETE SET NULL,
+      label        TEXT,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_devices_seen ON push_devices (last_seen_at DESC);
+
+
   `);
 
   // ── Unique-index backstops (SEPOS-SPA-BUGHUNT follow-up) ────────────────

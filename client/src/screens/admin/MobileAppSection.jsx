@@ -75,6 +75,9 @@ export default function MobileAppSection() {
         </div>
       )}
 
+      {/* SPA-PUSH-001 — booking notifications */}
+      <PushPanel inApp={inApp} />
+
       {/* The link itself */}
       <div className="card" style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         {qr && (
@@ -115,6 +118,64 @@ export default function MobileAppSection() {
           iPhones and iPads are not supported yet — they can use the till in Safari as before.
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── SPA-PUSH-001 — booking notifications ────────────────────────────────────
+function PushPanel({ inApp }) {
+  const [status, setStatus] = useState(null);   // { configured }
+  const [busy, setBusy]     = useState(false);
+  const [msg, setMsg]       = useState('');
+
+  useEffect(() => { api.get('/push/status').then(setStatus).catch(() => setStatus({ configured: false })); }, []);
+
+  async function test() {
+    setBusy(true); setMsg('');
+    try {
+      const r = await api.post('/push/test', {});
+      setMsg(r.skipped
+        ? `Not sent: ${r.reason}`
+        : r.sent ? `Sent to ${r.sent} device${r.sent === 1 ? '' : 's'}. Check the tablet.`
+          : 'No devices are registered yet — open the app on a tablet and sign in.');
+    } catch (e) { setMsg(e.message || 'Could not send'); }
+    finally { setBusy(false); }
+  }
+
+  if (!status) return null;
+  return (
+    <div className="card col" style={{ gap: 8 }}>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <div>
+          <h3 style={{ margin: 0 }}>Booking notifications</h3>
+          <div className="muted" style={{ fontSize: 13 }}>
+            {status.configured
+              ? 'Your tablets buzz when a booking arrives from the website, Treatwell, Fresha or the chatbot — even when the app is closed.'
+              : 'Not switched on for this spa yet. The app shows an alert and a chime only while it is open on screen.'}
+          </div>
+        </div>
+        <span style={{
+          padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 800,
+          background: status.configured ? '#dcfce7' : '#f1f5f9',
+          color: status.configured ? '#166534' : '#64748b',
+        }}>{status.configured ? 'On' : 'Off'}</span>
+      </div>
+      {status.configured && (
+        <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button onClick={test} disabled={busy}>{busy ? 'Sending…' : '🔔 Send a test notification'}</button>
+          {msg && <span className="muted" style={{ fontSize: 13 }}>{msg}</span>}
+        </div>
+      )}
+      {!status.configured && (
+        <div className="muted" style={{ fontSize: 12 }}>
+          Ask SiamEPOS to switch it on — it takes one setting on your cloud.
+        </div>
+      )}
+      {status.configured && !inApp && (
+        <div className="muted" style={{ fontSize: 12 }}>
+          Notifications go to tablets running the app, not to this browser.
+        </div>
+      )}
     </div>
   );
 }

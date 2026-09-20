@@ -16,6 +16,7 @@ import NewBookingAlert     from './components/NewBookingAlert.jsx'; // SPA-NOTIF
 import { canSeeAdmin, refreshPermissions } from './permissions.js'; // SPA-RBAC-001
 import SpaSetupScreen from './screens/SpaSetupScreen.jsx'; // SPA-ANDROID-001
 import { needsSetup } from './apiBase.js';
+import { initPush } from './push.js'; // SPA-PUSH-001
 
 // Brand CI: var(--navy) navy · var(--gold) gold · Cormorant Garamond headings
 
@@ -321,6 +322,18 @@ function AppShell({ children }) {
   // SPA-RBAC-001 — pick up permission changes without a re-login.
   const [, setPermsVer] = useState(0);
   useEffect(() => { refreshPermissions().then(() => setPermsVer((v) => v + 1)); }, []);
+
+  // SPA-PUSH-001 — register this device for booking notifications, and open
+  // the right day when someone taps one. No-op on the web.
+  const navigate = useNavigate();
+  useEffect(() => {
+    initPush((d) => {
+      const q = new URLSearchParams();
+      if (d.date) q.set('date', d.date);
+      if (d.appointment_id) q.set('appt', d.appointment_id);
+      navigate(`/?${q.toString()}`);
+    });
+  }, [navigate]);
   return (
     <div style={{ minHeight: '100vh', minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <TopNav />

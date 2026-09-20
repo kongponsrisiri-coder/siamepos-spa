@@ -302,6 +302,7 @@ app.use('/api/vouchers',     requireAuth, voucherRoutes);
 app.use('/api/campaigns',    requireAuth, campaignRoutes);
 app.use('/api/loyalty',      requireAuth, loyaltyRoutes);   // SPA-LOYALTY-001
 app.use('/api/payment-links', requireAuth, paymentLinkRoutes);
+app.use('/api/push',         requireAuth, require('./routes/push')); // SPA-PUSH-001
 
 // 404 for any unmatched /api/* request.
 app.use('/api', (_req, res) => res.status(404).json({ error: 'not found' }));

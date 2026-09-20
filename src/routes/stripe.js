@@ -106,6 +106,17 @@ async function webhookHandler(req, res) {
               // SPA-CHATBOT-FIX-001 — WhatsApp, email or SMS depending on the channel.
               conciergeOrchestrator.sendBookingConfirmationAny(link.appointment_id)
                 .catch((e) => console.error('[stripe] chat confirm', e.message));
+              // SPA-PUSH-001 — a chatbot hold only becomes a booking once it is
+              // paid, so this is the moment the shop needs to know about it.
+              (async () => {
+                const { rows: r2 } = await pool.query(
+                  `SELECT a.id, a.starts_at, a.source, c.name AS client_name, t.name AS treatment_name
+                     FROM appointments a
+                     LEFT JOIN clients c ON c.id = a.client_id
+                     LEFT JOIN treatments t ON t.id = a.treatment_id
+                    WHERE a.id = $1`, [link.appointment_id]);
+                if (r2[0]) await require('../services/push').notifyNewBooking(r2[0]);
+              })().catch((e) => console.error('[stripe] push failed', e.message));
             }
           }
         }

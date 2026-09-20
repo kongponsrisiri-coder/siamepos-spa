@@ -245,7 +245,9 @@ router.post('/webhook', async (req, res) => {
 
     await client.query('COMMIT');
 
-    req.app.get('io')?.emit('new_appointment', { ...ap.rows[0], client_name: cli.name, treatment_name: service?.name || null }); // SPA-NOTIFY-LIVE-001
+    const liveAppt = { ...ap.rows[0], client_name: cli.name, treatment_name: service?.name || null }; // SPA-NOTIFY-LIVE-001
+    req.app.get('io')?.emit('new_appointment', liveAppt);
+    require('../services/push').notifyNewBooking(liveAppt).catch((e) => console.error('[treatwell] push failed', e.message)); // SPA-PUSH-001
 
     // SPA-OWNER-NOTIFY — pull the therapist name + treatment row for
     // the email, fire-and-forget.

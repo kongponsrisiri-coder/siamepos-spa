@@ -220,7 +220,9 @@ async function createBooking(parsed, raw, io) {
     } finally { db.release(); }
   }
 
-  io?.emit('new_appointment', { ...appt, client_name: parsed.name || null, treatment_name: parsed.treatment || null }); // SPA-NOTIFY-LIVE-001
+  const liveAppt = { ...appt, client_name: parsed.name || null, treatment_name: parsed.treatment || null }; // SPA-NOTIFY-LIVE-001
+  io?.emit('new_appointment', liveAppt);
+  require('./push').notifyNewBooking(liveAppt).catch((e) => console.error('[treatwell] push failed', e.message)); // SPA-PUSH-001
 
   // Owner notification (fire-and-forget) — parity with Sam's webhook so the
   // owner is alerted to Treatwell bookings arriving via email too.

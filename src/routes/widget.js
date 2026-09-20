@@ -502,9 +502,13 @@ router.post('/book', async (req, res) => {
 
     // Fire-and-forget side effects after commit.
     // SPA-NOTIFY-LIVE-001 — names ride along so the till can show "New booking — Jane".
-    req.app.get('io')?.emit('new_appointment', {
+    const liveAppt = {
       ...ap.rows[0], client_name: cli.name, treatment_name: tr.rows[0]?.name, therapist_name: named.rows[0]?.therapist_name,
-    });
+    };
+    req.app.get('io')?.emit('new_appointment', liveAppt);
+    // SPA-PUSH-001 — and buzz the shop's tablets even if the till is closed.
+    require('../services/push').notifyNewBooking(liveAppt)
+      .catch((e) => console.error('[widget] push failed', e.message));
     if (cli.email) {
       sendBookingConfirmation({
         client:        cli,
