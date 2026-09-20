@@ -7,7 +7,7 @@ const KEYS = [
   { k: 'spa_email',        t: 'Spa email'  },
   { k: 'owner_email',      t: 'Owner login email (for the Owner login magic link)' },
   // SPA-LINE-NOTIFY-001 — where new-booking alerts go on LINE.
-  { k: 'line_notify_user_id', t: 'LINE user ID for booking alerts (leave blank to use SiamEPOS\u2019s)' },
+  { k: 'line_notify_user_id', t: 'LINE user ID for booking alerts (blank = alerts go to SiamEPOS). Message our LINE account and ask us for yours.' },
   // Business details — appear on the VAT receipt (Bills → Receipt).
   { k: 'legal_name',       t: 'Registered business name (for receipts)' },
   { k: 'business_address', t: 'Business address (for receipts)' },
