@@ -1002,6 +1002,21 @@ function runMigrations() {
   addColumnIfMissing('therapists', 'photo_url',   'TEXT');
   addColumnIfMissing('therapists', 'email',         'TEXT'); // SEPOS-SPA-OWNER-001 v2 — email+password login
   addColumnIfMissing('therapists', 'password_hash', 'TEXT');
+  // SPA-PIN-ONLY-001 — the desktop till runs this schema OFFLINE, so it needs
+  // the same PIN identity column as the cloud or PIN-only sign-in would fall
+  // back to a bcrypt scan of every staff row forever, with nothing stopping two
+  // staff sharing a PIN. SQLite supports the same partial unique index.
+  addColumnIfMissing('therapists', 'pin_hmac', 'TEXT');
+  try {
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS therapists_pin_hmac_uniq
+               ON therapists (pin_hmac) WHERE pin_hmac IS NOT NULL`);
+  } catch (e) {
+    // An existing local DB may already hold two staff on the same PIN, which
+    // would make this index fail to build. Do not take the till down for it:
+    // findByPin() refuses an ambiguous PIN anyway, so the shop is still safe —
+    // it just keeps the slow path until the owner fixes the duplicate.
+    console.error('[localdb] pin_hmac unique index not created:', e.message);
+  }
 
   // clients
   addColumnIfMissing('clients', 'source',          "TEXT NOT NULL DEFAULT 'direct'"); // SPA-TREATWELL-001

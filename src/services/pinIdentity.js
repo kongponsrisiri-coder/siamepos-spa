@@ -89,7 +89,7 @@ async function findByPin(pool, pin) {
 
   const holders = (fast.rows[0] ? 1 : 0) + legacyMatches.length;
   if (holders > 1) return { row: null, duplicate: true };
-  if (holders === 0) return { row: null, duplicate: false };
+  if (holders === 0) return await rescue(pool, pin, hmac);
   if (fast.rows[0]) return { row: fast.rows[0], duplicate: false };
 
   const row = legacyMatches[0];
@@ -99,9 +99,44 @@ async function findByPin(pool, pin) {
   } catch (e) {
     // Unique violation: somebody else already holds this PIN. Refuse to guess
     // which of them is standing at the till.
-    if (e && String(e.code) === '23505') return { row: null, duplicate: true };
+    // Postgres: 23505. SQLite (the offline desktop till): SQLITE_CONSTRAINT_*.
+    if (e && /^23505$|SQLITE_CONSTRAINT/.test(String(e.code || e.message))) {
+      return { row: null, duplicate: true };
+    }
     // Any other failure is just a missed optimisation — the sign-in is valid.
     console.error('[pin] hmac backfill failed', e.message);
+  }
+  return { row, duplicate: false };
+}
+
+/**
+ * Last resort, and the reason it exists: the HMAC key IS JWT_SECRET. If that
+ * ever changes — a rotated Railway variable, a reset desktop-till config — then
+ * every stored pin_hmac is computed with the old key. The indexed lookup misses,
+ * and those rows are NOT NULL so the legacy scan skips them too: every member of
+ * staff is locked out of the till at once, with a correct PIN.
+ *
+ * So when nothing matched, scan the already-migrated rows by bcrypt and, on a
+ * hit, rewrite that row's HMAC with the current key. The shop never notices.
+ *
+ * This only runs when a PIN matched NOTHING, i.e. on a wrong PIN, and the
+ * existing brute-force lockout (8 failures / 15 min per IP) bounds how often an
+ * attacker can make us pay for it.
+ */
+async function rescue(pool, pin, hmac) {
+  const { rows } = await pool.query(
+    'SELECT id, name, pin, role FROM therapists WHERE pin_hmac IS NOT NULL AND active = TRUE',
+  );
+  const matches = rows.filter((r) => r.pin && bcrypt.compareSync(String(pin), r.pin));
+  if (matches.length > 1) return { row: null, duplicate: true };
+  if (matches.length === 0) return { row: null, duplicate: false };
+
+  const row = matches[0];
+  console.warn(`[pin] re-keying pin_hmac for ${row.name} — JWT_SECRET appears to have changed`);
+  try {
+    await pool.query('UPDATE therapists SET pin_hmac = $1 WHERE id = $2', [hmac, row.id]);
+  } catch (e) {
+    console.error('[pin] re-key failed', e.message);
   }
   return { row, duplicate: false };
 }
