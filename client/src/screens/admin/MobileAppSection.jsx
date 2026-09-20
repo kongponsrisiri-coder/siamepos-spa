@@ -145,37 +145,42 @@ function PushPanel({ inApp }) {
   if (!status) return null;
   return (
     <div className="card col" style={{ gap: 8 }}>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <div>
-          <h3 style={{ margin: 0 }}>Booking notifications</h3>
-          <div className="muted" style={{ fontSize: 13 }}>
-            {status.configured
-              ? 'Your tablets buzz when a booking arrives from the website, Treatwell, Fresha or the chatbot — even when the app is closed.'
-              : 'Not switched on for this spa yet. The app shows an alert and a chime only while it is open on screen.'}
-          </div>
+      <div>
+        <h3 style={{ margin: 0 }}>Booking notifications</h3>
+        <div className="muted" style={{ fontSize: 13 }}>
+          Alerts for bookings that arrive from the website, Treatwell, Fresha or the chatbot.
+          Bookings typed at the till stay silent.
         </div>
-        <span style={{
-          padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 800,
-          background: status.configured ? '#dcfce7' : '#f1f5f9',
-          color: status.configured ? '#166534' : '#64748b',
-        }}>{status.configured ? 'On' : 'Off'}</span>
       </div>
-      {status.configured && (
+      <div className="col" style={{ gap: 6 }}>
+        <Channel on={status.line} title="LINE message to your phone"
+          desc="Reaches you anywhere, with or without the app. Nothing to install." />
+        <Channel on={status.configured} title="Notification on the shop tablet"
+          desc="The tablet buzzes even when the app is closed." />
+      </div>
+      {(status.line || status.configured) ? (
         <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-          <button onClick={test} disabled={busy}>{busy ? 'Sending…' : '🔔 Send a test notification'}</button>
+          <button onClick={test} disabled={busy}>{busy ? 'Sending…' : '🔔 Send a test alert'}</button>
           {msg && <span className="muted" style={{ fontSize: 13 }}>{msg}</span>}
         </div>
-      )}
-      {!status.configured && (
+      ) : (
         <div className="muted" style={{ fontSize: 12 }}>
-          Ask SiamEPOS to switch it on — it takes one setting on your cloud.
+          Ask SiamEPOS to switch these on — it takes one setting on your cloud.
         </div>
       )}
-      {status.configured && !inApp && (
-        <div className="muted" style={{ fontSize: 12 }}>
-          Notifications go to tablets running the app, not to this browser.
-        </div>
-      )}
+    </div>
+  );
+}
+
+function Channel({ on, title, desc }) {
+  return (
+    <div className="row" style={{ gap: 10, alignItems: 'flex-start', padding: '8px 10px', borderRadius: 8, background: on ? '#f0fdf4' : '#f8fafc', border: `1px solid ${on ? '#86efac' : 'var(--border)'}` }}>
+      <span style={{ fontSize: 15, lineHeight: 1.2 }}>{on ? '✅' : '⚪️'}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>{title}</div>
+        <div className="muted" style={{ fontSize: 12 }}>{desc}</div>
+      </div>
+      <span style={{ fontSize: 11, fontWeight: 800, color: on ? '#166534' : '#94a3b8' }}>{on ? 'On' : 'Off'}</span>
     </div>
   );
 }

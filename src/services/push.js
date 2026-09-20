@@ -140,6 +140,9 @@ const SOURCE_LABEL = { online: 'Online booking', treatwell: 'Treatwell', fresha:
 async function notifyNewBooking(appt) {
   try {
     if (!appt || !EXTERNAL.has(appt.source)) return { skipped: true, reason: 'not an external booking' };
+    // SPA-LINE-NOTIFY-001 — LINE goes out regardless: it needs no app, no
+    // Firebase and no device, so it works the day a spa opens.
+    require('./lineNotify').lineNewBooking(appt).catch(() => {});
     if (!isConfigured()) return { skipped: true, reason: 'push not configured' };
     const when = appt.starts_at
       ? new Date(appt.starts_at).toLocaleString('en-GB', {
