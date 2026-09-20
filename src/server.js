@@ -152,7 +152,7 @@ app.get('/my-booking.html', (_req, res) => {
 //   https://<spa-api>/app       → the APK itself (tablet taps it, installs)
 //   https://<spa-api>/app/notes → the release page (what changed, install help)
 // Bump ANDROID_APK_VERSION when a new APK is published to siamepos-releases.
-const ANDROID_APK_VERSION = '1.0.4';
+const ANDROID_APK_VERSION = '1.0.5';
 const APK_BASE = 'https://github.com/kongponsrisiri-coder/siamepos-releases/releases';
 app.get('/app', (_req, res) =>
   res.redirect(302, `${APK_BASE}/download/spa-v${ANDROID_APK_VERSION}/SiamEPOS-Spa-v${ANDROID_APK_VERSION}.apk`));
