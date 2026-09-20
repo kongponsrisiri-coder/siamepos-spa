@@ -429,6 +429,8 @@ function LineConnectCard({ value, onChanged }) {
   const [state, setState] = useState('idle');  // idle | waiting | paired | error
   const [error, setError] = useState('');
   const timer = useRef(null);
+  const [manual, setManual]   = useState(false);
+  const [idDraft, setIdDraft] = useState('');
 
   useEffect(() => () => clearInterval(timer.current), []);
 
@@ -453,6 +455,14 @@ function LineConnectCard({ value, onChanged }) {
     } catch (e) {
       setState('error'); setError(e.message || 'Could not start — try again in a moment.');
     }
+  }
+
+  // SPA-LINE-PAIR-001 — the owner normally never sees an ID, but we sometimes
+  // already have one (read from the console or an earlier chat), so allow it.
+  async function saveId() {
+    await api.put('/settings', { key: 'line_notify_user_id', value: idDraft.trim() });
+    setManual(false); setIdDraft(''); setState('paired');
+    onChanged && onChanged();
   }
 
   async function disconnect() {
@@ -501,11 +511,28 @@ function LineConnectCard({ value, onChanged }) {
         </div>
       )}
 
+      {manual && (
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <label style={{ fontSize: 12 }}>LINE user ID</label>
+            <input value={idDraft} onChange={(e) => setIdDraft(e.target.value)} placeholder="U…" autoCapitalize="none" spellCheck="false" />
+            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+              Starts with U and is 33 characters. Only use this if SiamEPOS gave you the ID — otherwise press Connect LINE.
+            </div>
+          </div>
+          <button className="primary" disabled={!/^U[0-9a-f]{32}$/i.test(idDraft.trim())} onClick={saveId}>Save</button>
+          <button onClick={() => { setManual(false); setIdDraft(''); }}>Cancel</button>
+        </div>
+      )}
+
       <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         {!connected && state !== 'waiting' && <button className="primary" onClick={start}>Connect LINE</button>}
         {connected && state !== 'waiting' && <button onClick={start}>Connect a different LINE</button>}
         {connected && <button className="danger" onClick={disconnect}>Disconnect</button>}
         {state === 'waiting' && <button onClick={() => { clearInterval(timer.current); setState('idle'); setCode(null); }}>Cancel</button>}
+        {!manual && state !== 'waiting' && (
+          <button onClick={() => { setManual(true); setIdDraft(''); }} style={{ fontSize: 12 }}>Enter an ID instead</button>
+        )}
         {error && <span style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</span>}
       </div>
     </div>
