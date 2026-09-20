@@ -1,0 +1,60 @@
+{
+  "_comment": [
+    "SPA-DEPLOY-ALL-001 — every SiamEPOS Spa deployment, in one place.",
+    "scripts/deploy-all.js reads ONLY this file, so adding a client means adding",
+    "a row here and nothing else. A client missing from this list is a client",
+    "that silently stops getting updates, which is the exact failure we keep hitting.",
+    "",
+    "stage: 0 = demo (always first), 1 = canary (one real shop), 2 = everyone else.",
+    "The run stops at the first failure, so a bad build never reaches stage 2.",
+    "",
+    "hold: set to a reason string to skip a tenant. The script prints it loudly",
+    "rather than silently passing over it. Remove the key to resume deploys.",
+    "",
+    "netlifySite: ALWAYS passed explicitly with --site. client/.netlify/state.json",
+    "points at Jinta, so a bare 'netlify deploy' from client/ ships to the wrong shop."
+  ],
+
+  "tenants": [
+    {
+      "key": "demo",
+      "name": "SiamEPOS Spa (demo)",
+      "stage": 0,
+      "api": "https://spa-api.siamepos.co.uk",
+      "till": "https://spa.siamepos.co.uk",
+      "netlifySite": "e1944b43-b29a-4231-933b-4fd42678c0bd",
+      "railway": {
+        "project": "d32e28d2-8f0a-4c4f-bc1c-fd88cc555f7f",
+        "environment": "e6fcb99b-137f-4a80-addf-516b0d81f919",
+        "service": "b707d60d-5e16-4d2e-b495-c72d8e3eda6c"
+      }
+    },
+    {
+      "key": "highbury",
+      "name": "Highbury Thai Massage",
+      "stage": 1,
+      "api": "https://highbury-api-production.up.railway.app",
+      "till": "https://highbury.siamepos.co.uk",
+      "netlifySite": "7b87544c-e99a-42a1-8cb2-c955c0e2dba4",
+      "railway": {
+        "project": "f0ffffec-d0d7-405b-8c60-44fdcaadca4e",
+        "environment": "104850ea-02ec-4c96-bf5f-3d0663578a2c",
+        "service": "9eab74c7-669c-43dc-af1d-eaad7674a133"
+      }
+    },
+    {
+      "key": "jinta",
+      "name": "Jinta Thai Massage",
+      "stage": 2,
+      "api": "https://jinta-api-production.up.railway.app",
+      "till": "https://jinta.siamepos.co.uk",
+      "netlifySite": "d5425eab-2d2d-410d-a086-330fd5d17cb3",
+      "railway": {
+        "project": "fd239feb-b2da-45e5-93c4-f36ea4fd836b",
+        "environment": "a3a99576-6521-482b-9c2c-d291285fc427",
+        "service": "ea92e91f-6ec7-495c-91d1-50010f6db235"
+      },
+      "hold": "Korakot, 2026-09-20: 'do not touch jinta site yet'. Remove this key to resume."
+    }
+  ]
+}

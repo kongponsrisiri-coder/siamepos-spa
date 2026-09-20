@@ -110,6 +110,9 @@ app.use(express.json({ limit: '2mb' }));
 // to see which desktop devices are installed, their version + last-seen. Tills
 // sit behind NAT (can't be polled), so they POST /api/device/heartbeat up; this
 // surfaces them. Shape matches restaurant-epos so one ops ingestion handles both.
+// SPA-DEPLOY-ALL-001 — fixed at process start; changes only on a real restart.
+const BOOTED_AT = new Date().toISOString();
+
 app.get('/api/health', async (_req, res) => {
   let tills = [];
   try {
@@ -122,7 +125,15 @@ app.get('/api/health', async (_req, res) => {
   // `build` = the git sha Railway deployed (empty on CLI `railway up` deploys).
   // Lets us verify which code is actually serving without guessing.
   const build = (process.env.RAILWAY_GIT_COMMIT_SHA || '').slice(0, 7) || 'cli-deploy';
-  res.json({ ok: true, service: 'siamepos-spa', build, time: new Date().toISOString(), tills });
+  // SPA-DEPLOY-ALL-001 — booted_at is how scripts/deploy-all.js PROVES a cloud
+  // actually restarted on the new code. `build` is empty on CLI deploys and
+  // `time` is just now(), so neither can tell "deployed" from "never restarted".
+  res.json({
+    ok: true, service: 'siamepos-spa', build,
+    booted_at: BOOTED_AT,
+    time: new Date().toISOString(),
+    tills,
+  });
 });
 
 // Public booking widget — served from the backend so any external site can
