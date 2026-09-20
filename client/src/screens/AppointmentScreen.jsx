@@ -393,6 +393,20 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   // columns are folded away when the screen can't hold everyone; one tap
   // brings them back.
   const [showOff, setShowOff] = useState(false);
+
+  // SPA-ZOOM-GRID-001 — zoom the timetable itself: pinch with two fingers, or
+  // the −/+ buttons. Unlike browser zoom this REFLOWS (columns and hours grow,
+  // text stays crisp) and it is remembered per device.
+  const [zoom, setZoom] = useState(() => {
+    const n = Number(localStorage.getItem('spa_grid_zoom'));
+    return n >= 0.6 && n <= 2.5 ? n : 1;
+  });
+  const setZoomSafe = (v) => {
+    const n = Math.min(2.5, Math.max(0.6, Math.round(v * 20) / 20));
+    setZoom(n);
+    try { localStorage.setItem('spa_grid_zoom', String(n)); } catch { /* private mode */ }
+  };
+  const pinchRef = useRef(null);   // { startDist, startZoom, ids:Map }
   const resizeRef = useRef(null);
   const suppressClickRef = useRef(false);
   const nowRef       = useRef(null);
@@ -566,6 +580,33 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
     });
   }
 
+  // SPA-ZOOM-GRID-001 — two-finger pinch anywhere on the grid.
+  const pointers = useRef(new Map());
+  function zoomPointerDown(e) {
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.current.size === 2) {
+      const [a, b] = [...pointers.current.values()];
+      pinchRef.current = { startDist: Math.hypot(a.x - b.x, a.y - b.y) || 1, startZoom: zoom };
+      // A pinch is not a drag: cancel anything a single finger had started.
+      holdRef.current = null; apptHoldRef.current = null;
+      setBlockDrag(null); setDraggedApptId(null); setDragPreview(null);
+    }
+  }
+  function zoomPointerMove(e) {
+    if (!pointers.current.has(e.pointerId)) return;
+    pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = pinchRef.current;
+    if (!p || pointers.current.size < 2) return;
+    e.preventDefault();
+    const [a, b] = [...pointers.current.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+    setZoomSafe(p.startZoom * (dist / p.startDist));
+  }
+  function zoomPointerUp(e) {
+    pointers.current.delete(e.pointerId);
+    if (pointers.current.size < 2) pinchRef.current = null;
+  }
+
   // Responsive dimensions
   const COL_W_USE = isMobile ? COL_W_MOB : COL_W;
   const LBL_W_USE = isMobile ? LBL_W_MOB : LBL_W;
@@ -597,7 +638,8 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   // SPA-TABLET-001 — never squeeze an hour below a tappable height: fingers
   // need ~56px (a 30-min booking = 28px), a mouse 40px. If the day then
   // doesn't fit, the grid scrolls (the container is already overflowY:auto).
-  const HOUR_H  = isMobile ? 64 : Math.max(Math.floor(gridH / NUM_HOURS), isTouch ? 56 : 40);
+  const HOUR_H_BASE = isMobile ? 64 : Math.max(Math.floor(gridH / NUM_HOURS), isTouch ? 56 : 40);
+  const HOUR_H  = Math.round(HOUR_H_BASE * zoom);   // SPA-ZOOM-GRID-001
   const totalH  = HOUR_H * NUM_HOURS;
 
   function minsToPx(mins) { return ((mins - DAY_START * 60) / 60) * HOUR_H; }
@@ -661,9 +703,12 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   const foldOff = !showOff && offCount > 0 && workingCount > 0 && !fitsAll;
   columns = foldOff ? allColumns.filter((c) => !c.isOff) : allColumns;
   const colCount = Math.max(1, columns.length);
-  const COL_W_FIT = avail > 0
+  const COL_W_FIT_BASE = avail > 0
     ? Math.max(MIN_COL, Math.min(MAX_COL, Math.floor(avail / colCount)))
     : COL_W_USE;
+  // Zoomed in, columns get wider than the screen and the grid scrolls — that
+  // is the point: more room to read and to drop a booking accurately.
+  const COL_W_FIT = Math.round(COL_W_FIT_BASE * zoom);
 
   const now     = new Date();
   const nowMins = now.getHours() * 60 + now.getMinutes();
@@ -706,6 +751,10 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
     }}>
     <div
       ref={containerRef}
+      onPointerDown={zoomPointerDown}
+      onPointerMove={zoomPointerMove}
+      onPointerUp={zoomPointerUp}
+      onPointerCancel={zoomPointerUp}
       style={{
         flex: 1, minHeight: 0,
         overflowX: 'auto',
@@ -721,14 +770,26 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
     >
       {/* SPA-FIT-001 — off-duty staff are folded away when the screen is
           tight; this brings them back without leaving the day. */}
-      {(foldOff || (showOff && offCount > 0)) && (
-        <div style={{ position: 'sticky', left: 0, zIndex: 25, padding: '4px 6px', display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div style={{ position: 'sticky', left: 0, zIndex: 25, padding: '4px 6px', display: 'flex', gap: 8, alignItems: 'center' }}>
+        {(foldOff || (showOff && offCount > 0)) && (
           <button
             onClick={() => setShowOff((v) => !v)}
             style={{ fontSize: 11, padding: '3px 10px', minHeight: 26, borderRadius: 999, border: '1px solid var(--border)', background: 'white', color: 'var(--muted)', fontWeight: 700 }}
           >{foldOff ? `+ ${offCount} off today` : `Hide ${offCount} off`}</button>
+        )}
+        <span style={{ flex: 1 }} />
+        {/* SPA-ZOOM-GRID-001 — zoom the timetable (pinch works too). */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, border: '1px solid var(--border)', borderRadius: 999, background: 'white', padding: 2 }}>
+          <button onClick={() => setZoomSafe(zoom - 0.2)} disabled={zoom <= 0.6} title="Smaller"
+            style={{ minHeight: 26, minWidth: 30, padding: 0, border: 'none', background: 'transparent', fontSize: 16, fontWeight: 800, color: 'var(--navy)' }}>−</button>
+          <button onClick={() => setZoomSafe(1)} title="Reset zoom"
+            style={{ minHeight: 26, padding: '0 6px', border: 'none', background: 'transparent', fontSize: 11, fontWeight: 700, color: zoom === 1 ? 'var(--muted)' : 'var(--navy)' }}>
+            {Math.round(zoom * 100)}%
+          </button>
+          <button onClick={() => setZoomSafe(zoom + 0.2)} disabled={zoom >= 2.5} title="Bigger"
+            style={{ minHeight: 26, minWidth: 30, padding: 0, border: 'none', background: 'transparent', fontSize: 16, fontWeight: 800, color: 'var(--navy)' }}>+</button>
         </div>
-      )}
+      </div>
       <div className="spa-timeline-grid" onContextMenu={e => e.preventDefault()} style={{ minWidth: LBL_W_USE + columns.length * COL_W_FIT, flex: 'none', position: 'relative', overflowY: 'visible' }}>
 
         {/* ── Sticky header ── */}

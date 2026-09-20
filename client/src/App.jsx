@@ -191,8 +191,13 @@ function TopNav() {
     <header style={{
       background: 'var(--navy)',
       borderBottom: '1px solid rgba(201,168,76,0.18)',
+      // SPA-SAFEAREA-001 — in the Android/iOS app the page runs under the
+      // status bar (viewport-fit=cover), so the clock and battery icons sat on
+      // top of the logo and Log out. Pad by the inset; 0 in a browser.
       padding: '0 16px',
-      height: 52,
+      paddingTop: 'env(safe-area-inset-top, 0px)',
+      height: 'calc(52px + env(safe-area-inset-top, 0px))',
+      minHeight: 'calc(52px + env(safe-area-inset-top, 0px))',
       display: 'flex',
       justifyContent: 'space-between',
       alignItems: 'center',
