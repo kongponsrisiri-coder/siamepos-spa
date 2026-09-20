@@ -369,7 +369,10 @@ function CreateVoucherModal({ onClose, onSaved }) {
 
             <div>
               <label>Expiry date (optional)</label>
-              <input type="date" value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
+              {/* SPA-VOUCHER-YEAR-001 — a bare date field accepts years up to 275760.
+                  One extra digit broke a live checkout, so bound it. */}
+              <input type="date" min="2000-01-01" max="2100-12-31"
+                value={expiresAt} onChange={e => setExpiresAt(e.target.value)} />
             </div>
 
             <div>
@@ -555,7 +558,8 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
               <div className="col" style={{ gap: 6 }}>
                 <label style={{ fontSize: 12 }}>Expires</label>
                 <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                  <input type="date" value={expiryDraft} onChange={(e) => setExpiryDraft(e.target.value)} style={{ width: 170 }} />
+                  <input type="date" min="2000-01-01" max="2100-12-31"
+                    value={expiryDraft} onChange={(e) => setExpiryDraft(e.target.value)} style={{ width: 170 }} />
                   <button className="primary" disabled={savingExpiry || !expiryDraft} onClick={saveExpiry}>
                     {savingExpiry ? 'Saving…' : 'Save'}
                   </button>

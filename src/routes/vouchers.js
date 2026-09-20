@@ -13,18 +13,46 @@ const walletPush = require('../services/walletPush'); // SPA-LOYALTY-001 L2 — 
 // this, `new Date('2026-05-21') < new Date()` flips the voucher to expired
 // the moment we cross 00:00 UTC = 01:00 BST — i.e. an hour into the day
 // the voucher was supposed to still be valid for.
+// SPA-VOUCHER-YEAR-001 — this must NEVER throw. A browser date field accepts
+// years up to 275760, so one extra digit stores e.g. 202666-09-30; PG keeps it
+// happily, and `toISOString()` then returns the EXPANDED form "+202666-09-30",
+// whose first ten characters are "+202666-09" — the old slice(0,10) parsed a
+// missing day, built an Invalid Date, and the next toISOString() raised
+// RangeError. That 500'd /vouchers/lookup, so a customer standing at the till
+// with a perfectly good voucher could not pay (Highbury, 20 Sep). Anything we
+// cannot read as a real date is treated as NOT expired: refusing a valid
+// voucher over a typo in its expiry is the worse failure.
 function isExpired(expires_at) {
   if (!expires_at) return false;
-  // expires_at from PG is a Date at 00:00 in some TZ — normalise to a
-  // YYYY-MM-DD string so buildAt can anchor it to London.
-  const dateStr = (expires_at instanceof Date)
-    ? expires_at.toISOString().slice(0, 10)
-    : String(expires_at).slice(0, 10);
+  let y, mo, d;
+  if (expires_at instanceof Date) {
+    if (Number.isNaN(expires_at.getTime())) return false;
+    y  = expires_at.getUTCFullYear();
+    mo = expires_at.getUTCMonth() + 1;
+    d  = expires_at.getUTCDate();
+  } else {
+    const m = /^\+?(\d{1,6})-(\d{2})-(\d{2})/.exec(String(expires_at));
+    if (!m) return false;
+    y = Number(m[1]); mo = Number(m[2]); d = Number(m[3]);
+  }
+  // A year outside the ordinary range is a typo, not a date anyone meant.
+  if (!(y >= 1900 && y <= 9999)) return false;
   // End of day London = next day's 00:00 in London.
-  const [y, mo, d] = dateStr.split('-').map(Number);
   const next = new Date(Date.UTC(y, mo - 1, d + 1));
+  if (Number.isNaN(next.getTime())) return false;
   const nextStr = next.toISOString().slice(0, 10);
   return Date.now() >= buildAt(nextStr, '00:00').getTime();
+}
+
+// SPA-VOUCHER-YEAR-001 — stop the bad value getting in at all. Returns the
+// date unchanged, or null when it is unusable so COALESCE keeps what is there.
+function cleanExpiry(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v).trim());
+  if (!m) return null;
+  const y = Number(m[1]);
+  if (y < 1900 || y > 2200) return null;
+  return m[0];
 }
 
 const router = express.Router();
@@ -144,7 +172,7 @@ const VOUCHER_PAYMENT_METHODS = ['cash', 'card', 'split', 'comp'];
 
 router.post('/', async (req, res) => {
   const {
-    value, purchased_by, purchased_for, client_id, expires_at, notes, sold_by,
+    value, purchased_by, purchased_for, client_id, expires_at, notes, sold_by,  // expires_at cleaned below (SPA-VOUCHER-YEAR-001)
     voucher_type, total_sessions, treatment_id, recipient_email, payment_method,
   } = req.body || {};
   const isSessions = voucher_type === 'sessions';
@@ -159,6 +187,10 @@ router.post('/', async (req, res) => {
   }
   if (!payment_method || !VOUCHER_PAYMENT_METHODS.includes(payment_method)) {
     return res.status(400).json({ error: 'payment_method required (cash | card | split)' });
+  }
+  // SPA-VOUCHER-YEAR-001 — say so rather than quietly storing no expiry.
+  if (expires_at && !cleanExpiry(expires_at)) {
+    return res.status(400).json({ error: 'That expiry date does not look right — check the year.' });
   }
   if (isSessions) {
     if (!total_sessions || Number(total_sessions) <= 0) {
@@ -191,7 +223,7 @@ router.post('/', async (req, res) => {
        VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$12,$13) RETURNING *`,
       [
         code, Number(value), purchased_by || null, purchased_for || null,
-        client_id || null, expires_at || null, notes || null,
+        client_id || null, cleanExpiry(expires_at), notes || null,
         sold_by || req.staff?.id || null,
         isSessions ? 'sessions' : 'monetary',
         isSessions ? Number(total_sessions) : null,
@@ -240,7 +272,12 @@ router.put('/:id', async (req, res) => {
     // expiry set to the day of sale, so it read Expired with nothing used).
     // Without this the new date saves but the badge stays red.
     let nextStatus = (status && allowed.includes(status)) ? status : null;
-    if (!nextStatus && expires_at && kind.rows[0].status === 'expired' && !isExpired(expires_at)) {
+    // SPA-VOUCHER-YEAR-001 — a mistyped year never reaches the column.
+    const newExpiry = cleanExpiry(expires_at);
+    if (expires_at && !newExpiry) {
+      return res.status(400).json({ error: 'That expiry date does not look right — check the year.' });
+    }
+    if (!nextStatus && newExpiry && kind.rows[0].status === 'expired' && !isExpired(newExpiry)) {
       nextStatus = 'active';
     }
     const { rows } = await pool.query(
@@ -252,7 +289,7 @@ router.put('/:id', async (req, res) => {
          notes         = COALESCE($6, notes),
          status        = COALESCE($7, status)
        WHERE id = $1 RETURNING *`,
-      [id, purchased_by, purchased_for, client_id, expires_at, notes, nextStatus],
+      [id, purchased_by, purchased_for, client_id, newExpiry, notes, nextStatus],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     res.json({ voucher: rows[0] });
