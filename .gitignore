@@ -18,4 +18,5 @@ client/android/app/build/
 client/android/.gradle/
 client/android/local.properties
 client/android/keystore.properties
+client/android/app/google-services.json
 client/android/app/src/main/assets/public/
