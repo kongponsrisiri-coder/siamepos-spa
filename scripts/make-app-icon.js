@@ -13,6 +13,7 @@
  *
  *   node scripts/make-app-icon.js            # write the icons
  *   node scripts/make-app-icon.js --preview  # write one big PNG to look at first
+ *   node scripts/make-app-icon.js --desktop  # the Electron till's icon instead
  *
  * Android adaptive icons: the launcher may crop the outer edge to any shape, so
  * nothing that matters may sit outside the central "safe zone". ic_launcher.xml
@@ -75,6 +76,21 @@ function foregroundSvg(px, withBackground) {
 </svg>`;
 }
 
+// The DESKTOP icon (macOS dock / Windows taskbar). Same artwork, but a
+// rounded square with its own margin rather than a full-bleed layer: desktop
+// icons are not masked by the OS the way Android adaptive icons are, so the
+// shape has to be in the file. electron-builder turns this one PNG into .icns
+// and .ico at build time.
+function desktopSvg(px) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 100 100">
+  <rect x="0" y="0" width="100" height="100" rx="22.4" ry="22.4" fill="${NAVY}"/>
+  ${mark(50, 42, 0.60)}
+  <text x="50" y="86" text-anchor="middle"
+        font-family="'Cormorant Garamond', Georgia, 'Times New Roman', serif"
+        font-size="15" font-weight="700" letter-spacing="2.2" fill="${GOLD}">SPA</text>
+</svg>`;
+}
+
 function backgroundSvg(px) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${px}" height="${px}" viewBox="0 0 100 100">
   <rect width="100" height="100" fill="${NAVY}"/>
@@ -113,6 +129,16 @@ function render(svg, px, outFile, transparent) {
 if (!fs.existsSync(CHROME)) {
   console.error('Google Chrome is needed to render the icons and was not found at\n  ' + CHROME);
   process.exit(1);
+}
+
+// electron/build/icon.png — the desktop till's icon.
+if (process.argv.includes('--desktop')) {
+  const dir = path.resolve(__dirname, '../electron/build');
+  render(desktopSvg(1024), 1024, path.join(dir, 'icon.png'), true);
+  render(desktopSvg(512), 512, path.join(dir, 'icon-512.png'), true);
+  console.log('Desktop icon written to electron/build/icon.png (1024) + icon-512.png');
+  console.log('Rebuild the desktop app for it to take effect.');
+  process.exit(0);
 }
 
 if (process.argv.includes('--preview')) {

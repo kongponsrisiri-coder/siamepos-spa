@@ -17,14 +17,31 @@ export const KNOWN_SPAS = [
 
 const BUILT_IN = import.meta.env.VITE_API_BASE || '';
 
+// SPA-DESKTOP-SETUP-001 — the Electron desktop till is a THIRD case and it was
+// missed. It serves the app from its own bundled server on localhost and works
+// offline, so its address is simply "same origin": there is no address to bake
+// in and nothing for anyone to choose. But it is built without VITE_API_BASE,
+// exactly like the Android app, so needsSetup() said true and v0.2.51 opened on
+// "Which spa is this?" — a question the desktop till must never ask, and whose
+// every answer is wrong (picking a cloud would point an OFFLINE till at someone
+// else's online database).
+function isDesktop() {
+  try { return !!(window.siamposSpa && window.siamposSpa.isElectron); } catch { return false; }
+}
+
 // True when this build has no address of its own — i.e. the Android app.
 export function needsSetup() {
+  if (isDesktop()) return false;
   return !BUILT_IN && !stored();
 }
 function stored() {
   try { return localStorage.getItem(KEY) || ''; } catch { return ''; }
 }
 export function getApiBase() {
+  // Ignore any stored address on the desktop: someone who tapped a spa on the
+  // broken 0.2.51 setup screen has a cloud URL saved, which would silently
+  // point their offline till at another shop's live data. Same origin, always.
+  if (isDesktop()) return '';
   return stored() || BUILT_IN || '';
 }
 export function setApiBase(url) {
@@ -35,5 +52,6 @@ export function setApiBase(url) {
 export function clearApiBase() {
   try { localStorage.removeItem(KEY); } catch { /* ignore */ }
 }
-// The address can only be CHANGED on a build that has no baked-in one.
-export function canChangeSpa() { return !BUILT_IN; }
+// The address can only be CHANGED on a build that has no baked-in one — and
+// never on the desktop till, which is always its own server.
+export function canChangeSpa() { return !BUILT_IN && !isDesktop(); }
