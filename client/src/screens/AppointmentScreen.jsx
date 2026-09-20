@@ -420,10 +420,22 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   const [dragSrc,  setDragSrc]  = useState(null);
   const [dragOver, setDragOver] = useState(null);
 
+  // SPA-DRAG-GRAB-001 — how far DOWN the card the pointer grabbed it, in
+  // minutes. Korakot: "when you move your car you aren't worried about where
+  // the steering wheel is, you worry about whether the car fits the space."
+  // The drop used to be computed straight from the pointer, so grabbing a
+  // 3.5-hour booking near its middle put the line two hours below the card you
+  // could see, and the card and the label disagreed about where it would land.
+  // Subtracting this offset means the line marks the TOP of the card — the
+  // thing you are actually aiming.
+  const grabOffsetMins = useRef(0);
+
   // Snap a pointer Y (relative to the column top) to the nearest 15 minutes.
-  function ySnap(clientY, el) {
+  // `offsetMins` is the grab offset: pass it to snap the card's START, not the
+  // pointer.
+  function ySnap(clientY, el, offsetMins = 0) {
     const rect = el.getBoundingClientRect();
-    const rawMins = ((clientY - rect.top) / HOUR_H) * 60 + DAY_START * 60;
+    const rawMins = ((clientY - rect.top) / HOUR_H) * 60 + DAY_START * 60 - offsetMins;
     return Math.max(DAY_START * 60, Math.min(DAY_END * 60 - 15, Math.round(rawMins / 15) * 15));
   }
   const minsLabel = (m) => `${pad(Math.floor(m / 60))}:${pad(m % 60)}`;
@@ -944,7 +956,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   e.dataTransfer.dropEffect = 'move';
                   setDragOverColId(col.id);
                   // SPA-DND-PRECISION-001 — live preview of the snapped target.
-                  const mins = ySnap(e.clientY, e.currentTarget);
+                  const mins = ySnap(e.clientY, e.currentTarget, grabOffsetMins.current);
                   setDragPreview(p => (p && p.colId === col.id && p.mins === mins) ? p : { colId: col.id, colName: col.name, mins });
                 }}
                 onDragLeave={() => { setDragOverColId(prev => prev === col.id ? null : prev); setDragPreview(p => p && p.colId === col.id ? null : p); }}
@@ -953,7 +965,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   const sourceId = Number(e.dataTransfer.getData('text/plain'));
                   setDragOverColId(null); setDraggedApptId(null); setDragOverApptId(null); setDragPreview(null);
                   if (!sourceId || !onMove) return;
-                  const mins = ySnap(e.clientY, e.currentTarget);
+                  const mins = ySnap(e.clientY, e.currentTarget, grabOffsetMins.current);
                   const src = appointments.find(a => a.id === sourceId);
                   // SPA-DND-PRECISION-001 — no accidental shifts: confirm first.
                   setPendingMove({ apptId: sourceId, appt: src, colId: col.id, colName: col.name, mins });
@@ -973,9 +985,17 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   const durM = Math.max(15, toLocalMins(draggedAppt.ends_at) - toLocalMins(draggedAppt.starts_at));
                   return (
                     <div style={{ position: 'absolute', left: 3, right: 3, top: minsToPx(dragPreview.mins),
+                      height: Math.max(minsToPx(dragPreview.mins + durM) - minsToPx(dragPreview.mins), 4),
                       zIndex: 6, pointerEvents: 'none' }}>
+                      {/* Solid line = where the booking STARTS: the top edge of
+                          the card, which is what the pointer is really aiming.
+                          Faint line at the far end = where it finishes, so you
+                          can see whether it fits the gap without a filled box
+                          that reads as another booking. */}
                       <div style={{ height: 3, borderRadius: 2, background: 'var(--gold, #C9A84C)',
                         boxShadow: '0 0 0 1px rgba(255,255,255,0.7)' }} />
+                      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 2, borderRadius: 2,
+                        background: 'var(--gold, #C9A84C)', opacity: 0.45 }} />
                       <div style={{ position: 'absolute', top: -11, left: 0, background: 'var(--navy, #0D1B3E)', color: 'white', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>
                         {minsLabel(dragPreview.mins)}–{minsLabel(dragPreview.mins + durM)} · {col.name}
                       </div>
@@ -1059,6 +1079,9 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                         if (isMobile || isTouch || !movable) return;
                         e.dataTransfer.effectAllowed = 'move';
                         e.dataTransfer.setData('text/plain', String(a.id));
+                        // SPA-DRAG-GRAB-001 — where in the card the grab was.
+                        const cr = e.currentTarget.getBoundingClientRect();
+                        grabOffsetMins.current = ((e.clientY - cr.top) / HOUR_H) * 60;
                         setDraggedApptId(a.id);
                         setNoteHover(null);
                       }}
@@ -1076,7 +1099,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                         if (sourceId && sourceId !== a.id) onSwap && onSwap(sourceId, a.id);
                         setDraggedApptId(null); setDragOverApptId(null);
                       }}
-                      onDragEnd={() => { setDraggedApptId(null); setDragOverApptId(null); }}
+                      onDragEnd={() => { setDraggedApptId(null); setDragOverApptId(null); grabOffsetMins.current = 0; }}
                       onPointerDown={movable ? e => apptHoldStart(e, a) : undefined}
                       onPointerMove={apptHoldMove}
                       onPointerUp={apptHoldEnd}
