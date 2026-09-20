@@ -1,6 +1,7 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../api.js';
 import { BRAND_PRESETS, DEFAULT_PRIMARY, DEFAULT_ACCENT, applyBrandTheme } from '../../theme.js'; // SPA-BRAND-001
+import LineConnectCard from './LineConnectCard.jsx'; // SPA-LINE-PAIR-001
 
 const KEYS = [
   { k: 'spa_name',         t: 'Spa name'   },
@@ -416,125 +417,6 @@ function Row({ row, value, busy, onSave }) {
       {dirty
         ? <div style={{ fontSize: 11, color: '#b45309', marginTop: 3 }}>Unsaved — click away or press Enter to save</div>
         : (justSaved ? <div style={{ fontSize: 11, color: '#15803d', marginTop: 3 }}>✓ Saved</div> : null)}
-    </div>
-  );
-}
-
-// ── SPA-LINE-PAIR-001 — Connect LINE ────────────────────────────────────────
-// A LINE user id is not something an owner can look up, so nobody is asked to.
-// The spa shows a short code, the owner messages it to our LINE account, and
-// this polls until it is claimed — then booking alerts go to that chat.
-function LineConnectCard({ value, onChanged }) {
-  const [code, setCode]   = useState(null);
-  const [state, setState] = useState('idle');  // idle | waiting | paired | error
-  const [error, setError] = useState('');
-  const timer = useRef(null);
-  const [manual, setManual]   = useState(false);
-  const [idDraft, setIdDraft] = useState('');
-
-  useEffect(() => () => clearInterval(timer.current), []);
-
-  async function start() {
-    setError(''); setState('waiting'); setCode(null);
-    try {
-      const r = await api.post('/settings/line-pair/start', {});
-      setCode(r.code);
-      clearInterval(timer.current);
-      const until = Date.now() + (r.expires_in_minutes || 15) * 60000;
-      timer.current = setInterval(async () => {
-        if (Date.now() > until) {
-          clearInterval(timer.current); setState('idle');
-          setError('That code expired. Start again when you are ready.');
-          return;
-        }
-        try {
-          const c = await api.get(`/settings/line-pair/check/${r.code}`);
-          if (c.status === 'paired') { clearInterval(timer.current); setState('paired'); onChanged && onChanged(); }
-        } catch { /* keep waiting */ }
-      }, 3000);
-    } catch (e) {
-      setState('error'); setError(e.message || 'Could not start — try again in a moment.');
-    }
-  }
-
-  // SPA-LINE-PAIR-001 — the owner normally never sees an ID, but we sometimes
-  // already have one (read from the console or an earlier chat), so allow it.
-  async function saveId() {
-    await api.put('/settings', { key: 'line_notify_user_id', value: idDraft.trim() });
-    setManual(false); setIdDraft(''); setState('paired');
-    onChanged && onChanged();
-  }
-
-  async function disconnect() {
-    if (!window.confirm('Send booking alerts back to SiamEPOS instead of this LINE account?')) return;
-    await api.put('/settings', { key: 'line_notify_user_id', value: '' });
-    setState('idle'); setCode(null);
-    onChanged && onChanged();
-  }
-
-  const connected = !!(value && String(value).trim());
-
-  return (
-    <div className="card col" style={{ gap: 10 }}>
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <div>
-          <h3 style={{ margin: 0 }}>Booking alerts on LINE</h3>
-          <div className="muted" style={{ fontSize: 13 }}>
-            {connected
-              ? 'New bookings are sent to your LINE chat.'
-              : 'Connect your LINE and every new booking arrives as a message on your phone.'}
-          </div>
-        </div>
-        <span style={{ padding: '4px 12px', borderRadius: 999, fontSize: 12, fontWeight: 800,
-          background: connected ? '#dcfce7' : '#f1f5f9', color: connected ? '#166534' : '#64748b' }}>
-          {connected ? 'Connected' : 'Not connected'}
-        </span>
-      </div>
-
-      {state === 'paired' && (
-        <div style={{ background: '#f0fdf4', border: '1px solid #86efac', color: '#166534', borderRadius: 8, padding: '10px 14px', fontSize: 14, fontWeight: 700 }}>
-          ✅ Connected. Your next booking will arrive on LINE.
-        </div>
-      )}
-
-      {state === 'waiting' && code && (
-        <div style={{ background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ fontSize: 13, color: '#92400e', marginBottom: 8 }}>
-            On your phone, open LINE, add <strong>SiamEPOS</strong> as a friend, and send it this code:
-          </div>
-          <div style={{ fontSize: 30, fontWeight: 900, letterSpacing: '0.12em', color: '#0D1B3E', textAlign: 'center', padding: '8px 0' }}>
-            {code}
-          </div>
-          <div style={{ fontSize: 12, color: '#92400e', textAlign: 'center' }}>
-            Waiting for your message. This screen updates by itself; the code lasts 15 minutes.
-          </div>
-        </div>
-      )}
-
-      {manual && (
-        <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
-          <div style={{ flex: 1, minWidth: 240 }}>
-            <label style={{ fontSize: 12 }}>LINE user ID</label>
-            <input value={idDraft} onChange={(e) => setIdDraft(e.target.value)} placeholder="U…" autoCapitalize="none" spellCheck="false" />
-            <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
-              Starts with U and is 33 characters. Only use this if SiamEPOS gave you the ID — otherwise press Connect LINE.
-            </div>
-          </div>
-          <button className="primary" disabled={!/^U[0-9a-f]{32}$/i.test(idDraft.trim())} onClick={saveId}>Save</button>
-          <button onClick={() => { setManual(false); setIdDraft(''); }}>Cancel</button>
-        </div>
-      )}
-
-      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-        {!connected && state !== 'waiting' && <button className="primary" onClick={start}>Connect LINE</button>}
-        {connected && state !== 'waiting' && <button onClick={start}>Connect a different LINE</button>}
-        {connected && <button className="danger" onClick={disconnect}>Disconnect</button>}
-        {state === 'waiting' && <button onClick={() => { clearInterval(timer.current); setState('idle'); setCode(null); }}>Cancel</button>}
-        {!manual && state !== 'waiting' && (
-          <button onClick={() => { setManual(true); setIdDraft(''); }} style={{ fontSize: 12 }}>Enter an ID instead</button>
-        )}
-        {error && <span style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</span>}
-      </div>
     </div>
   );
 }

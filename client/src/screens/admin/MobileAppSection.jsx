@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { api, apiBase } from '../../api.js';
 import { APP_BUILD, isNativeApp, isNewer } from '../../appBuild.js';
+import LineConnectCard from './LineConnectCard.jsx'; // SPA-LINE-WHERE-001
 
 export default function MobileAppSection() {
   const [info, setInfo]   = useState(null);
@@ -77,6 +78,10 @@ export default function MobileAppSection() {
 
       {/* SPA-PUSH-001 — booking notifications */}
       <PushPanel inApp={inApp} />
+
+      {/* SPA-LINE-WHERE-001 — owners come here looking for the LINE switch, so
+          the Connect card sits right under it as well as under Settings. */}
+      <LineConnectCard selfLoad />
 
       {/* The link itself */}
       <div className="card" style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
