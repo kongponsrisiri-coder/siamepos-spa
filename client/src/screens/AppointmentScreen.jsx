@@ -370,6 +370,8 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   // SPA-SWAP — track which appointment block is being dragged so the
   // drop target can highlight + we can fire the swap on drop.
   const [draggedApptId, setDraggedApptId] = useState(null);
+  // SPA-NOTE-PEEK-001 — the full remark, shown on mouse-over (desktop only).
+  const [noteHover, setNoteHover] = useState(null);
   const [dragOverApptId, setDragOverApptId] = useState(null);
   // SPA-MOVE-DND — track the column being hovered while dragging onto
   // an empty area so we can highlight the destination column.
@@ -1020,6 +1022,10 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   // swapping a lunch break onto another therapist by
                   // accident is not a thing anyone wants.
                   const isBlockAppt = a.source === 'block';
+                  // SPA-NOTE-PEEK-001 — a booking remark. A block's note is
+                  // already its title line, so only real bookings get the peek.
+                  const noteText = isBlockAppt ? '' : String(a.notes || '').trim();
+                  const hasNote  = Boolean(noteText);
                   // SPA-INDICATORS-001 — ⭐ extended time: the booking runs
                   // longer than its treatment's standard duration (client ask;
                   // ❤️ = requested therapist, ⭐ = extended).
@@ -1043,6 +1049,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                         e.dataTransfer.effectAllowed = 'move';
                         e.dataTransfer.setData('text/plain', String(a.id));
                         setDraggedApptId(a.id);
+                        setNoteHover(null);
                       }}
                       onDragOver={e => {
                         if (!swappable || !draggedApptId || draggedApptId === a.id) return;
@@ -1063,6 +1070,15 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                       onPointerMove={apptHoldMove}
                       onPointerUp={apptHoldEnd}
                       onPointerCancel={apptHoldEnd}
+                      // SPA-NOTE-PEEK-001 — hovering a booking with a remark
+                      // shows the whole thing, so nobody opens the card just to
+                      // read one line. Touch screens have no hover: there the
+                      // foot strip and the detail sheet carry it.
+                      onMouseEnter={!isTouch && hasNote ? e => {
+                        const r = e.currentTarget.getBoundingClientRect();
+                        setNoteHover({ text: noteText, name: a.client_name, top: r.top, bottom: r.bottom, left: r.left });
+                      } : undefined}
+                      onMouseLeave={!isTouch && hasNote ? () => setNoteHover(null) : undefined}
                       onClick={e => { e.stopPropagation(); if (suppressClickRef.current) return; onSelect(isSel ? null : a); }}
                       // SPA-BLOCK-RESIZE-001 — children (the two grab bars) set
                       // this so the block's own drag never starts on a resize.
@@ -1191,8 +1207,29 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                           {pmLabel(a.payment_method)}
                         </div>
                       )}
+                      {/* SPA-NOTE-PEEK-001 — remarks used to be invisible until
+                          someone opened the booking, so staff were clicking
+                          every card to find out which ones had one. The note now
+                          rides along the foot of the card: the 📝 pin always,
+                          and as much of the text as the width allows. */}
+                      {hasNote && (
+                        <div style={{
+                          position: 'absolute', bottom: 2, left: 3,
+                          right: (hasPm && height > 46) ? 48 : 3,
+                          display: 'flex', alignItems: 'center', gap: 3,
+                          fontSize: 9, fontWeight: 700, lineHeight: 1.25,
+                          color: isSel ? 'rgba(255,255,255,0.95)' : '#854d0e',
+                          background: isSel ? 'rgba(255,255,255,0.22)' : 'rgba(250,204,21,0.45)',
+                          borderRadius: 3, padding: '1px 3px',
+                          whiteSpace: 'nowrap', overflow: 'hidden',
+                          pointerEvents: 'none', userSelect: 'none',
+                        }}>
+                          <span style={{ flexShrink: 0 }}>📝</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{noteText}</span>
+                        </div>
+                      )}
                       {/* Desktop edit hint */}
-                      {!isMobile && isSel && height > 46 && (
+                      {!isMobile && isSel && !hasNote && height > 46 && (
                         <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.65)', marginTop: 2 }}>✏ dbl-click to edit</div>
                       )}
                     </div>
@@ -1267,6 +1304,9 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
           <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ fontSize: 10 }}>🤰</span> Pregnancy — specialist
           </span>
+          <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 10 }}>📝</span> Has a note — hover to read it
+          </span>
           {/* SPA-DEPOSIT-BADGE legend */}
           <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{
@@ -1277,6 +1317,32 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
           </span>
         </div>
       )}
+      {/* SPA-NOTE-PEEK-001 — the full remark, following the hovered card.
+          Fixed so the scroll area never clips it, pointerEvents:'none' so it
+          can never sit between the mouse and the booking underneath. */}
+      {noteHover && (() => {
+        const flip = noteHover.bottom > window.innerHeight - 150;
+        return (
+          <div style={{
+            position: 'fixed', zIndex: 9500, pointerEvents: 'none',
+            left: Math.max(8, Math.min(noteHover.left, window.innerWidth - 300)),
+            top: flip ? noteHover.top - 6 : noteHover.bottom + 6,
+            transform: flip ? 'translateY(-100%)' : 'none',
+            width: 'max-content', maxWidth: 280,
+            background: '#0D1B3E', color: 'white',
+            borderRadius: 9, padding: '9px 12px',
+            fontSize: 12.5, lineHeight: 1.45,
+            boxShadow: '0 10px 28px rgba(13,27,62,0.34)',
+            whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          }}>
+            <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.7, textTransform: 'uppercase', opacity: 0.55, marginBottom: 3 }}>
+              Note{noteHover.name ? ` · ${noteHover.name}` : ''}
+            </div>
+            {noteHover.text}
+          </div>
+        );
+      })()}
+
       {/* SPA-DND-PRECISION-001 — confirm the move before it happens */}
       {pendingMove && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(13,27,62,0.5)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
