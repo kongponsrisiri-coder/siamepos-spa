@@ -231,9 +231,18 @@ router.put('/:id', async (req, res) => {
   const { purchased_by, purchased_for, client_id, expires_at, notes, status } = req.body || {};
   try {
     // SPA-SESSIONS-LOCK-001 — same lock when the row is a session package.
-    const kind = await pool.query('SELECT voucher_type FROM vouchers WHERE id = $1', [id]);
-    if (kind.rows[0]?.voucher_type === 'sessions' && await denyAction(req, res, 'manage_sessions')) return;
+    const kind = await pool.query('SELECT voucher_type, status, expires_at FROM vouchers WHERE id = $1', [id]);
+    if (!kind.rows[0]) return res.status(404).json({ error: 'not found' });
+    if (kind.rows[0].voucher_type === 'sessions' && await denyAction(req, res, 'manage_sessions')) return;
     const allowed = ['active', 'cancelled'];
+    // SPA-VOUCHER-EXPIRY-001 — a voucher that was auto-expired comes BACK when
+    // the shop corrects the date (Highbury sold a 3-session package with the
+    // expiry set to the day of sale, so it read Expired with nothing used).
+    // Without this the new date saves but the badge stays red.
+    let nextStatus = (status && allowed.includes(status)) ? status : null;
+    if (!nextStatus && expires_at && kind.rows[0].status === 'expired' && !isExpired(expires_at)) {
+      nextStatus = 'active';
+    }
     const { rows } = await pool.query(
       `UPDATE vouchers SET
          purchased_by  = COALESCE($2, purchased_by),
@@ -241,10 +250,9 @@ router.put('/:id', async (req, res) => {
          client_id     = COALESCE($4, client_id),
          expires_at    = COALESCE($5, expires_at),
          notes         = COALESCE($6, notes),
-         status        = CASE WHEN $7 = ANY($8::text[]) THEN $7 ELSE status END
+         status        = COALESCE($7, status)
        WHERE id = $1 RETURNING *`,
-      [id, purchased_by, purchased_for, client_id, expires_at, notes,
-       status || null, allowed],
+      [id, purchased_by, purchased_for, client_id, expires_at, notes, nextStatus],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     res.json({ voucher: rows[0] });

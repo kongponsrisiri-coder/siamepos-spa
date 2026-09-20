@@ -438,6 +438,27 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
   const staff = getStaff();
   const isAdmin = ['admin', 'manager'].includes(staff?.role);
 
+  // SPA-VOUCHER-EXPIRY-001 — correcting a wrong expiry date.
+  // A session package is admin-only unless the owner granted the action;
+  // a money voucher follows the page's own view/edit permission.
+  const isSessions = v.voucher_type === 'sessions';
+  const canEditThis = isSessions ? canDo('manage_sessions') : isAdmin;
+  const [editExpiry, setEditExpiry]     = useState(false);
+  const [expiryDraft, setExpiryDraft]   = useState('');
+  const [savingExpiry, setSavingExpiry] = useState(false);
+  const [expiryErr, setExpiryErr]       = useState('');
+
+  async function saveExpiry() {
+    setSavingExpiry(true); setExpiryErr('');
+    try {
+      await api.put(`/vouchers/${v.id}`, { expires_at: expiryDraft });
+      setEditExpiry(false);
+      onUpdated && onUpdated();
+    } catch (e) {
+      setExpiryErr(e.data?.error || e.message || 'Could not save the new date');
+    } finally { setSavingExpiry(false); }
+  }
+
   // Client search for linking
   const [clientQuery, setClientQuery] = useState('');
   const [clientResults, setClientResults] = useState([]);
@@ -525,7 +546,46 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
             )}
             {v.sold_by_name && <div style={{ fontSize: 13 }}><span className="muted">Sold by </span>{v.sold_by_name}</div>}
             <div style={{ fontSize: 13 }}><span className="muted">Sold </span>{fmtDate(v.purchased_at)}</div>
-            {v.expires_at && <div style={{ fontSize: 13, color: new Date(v.expires_at) < new Date() ? 'var(--danger)' : 'inherit' }}><span className="muted">Expires </span>{fmtDate(v.expires_at)}</div>}
+
+            {/* SPA-VOUCHER-EXPIRY-001 — the expiry is editable: a package sold
+                with the wrong date (Highbury: sold and expiring the same day)
+                needed a developer before this. Correcting a past date to a
+                future one also brings the voucher back to Active. */}
+            {editExpiry ? (
+              <div className="col" style={{ gap: 6 }}>
+                <label style={{ fontSize: 12 }}>Expires</label>
+                <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <input type="date" value={expiryDraft} onChange={(e) => setExpiryDraft(e.target.value)} style={{ width: 170 }} />
+                  <button className="primary" disabled={savingExpiry || !expiryDraft} onClick={saveExpiry}>
+                    {savingExpiry ? 'Saving…' : 'Save'}
+                  </button>
+                  <button disabled={savingExpiry} onClick={() => { setEditExpiry(false); setExpiryErr(''); }}>Cancel</button>
+                </div>
+                <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                  {[[6, '+6 months'], [12, '+1 year'], [24, '+2 years']].map(([m, label]) => (
+                    <button key={m} onClick={() => {
+                      const base = v.purchased_at ? new Date(v.purchased_at) : new Date();
+                      const d = new Date(base); d.setMonth(d.getMonth() + m);
+                      setExpiryDraft(d.toISOString().slice(0, 10));
+                    }} style={{ fontSize: 12, padding: '4px 10px', minHeight: 30 }}>{label} from sale</button>
+                  ))}
+                </div>
+                {expiryErr && <div style={{ color: 'var(--danger)', fontSize: 12 }}>{expiryErr}</div>}
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span>
+                  <span className="muted">Expires </span>
+                  <span style={{ color: v.expires_at && new Date(v.expires_at) < new Date() ? 'var(--danger)' : 'inherit' }}>
+                    {v.expires_at ? fmtDate(v.expires_at) : 'no expiry'}
+                  </span>
+                </span>
+                {canEditThis && (
+                  <button onClick={() => { setExpiryDraft(v.expires_at ? String(v.expires_at).slice(0, 10) : ''); setEditExpiry(true); }}
+                    style={{ fontSize: 12, padding: '2px 10px', minHeight: 26 }}>Change date</button>
+                )}
+              </div>
+            )}
             {v.notes && <div style={{ fontSize: 13 }}><span className="muted">Notes </span>{v.notes}</div>}
           </div>
 
