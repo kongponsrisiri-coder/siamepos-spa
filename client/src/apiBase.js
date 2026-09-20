@@ -7,13 +7,16 @@
 // is stored on the device and can be changed later from the login screen.
 const KEY = 'spa_api_base';
 
-// Shops the app offers on first run. "Other" lets a new client type their own
-// address before I've shipped an update.
-export const KNOWN_SPAS = [
-  { key: 'highbury', name: 'Highbury Thai Massage', url: 'https://highbury-api-production.up.railway.app' },
-  { key: 'jinta',    name: 'Jinta Thai Massage',    url: 'https://jinta-api-production.up.railway.app' },
-  { key: 'demo',     name: 'SiamEPOS Spa (demo)',   url: 'https://spa-api.siamepos.co.uk' },
-];
+// SPA-DEVICE-PAIR-001 — there is deliberately no list of spas here any more.
+// One APK serves every shop and it is published on a public download link, so
+// a list of clients by name was both a directory of who our clients are and a
+// one-tap route to a real shop's till for anyone who downloaded the app. A
+// tablet is now invited with a setup code generated inside the spa instead.
+// Kept as an empty export so nothing that still imports it breaks.
+export const KNOWN_SPAS = [];
+
+// Where a tablet redeems its setup code. Same broker as the LINE pairing.
+export const PAIR_BROKER = 'https://spa-api.siamepos.co.uk';
 
 const BUILT_IN = import.meta.env.VITE_API_BASE || '';
 

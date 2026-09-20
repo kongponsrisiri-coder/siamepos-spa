@@ -83,6 +83,9 @@ export default function MobileAppSection() {
           the Connect card sits right under it as well as under Settings. */}
       <LineConnectCard selfLoad />
 
+      {/* SPA-DEVICE-PAIR-001 — inviting a tablet, right next to the download. */}
+      <PairTabletCard />
+
       {/* The link itself */}
       <div className="card" style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         {qr && (
@@ -186,6 +189,77 @@ function Channel({ on, title, desc }) {
         <div className="muted" style={{ fontSize: 12 }}>{desc}</div>
       </div>
       <span style={{ fontSize: 11, fontWeight: 800, color: on ? '#166534' : '#94a3b8' }}>{on ? 'On' : 'Off'}</span>
+    </div>
+  );
+}
+
+// ── SPA-DEVICE-PAIR-001 — invite a tablet to THIS spa ───────────────────────
+// The app no longer lists our clients on its first screen: anyone who
+// downloaded it could tap a real shop and reach its till. A tablet now has to
+// be invited from inside the spa, by someone signed in as an admin.
+function PairTabletCard() {
+  const [code, setCode] = useState(null);   // { code, expires_in_minutes }
+  const [busy, setBusy] = useState(false);
+  const [err, setErr]   = useState('');
+  const [left, setLeft] = useState(0);      // seconds remaining
+
+  useEffect(() => {
+    if (!code) return undefined;
+    const until = Date.now() + (code.expires_in_minutes || 15) * 60000;
+    const t = setInterval(() => {
+      const s = Math.max(0, Math.round((until - Date.now()) / 1000));
+      setLeft(s);
+      if (s === 0) { clearInterval(t); setCode(null); }
+    }, 1000);
+    return () => clearInterval(t);
+  }, [code]);
+
+  async function make() {
+    setBusy(true); setErr('');
+    try { setCode(await api.post('/devices/pair/start', {})); }
+    catch (e) { setErr(e.message || 'Could not create a setup code'); }
+    finally { setBusy(false); }
+  }
+
+  const mmss = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+
+  return (
+    <div className="card col" style={{ gap: 10 }}>
+      <div>
+        <h3 style={{ margin: 0 }}>Pair a new tablet</h3>
+        <div className="muted" style={{ fontSize: 13 }}>
+          A tablet can only join this spa with a code from here, so nobody who
+          downloads the app can reach your till.
+        </div>
+      </div>
+
+      {code ? (
+        <div style={{ background: '#fffbeb', border: '1px solid #f59e0b', borderRadius: 10, padding: '14px 16px' }}>
+          <div style={{ fontSize: 13, color: '#92400e', marginBottom: 6 }}>
+            On the new tablet, open the app and type this code:
+          </div>
+          <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: '0.22em', color: '#0D1B3E', textAlign: 'center', padding: '6px 0' }}>
+            {code.code}
+          </div>
+          <div style={{ fontSize: 12, color: '#92400e', textAlign: 'center' }}>
+            Expires in {mmss} · works once
+          </div>
+        </div>
+      ) : (
+        <div className="row" style={{ gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <button className="primary" onClick={make} disabled={busy}>
+            {busy ? 'Creating…' : 'Create a setup code'}
+          </button>
+          {err && <span style={{ color: 'var(--danger)', fontSize: 13 }}>{err}</span>}
+        </div>
+      )}
+
+      {code && (
+        <div className="row" style={{ gap: 8 }}>
+          <button onClick={make} disabled={busy}>New code</button>
+          <button onClick={() => setCode(null)}>Done</button>
+        </div>
+      )}
     </div>
   );
 }

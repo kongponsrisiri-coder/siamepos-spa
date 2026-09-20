@@ -287,6 +287,14 @@ app.use('/api', (req, res, next) => {
   if (!header.startsWith('Bearer ')) return next();
   return requireAuth(req, res, () => permissions.gate(req, res, next));
 });
+// SPA-DEVICE-PAIR-001 — a tablet may only join a spa it was invited to.
+// The tenant route is admin-only (below the gate, so it carries a token).
+// The broker routes are public and live OUTSIDE /api: a tablet being set up
+// has no token and does not yet know which cloud it belongs to.
+const devicePairRoutes = require('./routes/devicePair');
+app.use('/api/devices', devicePairRoutes.router);
+app.use('/device-pair', devicePairRoutes.broker);
+
 app.get('/api/permissions', requireAuth, async (_req, res) => {
   try {
     const custom = await permissions.loadCustomRoles();

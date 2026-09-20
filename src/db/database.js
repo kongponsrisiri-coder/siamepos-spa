@@ -838,6 +838,17 @@ async function initSchema() {
     -- UNIQUE index is what actually guarantees no two staff share a PIN.
     -- Partial index: legacy rows are NULL until their owner next signs in or
     -- an admin resets the PIN, and NULLs must not collide with each other.
+    -- SPA-DEVICE-PAIR-001 — code -> spa address, held by the broker cloud so a
+    -- tablet being set up can find out which spa it belongs to. Single-use and
+    -- short-lived; carries nothing secret.
+    CREATE TABLE IF NOT EXISTS device_pairings (
+      code       TEXT PRIMARY KEY,
+      api_base   TEXT NOT NULL,
+      spa        TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      claimed_at TIMESTAMPTZ
+    );
+
     ALTER TABLE therapists ADD COLUMN IF NOT EXISTS pin_hmac TEXT;
     CREATE UNIQUE INDEX IF NOT EXISTS therapists_pin_hmac_uniq
       ON therapists (pin_hmac) WHERE pin_hmac IS NOT NULL;

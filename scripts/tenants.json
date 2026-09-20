@@ -40,7 +40,8 @@
         "project": "f0ffffec-d0d7-405b-8c60-44fdcaadca4e",
         "environment": "104850ea-02ec-4c96-bf5f-3d0663578a2c",
         "service": "9eab74c7-669c-43dc-af1d-eaad7674a133"
-      }
+      },
+      "hold": "Korakot, 2026-09-20: device pairing (SPA-DEVICE-PAIR-001) needs the owner on site to issue a setup code, and they are not in until the weekend. Their existing tablet keeps working either way — it already has its address stored. Remove this key once the owner is there."
     },
     {
       "key": "jinta",
