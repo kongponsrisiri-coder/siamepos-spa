@@ -110,10 +110,18 @@ async function waitForApi(t, previousBoot) {
   while (Date.now() < deadline) {
     const { status, body, text } = await getJson(`${t.api}/api/health`);
     if (body && body.ok) {
-      if (!previousBoot || body.booted_at !== previousBoot) {
+      // Only a PRESENT and CHANGED booted_at proves the new code is serving.
+      // Railway keeps the old container answering until the new one is healthy,
+      // so "healthy" on its own means nothing — accepting it once let a deploy
+      // report success ~30s before the swap actually happened (Highbury, 20 Sep).
+      // A missing field means the old container is still up, or the commit being
+      // deployed predates booted_at; either way we have proved nothing.
+      if (body.booted_at && body.booted_at !== previousBoot) {
         return body;
       }
-      lastSeen = 'still the old process';
+      lastSeen = body.booted_at
+        ? 'same process as before — not restarted yet'
+        : 'old container still serving (no booted_at in its /api/health)';
     } else if (status === 200 && !body) {
       // JSON expected, HTML received: the service is serving the front-end.
       lastSeen = 'answering with HTML, not JSON — wrong folder was deployed';
@@ -122,7 +130,10 @@ async function waitForApi(t, previousBoot) {
     }
     await sleep(8000);
   }
-  die(`${t.name}: cloud did not come back within 6 minutes (${lastSeen}).`);
+  die(`${t.name}: could not prove the cloud restarted within 6 minutes (${lastSeen}).\n` +
+      `      The deploy may still be building — check Railway before re-running.\n` +
+      `      If the commit you are deploying predates booted_at in /api/health,\n` +
+      `      this check cannot work; deploy a newer commit.`);
 }
 
 // The login screen makes exactly these two calls before anyone can sign in.
@@ -155,7 +166,7 @@ async function verifyTill(t) {
 async function deployApi(t, src) {
   const before = await getJson(`${t.api}/api/health`);
   const previousBoot = before.body && before.body.booted_at;
-  if (!previousBoot) warn('could not read the current boot time — will accept the first healthy answer');
+  if (!previousBoot) step('this cloud reports no boot time yet — will wait for one to appear');
 
   step(`railway up  (from ${src})`);
   if (DRY) { ok('dry run — not deployed'); return; }
