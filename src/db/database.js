@@ -846,6 +846,17 @@ async function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_push_devices_seen ON push_devices (last_seen_at DESC);
 
+    -- SPA-LINE-PAIR-001 — "Connect LINE" pairing codes. A spa shows a short
+    -- code, the owner messages it to our LINE account, and the row that comes
+    -- back carries their LINE user id. Codes live 15 minutes and are used once.
+    CREATE TABLE IF NOT EXISTS line_pairings (
+      code       TEXT PRIMARY KEY,
+      user_id    TEXT,
+      spa        TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      paired_at  TIMESTAMPTZ
+    );
+
 
   `);
 

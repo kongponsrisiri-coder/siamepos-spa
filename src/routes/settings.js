@@ -85,4 +85,37 @@ router.put('/', settingsAuth, async (req, res) => {
   }
 });
 
+// SPA-LINE-PAIR-001 — "Connect LINE" from Admin → Settings.
+// start: ask the broker for a short code to show the owner.
+// check: has the owner messaged it yet? If so, save it as this spa's
+// line_notify_user_id so booking alerts go to them from now on.
+const linePair = require('../services/linePair');
+
+router.post('/line-pair/start', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const spaName = process.env.SPA_NAME || null;
+    const out = await linePair.start(spaName);
+    res.json(out);
+  } catch (err) {
+    res.status(503).json({ error: err.message || 'pairing service unavailable' });
+  }
+});
+
+router.get('/line-pair/check/:code', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const out = await linePair.check(req.params.code);
+    if (out.status === 'paired' && out.user_id) {
+      await pool.query(
+        `INSERT INTO settings (key, value) VALUES ('line_notify_user_id', $1)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [out.user_id],
+      );
+      await offlineQueue.enqueue('update_setting', { key: 'line_notify_user_id', value: out.user_id });
+    }
+    res.json(out);
+  } catch (err) {
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
 module.exports = router;
