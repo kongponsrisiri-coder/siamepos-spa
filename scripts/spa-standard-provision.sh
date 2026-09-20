@@ -53,7 +53,12 @@ src = json.load(open(os.environ["SRC"]))["data"]["variables"]
 dst = json.load(open(os.environ["DST"]))["data"]["variables"]
 SHARED = ["BREVO_API_KEY","ANTHROPIC_API_KEY","TWILIO_ACCOUNT_SID","TWILIO_AUTH_TOKEN",
           "PASS_SIGNER_CERT_B64","PASS_SIGNER_KEY_B64","PASS_SIGNER_KEY_PASSPHRASE",
-          "GOOGLE_WALLET_ISSUER_ID","GOOGLE_WALLET_SA_EMAIL","GOOGLE_WALLET_SA_KEY_B64","TZ"]
+          "GOOGLE_WALLET_ISSUER_ID","GOOGLE_WALLET_SA_EMAIL","GOOGLE_WALLET_SA_KEY_B64","TZ",
+          # SPA-LINE-NOTIFY-001 — the LINE bot is SiamEPOS's, identical for every
+          # tenant, so it belongs here: set it ONCE on spa-api and every spa
+          # (existing and future) inherits it. WHO receives the alerts is a
+          # per-spa choice: settings.line_notify_user_id, edited in Admin.
+          "LINE_CHANNEL_ACCESS_TOKEN","LINE_NOTIFY_TO"]
 SECRETS = ["JWT_SECRET","BOOKING_SECRET","UNSUB_SECRET","SYNC_SECRET","INBOUND_EMAIL_SECRET","TWILIO_INBOUND_SECRET"]
 out, log = {}, []
 for k in SHARED:
