@@ -29,8 +29,30 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  # ── Guard ──────────────────────────────────────────────────────────
+  # SPA-TAG-VERSION-001 — the tag and electron/package.json MUST agree.
+  # electron-builder names the installers and writes latest.yml from
+  # package.json, NOT from the tag. Tag v0.2.53 with package.json still on
+  # 0.2.52 and you get a release that looks published but whose manifest says
+  # 0.2.52 — no installed till ever sees an update, and nothing anywhere
+  # reports an error. Fail in ten seconds instead.
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Tag must match electron/package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./electron/package.json').version")
+          echo "tag=$TAG  package.json=$PKG"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag v$TAG does not match electron/package.json ($PKG). Bump package.json, commit, then re-tag — otherwise the release ships files named $PKG and no till is offered the update."
+            exit 1
+          fi
+
   # ── Mac ────────────────────────────────────────────────────────────
   build-mac:
+    needs: check-version
     runs-on: macos-latest
     timeout-minutes: 60
     env:
@@ -114,6 +136,7 @@ jobs:
 
   # ── Windows ────────────────────────────────────────────────────────
   build-windows:
+    needs: check-version
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
