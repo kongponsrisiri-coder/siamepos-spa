@@ -65,11 +65,40 @@ jobs:
           npm run build:mac
         env:
           VITE_API_BASE:               ''
-          CSC_LINK:                    ${{ secrets.MAC_CERT_P12_BASE64 }}
-          CSC_KEY_PASSWORD:            ${{ secrets.MAC_CERT_PASSWORD }}
+          # SPA-MAC-SIGN-001 — do NOT pass CSC_LINK / CSC_KEY_PASSWORD here.
+          # The import step above has already put the Developer ID identity into
+          # signing_temp.keychain and added it to the search list. Given
+          # CSC_LINK as well, electron-builder ignores that and imports the .p12
+          # into a SECOND temporary keychain of its own — and on the macOS image
+          # GitHub shipped on 2026-09-07 that flow dies with "SecKeychainUnlock:
+          # The user name or passphrase you entered is not correct". It is
+          # unlocking its OWN keychain there, not the .p12, which is why the
+          # secrets are innocent: untouched since June, and this same workflow
+          # signed and notarised fine on 14 Aug.
+          # With CSC_LINK absent, electron-builder auto-discovers the identity
+          # already in the keychain and never creates a keychain at all.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'true'
           APPLE_ID:                    ${{ secrets.MAC_APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.MAC_APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID:               ${{ secrets.MAC_TEAM_ID }}
+
+      # SPA-MAC-SIGN-001 — a Mac build that is merely SIGNED is still refused by
+      # Gatekeeper on any machine that downloaded it; only the notarisation
+      # ticket makes it open. electron-builder prints "skipped macOS
+      # notarization" and exits 0 when it cannot notarise, so without this gate a
+      # build that no client can install ships quietly — exactly what happened
+      # with v0.2.51 and v0.2.52. Fail the job instead of shipping it.
+      - name: Verify the Mac app is signed AND notarised
+        run: |
+          APP="electron/dist-electron/mac-arm64/SiamEPOS Spa.app"
+          test -d "$APP" || { echo "::error::$APP not found"; exit 1; }
+          codesign --verify --deep --strict --verbose=2 "$APP" \
+            || { echo "::error::app is not validly signed"; exit 1; }
+          xcrun stapler validate "$APP" \
+            || { echo "::error::no notarisation ticket — Gatekeeper will refuse this build"; exit 1; }
+          spctl -a -vvv -t exec "$APP" \
+            || { echo "::error::Gatekeeper rejects this app"; exit 1; }
+          echo "signed + notarised + accepted by Gatekeeper"
 
       - name: Upload DMG + update manifest
         uses: actions/upload-artifact@v5
