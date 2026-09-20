@@ -19,6 +19,13 @@ export default function SpaSetupScreen({ onDone }) {
   const [busy, setBusy]   = useState(false);
   const [error, setError] = useState('');
   const [spa, setSpa]     = useState('');
+  // SPA-DEVICE-PAIR-002 — the way back in. A code can only be minted by someone
+  // ALREADY signed in at the spa, so a shop whose only tablet lost its address
+  // has no way to produce one: locked out by the thing meant to protect them.
+  // Typing the address is not the hole the client LIST was — the address is
+  // public (it is in every web till's bundle) and a PIN still stands in the way.
+  const [manual, setManual] = useState(false);
+  const [addr, setAddr]     = useState('');
 
   const clean = code.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
 
@@ -46,6 +53,24 @@ export default function SpaSetupScreen({ onDone }) {
           ? 'No answer — check the tablet is online, then try again.'
           : (e.message || 'Could not set this tablet up.'),
       );
+      setBusy(false);
+    }
+  }
+
+  async function useAddress() {
+    const clean = addr.trim().replace(/\/+$/, '');
+    if (!/^https?:\/\/.+/i.test(clean)) { setError('That address should start with https://'); return; }
+    setBusy(true); setError('');
+    try {
+      const res = await fetch(`${clean}/api/health`, { signal: AbortSignal.timeout(15000) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) throw new Error('That address did not answer as a SiamEPOS Spa.');
+      setApiBase(clean);
+      onDone && onDone();
+    } catch (e) {
+      setError(e.name === 'TimeoutError' || e.name === 'AbortError'
+        ? 'No answer — check the tablet is online, then try again.'
+        : (e.message || 'Could not connect.'));
       setBusy(false);
     }
   }
@@ -107,6 +132,32 @@ export default function SpaSetupScreen({ onDone }) {
           <div style={{ background: 'rgba(220,38,38,0.18)', border: '1px solid rgba(248,113,113,0.5)', color: '#fecaca', borderRadius: 10, padding: '10px 14px', fontSize: 14 }}>
             {error}
           </div>
+        )}
+
+        {manual ? (
+          <div style={{ marginTop: 4 }}>
+            <label style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700 }}>
+              Your spa's address
+            </label>
+            <input
+              value={addr}
+              onChange={(e) => { setAddr(e.target.value); setError(''); }}
+              onKeyDown={(e) => { if (e.key === 'Enter') useAddress(); }}
+              placeholder="https://your-spa.up.railway.app"
+              autoCapitalize="none" autoCorrect="off" spellCheck="false" inputMode="url"
+              style={{ marginTop: 6, width: '100%', background: 'rgba(255,255,255,0.10)', color: 'white',
+                border: '1px solid rgba(255,255,255,0.3)', borderRadius: 10, padding: '12px 14px', fontSize: 15 }}
+            />
+            <button onClick={useAddress} disabled={busy || !addr.trim()}
+              style={{ marginTop: 8, width: '100%', minHeight: 48, border: 'none', borderRadius: 10,
+                background: 'rgba(255,255,255,0.15)', color: 'white', fontWeight: 700, fontSize: 15 }}
+            >{busy ? 'Checking…' : 'Connect with this address'}</button>
+          </div>
+        ) : (
+          <button onClick={() => { setManual(true); setError(''); }}
+            style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,0.6)',
+              fontSize: 13, textDecoration: 'underline', cursor: 'pointer', marginTop: 2 }}
+          >No code? Use your spa&rsquo;s address instead</button>
         )}
 
         <div style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, textAlign: 'center', marginTop: 4, lineHeight: 1.6 }}>
