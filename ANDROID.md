@@ -18,7 +18,7 @@ cd client
 # NO VITE_API_BASE — that is what makes the app ask which spa on first run.
 # VITE_APP_BUILD stamps the version so Admin → Mobile App can say
 # "installed 1.0.1, latest 1.0.2".
-rm -rf dist && VITE_APP_BUILD=1.0.1 npx vite build
+rm -rf dist && VITE_APP_BUILD=<version> npx vite build
 npx cap sync android
 cd android
 JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleRelease
