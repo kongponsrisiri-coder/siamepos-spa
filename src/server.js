@@ -158,6 +158,17 @@ app.get('/app', (_req, res) =>
   res.redirect(302, `${APK_BASE}/download/spa-v${ANDROID_APK_VERSION}/SiamEPOS-Spa-v${ANDROID_APK_VERSION}.apk`));
 app.get('/app/notes', (_req, res) =>
   res.redirect(302, `${APK_BASE}/tag/spa-v${ANDROID_APK_VERSION}`));
+// What the Admin → Mobile App page reads: the link never changes, only the
+// version behind it. Public so the setup/login screens could use it too.
+app.get('/api/app/android', (req, res) => {
+  const base = (process.env.PUBLIC_API_URL || `${req.protocol}://${req.get('host')}`).replace(/\/+$/, '');
+  res.json({
+    platform: 'android',
+    version: ANDROID_APK_VERSION,
+    download_url: `${base}/app`,
+    notes_url: `${base}/app/notes`,
+  });
+});
 
 // SPA-PAYLINK-SEND-001 — short payment-link redirect (public; the customer taps it from an SMS/email).
 app.get('/pay/:code', paymentLinkRoutes.resolveShortCode);

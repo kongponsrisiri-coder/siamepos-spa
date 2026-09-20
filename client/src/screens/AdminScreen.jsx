@@ -23,6 +23,7 @@ import TreatwellSection        from './admin/TreatwellSection.jsx';
 import ChatsSection            from './admin/ChatsSection.jsx';
 import CertificatesSection     from './admin/CertificatesSection.jsx'; // SPA-CERTS-001
 import PermissionsSection      from './admin/PermissionsSection.jsx'; // SPA-RBAC-001
+import MobileAppSection        from './admin/MobileAppSection.jsx'; // SPA-ANDROID-001
 import { can, canSeeAdmin, sectionLevel, refreshPermissions } from '../permissions.js'; // SPA-RBAC-001
 
 // ── Sandy: AdminScreen — left sidebar, SiamEPOS Spa brand CI ──────
@@ -62,6 +63,7 @@ const GROUPS = [
     { k: 'embed',      label: 'Embed Codes' },
     { k: 'colors',     label: 'Colour Codes' },
     { k: 'settings',   label: 'Settings' },
+    { k: 'app',        label: 'Mobile App' },           // SPA-ANDROID-001
     { k: 'permissions', label: 'Roles & Permissions' }, // SPA-RBAC-001 — admin only
   ] },
 ];
@@ -104,6 +106,7 @@ function NavItem({ item, active, onClick }) {
 
 const SECTIONS = {
   permissions: PermissionsSection, // SPA-RBAC-001
+  app:         MobileAppSection,   // SPA-ANDROID-001
   trading:    TradingSection,
   reports:    ReportsSection,
   zreport:    ZReportSection,

@@ -11,7 +11,7 @@ const SECTIONS = [
   'trading', 'reports', 'zreport',
   'bills', 'clients', 'chats', 'campaigns', 'treatwell', 'vouchers', 'payments',
   'menu', 'therapists', 'staff', 'rota', 'rooms', 'certs',
-  'booking', 'online', 'embed', 'colors', 'settings',
+  'booking', 'online', 'embed', 'colors', 'settings', 'app',
   'discounts', // till: checkout discount controls (not an admin page)
 ];
 // SPA-HISTORY-LOCK-001 — per-role flag, 'on' | 'off' (not a section level).
@@ -147,6 +147,7 @@ function sectionForRequest(req) {
   if (base === '/api/treatments')       return write ? 'menu' : null;
   if (base === '/api/rooms')            return write ? 'rooms' : null;
   if (base === '/api/settings')         return write ? 'settings' : null;
+  if (base === '/api/app')              return null;   // SPA-ANDROID-001 — read-only version info
   if (base === '/api/therapists') {
     if (path.startsWith('/turn-order')) return null;                 // receptionist's diary tool
     if (/^\/(rota|\d+\/(overrides|availability))/.test(path)) return write ? 'rota' : null;

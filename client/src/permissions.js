@@ -8,7 +8,7 @@ export const SECTION_GROUPS = [
   { title: 'Revenue',  items: [['trading', 'Trading'], ['reports', 'Reports'], ['zreport', 'Z Report']] },
   { title: 'Clients',  items: [['bills', 'Bills'], ['clients', 'Clients (customer database)'], ['chats', 'AI Chats'], ['campaigns', 'Campaigns'], ['treatwell', 'Treatwell'], ['vouchers', 'Vouchers'], ['payments', 'Payments']] },
   { title: 'Spa',      items: [['menu', 'Treatments'], ['therapists', 'Therapists'], ['staff', 'Staff'], ['rota', 'Rota (roster)'], ['rooms', 'Rooms'], ['certs', 'Certificates']] },
-  { title: 'Settings', items: [['booking', 'Booking'], ['online', 'Online Booking'], ['embed', 'Embed Codes'], ['colors', 'Colour Codes'], ['settings', 'Settings']] },
+  { title: 'Settings', items: [['booking', 'Booking'], ['online', 'Online Booking'], ['embed', 'Embed Codes'], ['colors', 'Colour Codes'], ['settings', 'Settings'], ['app', 'Mobile App']] },
   { title: 'Till',     items: [['discounts', 'Discount controls (checkout)']] },
 ];
 export const BUILTIN_ROLES = [['manager', 'Manager'], ['reception', 'Reception'], ['therapist', 'Therapist']];

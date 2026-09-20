@@ -15,8 +15,10 @@ their cloud address baked in at build time.
 
 ```bash
 cd client
-rm -rf dist && npx vite build          # NO VITE_API_BASE — that is what makes
-                                       # the app ask which spa on first run
+# NO VITE_API_BASE — that is what makes the app ask which spa on first run.
+# VITE_APP_BUILD stamps the version so Admin → Mobile App can say
+# "installed 1.0.1, latest 1.0.2".
+rm -rf dist && VITE_APP_BUILD=1.0.1 npx vite build
 npx cap sync android
 cd android
 JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" ./gradlew assembleRelease
@@ -46,8 +48,16 @@ asset directly:
 - file: `https://github.com/kongponsrisiri-coder/siamepos-releases/releases/download/spa-v<version>/SiamEPOS-Spa-v<version>.apk`
 
 A short link that always points at the newest build lives on the spa API:
-`https://spa-api.siamepos.co.uk/app` (302 → the release asset). Update
-`ANDROID_APK_VERSION` in `src/server.js` when a new version goes out.
+`https://spa-api.siamepos.co.uk/app` (302 → the release asset). **The link
+never changes — only the version behind it.** After publishing a release:
+
+1. bump `ANDROID_APK_VERSION` in `src/server.js`
+2. deploy the clouds
+
+Admin → **Mobile App** then shows the new version, the link, a QR code, and —
+for a till already running inside the app — an "Update available" banner
+(`GET /api/app/android` serves the version; the app compares it with its own
+`VITE_APP_BUILD` stamp).
 
 ## Adding a new spa to the first-run list
 
