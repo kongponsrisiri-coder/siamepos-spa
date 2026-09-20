@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { api, setAuth } from '../api.js';
 import { NAVY, GOLD, LOGO_PX, applyBrandTheme } from '../theme.js';
 import { canChangeSpa, clearApiBase, getApiBase } from '../apiBase.js'; // SPA-ANDROID-001
@@ -44,7 +44,6 @@ function BrandMark({ size = 120, logo }) {
 
 export default function LoginScreen() {
   const [staff, setStaff] = useState([]);
-  const [sel, setSel]     = useState(null);   // selected staff member
   const [pin, setPin]     = useState('');
   const [busy, setBusy]   = useState(false);
   const [error, setError] = useState('');
@@ -57,6 +56,10 @@ export default function LoginScreen() {
   const [now, setNow]     = useState(() => new Date());
   const [isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < 768);
   const navigate = useNavigate();
+  // SPA-IDLE-LOGOUT-001 — say why they were signed out, so an idle timeout does
+  // not look like the till crashing.
+  const location = useLocation();
+  const signedOutIdle = location.state && location.state.reason === 'idle';
 
   useEffect(() => {
     api.get('/auth/staff').then((r) => setStaff(r.staff || [])).catch(() => setStaff([]));
@@ -69,26 +72,27 @@ export default function LoginScreen() {
     return () => window.removeEventListener('resize', fn);
   }, []);
 
-  function pickStaff(s) { setSel(s); setPin(''); setError(''); }
-  function back()       { setSel(null); setPin(''); setError(''); }
+  function back()       { setPin(''); setError(''); }
   function press(k) {
     setError('');
-    if (!sel) return;
     if (k === '⌫') { setPin((p) => p.slice(0, -1)); return; }
     if (k === '')  return;
     if (pin.length >= 8) return;
     setPin((p) => p + k);
   }
   async function submit() {
-    if (!sel || !pin || busy) return;
+    if (!pin || busy) return;
     setBusy(true); setError('');
     try {
-      const resp = await api.post('/auth/login', { staff_id: sel.id, pin });
+      // SPA-PIN-ONLY-001 — no staff_id: the PIN alone identifies the person.
+      // The server resolves it to exactly one active staff member (PINs are
+      // unique and indexed — see services/pinIdentity.js).
+      const resp = await api.post('/auth/login', { pin });
       setAuth({ token: resp.token, staff: resp.staff });
       if (resp.must_change_pin) { setMustChange(true); setBusy(false); return; }
       navigate('/', { replace: true });
     } catch (e) {
-      setError(e.message === 'invalid pin' ? 'Wrong PIN — try again' : (e.message || 'Login failed'));
+      setError(e.message === 'invalid pin' ? 'PIN not recognised — try again' : (e.message || 'Login failed'));
       setPin('');
     } finally { setBusy(false); }
   }
@@ -110,7 +114,7 @@ export default function LoginScreen() {
     if (e.key >= '0' && e.key <= '9') press(e.key);
     else if (e.key === 'Backspace') press('⌫');
     else if (e.key === 'Enter') submit();
-    else if (e.key === 'Escape') back();
+    else if (e.key === 'Escape') back();   // clears the entry
   }
 
   const spaName = brand.spa_name || 'SiamEPOS Spa';
@@ -150,58 +154,23 @@ export default function LoginScreen() {
         <div style={{ color: MUTED, fontSize: 12, marginTop: 3, fontFamily: SANS }}>{date}</div>
       </div>
 
-      {!sel ? (
-        <div style={{ width: '100%', maxWidth: 460, textAlign: 'center' }}>
-          <div style={{ fontFamily: SERIF, fontSize: 30, fontWeight: 700, color: INK }}>Welcome back</div>
-          <div style={{ color: MUTED, fontSize: 14, marginTop: 6, marginBottom: 26, fontFamily: SANS }}>Tap your name to sign in</div>
-          {staff.length === 0 ? (
-            <div style={{ color: MUTED, fontSize: 14, fontFamily: SANS, lineHeight: 1.6 }}>
-              No till staff set up yet.<br />Use <b>“Sign in with email instead”</b> below, then add staff in Admin → Staff.
-            </div>
-          ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 12 }}>
-              {staff.map((s) => {
-                const mgr = isManager(s.role);
-                return (
-                  <button key={s.id} onClick={() => pickStaff(s)} style={{
-                    background: '#fff', border: '1px solid #E6E0D2', borderRadius: 14, padding: '16px 10px 14px',
-                    cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10,
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.05)', WebkitTapHighlightColor: 'transparent',
-                  }}>
-                    <div style={{ width: 56, height: 56, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      background: mgr ? NAVY : GOLD_TINT, color: mgr ? GOLD : GOLD_ON_LIGHT, fontWeight: 800, fontSize: 20, fontFamily: SANS }}>
-                      {initials(s.name)}
-                    </div>
-                    <div style={{ fontWeight: 700, fontSize: 14, color: INK, fontFamily: SANS }}>{s.name}</div>
-                    {s.role && <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.06em', color: GOLD_ON_LIGHT, background: GOLD_TINT, padding: '2px 8px', borderRadius: 20, textTransform: 'uppercase', fontFamily: SANS }}>{s.role}</div>}
-                  </button>
-                );
-              })}
+      {/* SPA-PIN-ONLY-001 — no "tap your name" list. Staff type their PIN and
+          the till works out who they are. Two reasons that is better on a spa
+          till: the name list told anyone standing at reception exactly who
+          works here, and with idle logout signing people out every couple of
+          minutes, two taps per sign-in becomes dozens a day. */}
+      <div style={{ width: '100%', maxWidth: 300, textAlign: 'center' }}>
+          {signedOutIdle && (
+            <div style={{ background: GOLD_TINT, border: `1px solid ${GOLD}`, color: INK, borderRadius: 10, padding: '8px 12px', fontSize: 13, fontFamily: SANS, marginBottom: 16 }}>
+              Signed out because the till was left idle.
             </div>
           )}
-          <a href="/owner-login" style={{ display: 'inline-block', marginTop: 26, color: GOLD_ON_LIGHT, fontSize: 14, textDecoration: 'none', fontWeight: 700, fontFamily: SANS }}>Sign in with email instead →</a>
-          {/* SPA-ANDROID-001 — only the Android app can switch spa; on the web
-              the address is part of the site, so the link never renders. */}
-          {canChangeSpa() && (
-            <div style={{ marginTop: 18, fontSize: 12, color: '#9a9484', fontFamily: SANS }}>
-              Connected to {(getApiBase() || '').replace(/^https?:\/\//, '')}
-              {' · '}
-              <button
-                onClick={() => { if (confirm('Change which spa this tablet connects to? You will be signed out.')) { clearApiBase(); localStorage.removeItem('spa_token'); localStorage.removeItem('spa_staff'); window.location.reload(); } }}
-                style={{ background: 'transparent', border: 'none', padding: 0, minHeight: 0, color: GOLD_ON_LIGHT, fontWeight: 700, fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}
-              >Change spa</button>
+          <div style={{ fontFamily: SERIF, fontSize: 28, fontWeight: 700, color: INK }}>{spaName}</div>
+          {staff.length === 0 && (
+            <div style={{ color: MUTED, fontSize: 14, fontFamily: SANS, lineHeight: 1.6, marginTop: 14 }}>
+              No till staff set up yet.<br />Use <b>&ldquo;Sign in with email instead&rdquo;</b> below, then add staff in Admin &rarr; Staff.
             </div>
           )}
-        </div>
-      ) : (
-        <div style={{ width: '100%', maxWidth: 300, textAlign: 'center' }}>
-          <button onClick={back} style={{ position: 'absolute', top: isMobile ? 14 : 26, left: isMobile ? 16 : 28, background: 'none', border: 'none', color: MUTED, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: SANS }}>← Back</button>
-          <div style={{ width: 84, height: 84, borderRadius: '50%', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: isManager(sel.role) ? NAVY : GOLD_TINT, color: isManager(sel.role) ? GOLD : GOLD_ON_LIGHT, fontWeight: 800, fontSize: 30, fontFamily: SANS }}>
-            {initials(sel.name)}
-          </div>
-          <div style={{ fontFamily: SERIF, fontSize: 26, fontWeight: 700, color: INK, marginTop: 14 }}>{sel.name}</div>
-          {sel.role && <div style={{ color: MUTED, fontSize: 13, textTransform: 'capitalize', fontFamily: SANS }}>{sel.role}</div>}
           <div style={{ color: MUTED, fontSize: 14, marginTop: 20, marginBottom: 12, fontWeight: 600, fontFamily: SANS }}>Enter your PIN</div>
           <div style={{ height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 10 }}>
             {pin.length === 0
@@ -229,8 +198,21 @@ export default function LoginScreen() {
             background: (pin && !busy) ? NAVY : '#e7e1d3', color: (pin && !busy) ? '#fff' : '#b3ab98',
             fontSize: 16, fontWeight: 800, cursor: (pin && !busy) ? 'pointer' : 'default', letterSpacing: '0.03em', fontFamily: SANS,
           }}>{busy ? 'Signing in…' : 'Sign In'}</button>
-        </div>
-      )}
+
+        <a href="/owner-login" style={{ display: 'inline-block', marginTop: 22, color: GOLD_ON_LIGHT, fontSize: 14, textDecoration: 'none', fontWeight: 700, fontFamily: SANS }}>Sign in with email instead →</a>
+        {/* SPA-ANDROID-001 — only the Android app can switch spa; on the web
+            the address is part of the site, so the link never renders. */}
+        {canChangeSpa() && (
+          <div style={{ marginTop: 16, fontSize: 12, color: '#9a9484', fontFamily: SANS }}>
+            Connected to {(getApiBase() || '').replace(/^https?:\/\//, '')}
+            {' · '}
+            <button
+              onClick={() => { if (confirm('Change which spa this tablet connects to? You will be signed out.')) { clearApiBase(); localStorage.removeItem('spa_token'); localStorage.removeItem('spa_staff'); window.location.reload(); } }}
+              style={{ background: 'transparent', border: 'none', padding: 0, minHeight: 0, color: GOLD_ON_LIGHT, fontWeight: 700, fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}
+            >Change spa</button>
+          </div>
+        )}
+      </div>
     </div>
   );
 

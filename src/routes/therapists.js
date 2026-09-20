@@ -1,5 +1,6 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const { pinHmac, pinTakenBy } = require('../services/pinIdentity'); // SPA-PIN-ONLY-001
 const { pool } = require('../db/dbAdapter');
 const { guardPast } = require('../services/historyLock'); // SPA-HISTORY-LOCK-001
 const { requireRole, requireAuth } = require('../middleware/auth');
@@ -33,12 +34,19 @@ router.get('/', async (req, res) => {
 router.post('/', requireRole('admin', 'manager'), async (req, res) => {
   const { name, pin, role, specialisms, photo_url } = req.body || {};
   if (!name || !pin) return res.status(400).json({ error: 'name + pin required' });
+  if (!/^\d{4,6}$/.test(String(pin))) return res.status(400).json({ error: 'PIN must be 4–6 digits' });
   try {
+    // SPA-PIN-ONLY-001 — staff sign in by PIN alone, so a duplicate PIN would
+    // sign one person in AS ANOTHER. This route never checked before.
+    const clash = await pinTakenBy(pool, pin);
+    if (clash) {
+      return res.status(409).json({ error: `That PIN is already used by ${clash.name} — choose another` });
+    }
     const hash = bcrypt.hashSync(String(pin), 10);
     const { rows } = await pool.query(
-      `INSERT INTO therapists (name, pin, role, specialisms, photo_url) VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO therapists (name, pin, pin_hmac, role, specialisms, photo_url) VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, name, role, specialisms, photo_url, active`,
-      [name, hash, role || 'therapist', specialisms || null, photo_url || null],
+      [name, hash, pinHmac(pin), role || 'therapist', specialisms || null, photo_url || null],
     );
     res.status(201).json({ therapist: rows[0] });
   } catch (err) {
@@ -103,19 +111,28 @@ router.delete('/turn-order', requireRole('admin', 'manager', 'reception'), async
 router.put('/:id', requireRole('admin', 'manager'), async (req, res) => {
   const id = Number(req.params.id);
   const { name, pin, role, specialisms, photo_url, active } = req.body || {};
+  if (pin && !/^\d{4,6}$/.test(String(pin))) return res.status(400).json({ error: 'PIN must be 4–6 digits' });
   const pinHash = pin ? bcrypt.hashSync(String(pin), 10) : null;
   try {
+    // SPA-PIN-ONLY-001 — same rule as create: a PIN must name one person.
+    if (pin) {
+      const clash = await pinTakenBy(pool, pin, id);
+      if (clash) {
+        return res.status(409).json({ error: `That PIN is already used by ${clash.name} — choose another` });
+      }
+    }
     const { rows } = await pool.query(
       `UPDATE therapists SET
          name        = COALESCE($2, name),
          pin         = COALESCE($3, pin),
+         pin_hmac    = COALESCE($8, pin_hmac),
          role        = COALESCE($4, role),
          specialisms = COALESCE($5, specialisms),
          photo_url   = COALESCE($6, photo_url),
          active      = COALESCE($7, active)
        WHERE id = $1
        RETURNING id, name, role, specialisms, photo_url, active`,
-      [id, name, pinHash, role, specialisms, photo_url, active],
+      [id, name, pinHash, role, specialisms, photo_url, active, pin ? pinHmac(pin) : null],
     );
     if (!rows[0]) return res.status(404).json({ error: 'not found' });
     res.json({ therapist: rows[0] });

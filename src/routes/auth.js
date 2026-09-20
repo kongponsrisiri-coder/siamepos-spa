@@ -3,6 +3,7 @@ const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { pool } = require('../db/dbAdapter');
 const { signStaffToken, requireAuth } = require('../middleware/auth');
+const { pinHmac, pinTakenBy, findByPin } = require('../services/pinIdentity'); // SPA-PIN-ONLY-001
 
 const router = express.Router();
 
@@ -117,9 +118,17 @@ router.post('/login', async (req, res) => {
       const row = r.rows[0];
       if (row && bcrypt.compareSync(pin, row.pin)) match = row;
     } else {
-      // Fallback (legacy clients / cached frontends that send only a PIN).
-      const { rows } = await pool.query('SELECT id, name, pin, role FROM therapists WHERE active = TRUE');
-      match = rows.find((row) => bcrypt.compareSync(pin, row.pin));
+      // SPA-PIN-ONLY-001 — no name tapped: the PIN alone says who this is.
+      // One indexed HMAC lookup, falling back to a bcrypt scan of only the
+      // rows not yet migrated (see services/pinIdentity.js).
+      const found = await findByPin(pool, pin);
+      if (found.duplicate) {
+        recordFail(ip);
+        return res.status(409).json({
+          error: 'Two staff share this PIN, so the till cannot tell who you are. Ask the owner to give one of you a new PIN in Admin → Staff.',
+        });
+      }
+      match = found.row;
     }
     if (!match) { recordFail(ip); return res.status(401).json({ error: 'invalid pin' }); }
     clearFails(ip); // good login — reset the brute-force counter for this IP
@@ -149,11 +158,14 @@ router.post('/change-pin', requireAuth, async (req, res) => {
     const myId = me && (me.id || me.staff_id);
     if (!myId) return res.status(401).json({ error: 'not authenticated' });
     // Uniqueness: reject if another active operator already uses this PIN.
-    const { rows } = await pool.query('SELECT id, pin FROM therapists WHERE active = TRUE AND id <> $1', [myId]);
-    if (rows.some((r) => r.pin && bcrypt.compareSync(newPin, r.pin))) {
-      return res.status(409).json({ error: 'That PIN is already in use — choose another' });
-    }
-    await pool.query('UPDATE therapists SET pin = $1 WHERE id = $2', [bcrypt.hashSync(newPin, 10), myId]);
+    // SPA-PIN-ONLY-001 — with the name list gone this is not a nicety: a shared
+    // PIN means signing in as the wrong person.
+    const clash = await pinTakenBy(pool, newPin, myId);
+    if (clash) return res.status(409).json({ error: 'That PIN is already in use — choose another' });
+    await pool.query(
+      'UPDATE therapists SET pin = $1, pin_hmac = $2 WHERE id = $3',
+      [bcrypt.hashSync(newPin, 10), pinHmac(newPin), myId],
+    );
     res.json({ ok: true });
   } catch (err) {
     console.error('[auth/change-pin]', err);

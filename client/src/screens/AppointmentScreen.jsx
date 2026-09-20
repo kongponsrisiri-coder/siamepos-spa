@@ -959,13 +959,24 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   setPendingMove({ apptId: sourceId, appt: src, colId: col.id, colName: col.name, mins });
                 }}
               >
-                {/* SPA-DND-PRECISION-001 — drop preview */}
+                {/* SPA-DND-PRECISION-001 — where the booking will land.
+                    SPA-DRAG-GHOST-001 (Korakot, 20 Sep: "dont put the shadow,
+                    its make the staff confusing"): this used to be a dashed,
+                    filled, card-SHAPED box. On screen next to the faded
+                    original and the cursor's own drag image, that read as a
+                    third copy of the booking and staff could not tell which
+                    one was real. It is now a line, not a card — a line cannot
+                    be mistaken for an appointment — with the landing time and
+                    therapist on it, so the precision this was added for is
+                    kept. */}
                 {dragPreview && dragPreview.colId === col.id && draggedAppt && (() => {
                   const durM = Math.max(15, toLocalMins(draggedAppt.ends_at) - toLocalMins(draggedAppt.starts_at));
                   return (
-                    <div style={{ position: 'absolute', left: 3, right: 3, top: minsToPx(dragPreview.mins), height: Math.max(minsToPx(dragPreview.mins + durM) - minsToPx(dragPreview.mins) - 2, 26),
-                      border: '2px dashed var(--gold, #C9A84C)', background: 'rgba(201,168,76,0.18)', borderRadius: 7, zIndex: 6, pointerEvents: 'none' }}>
-                      <div style={{ position: 'absolute', top: -22, left: 0, background: 'var(--navy, #0D1B3E)', color: 'white', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>
+                    <div style={{ position: 'absolute', left: 3, right: 3, top: minsToPx(dragPreview.mins),
+                      zIndex: 6, pointerEvents: 'none' }}>
+                      <div style={{ height: 3, borderRadius: 2, background: 'var(--gold, #C9A84C)',
+                        boxShadow: '0 0 0 1px rgba(255,255,255,0.7)' }} />
+                      <div style={{ position: 'absolute', top: -11, left: 0, background: 'var(--navy, #0D1B3E)', color: 'white', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 6, whiteSpace: 'nowrap' }}>
                         {minsLabel(dragPreview.mins)}–{minsLabel(dragPreview.mins + durM)} · {col.name}
                       </div>
                     </div>

@@ -832,6 +832,16 @@ async function initSchema() {
     -- website sales never land in the till's physical card total.
     ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS channel TEXT NOT NULL DEFAULT 'till';
 
+    -- SPA-PIN-ONLY-001 — staff sign in with a PIN alone (no name list), so a
+    -- PIN must identify exactly one person and must be findable without
+    -- bcrypt-scanning every row. pin_hmac is a keyed HMAC of the PIN; the
+    -- UNIQUE index is what actually guarantees no two staff share a PIN.
+    -- Partial index: legacy rows are NULL until their owner next signs in or
+    -- an admin resets the PIN, and NULLs must not collide with each other.
+    ALTER TABLE therapists ADD COLUMN IF NOT EXISTS pin_hmac TEXT;
+    CREATE UNIQUE INDEX IF NOT EXISTS therapists_pin_hmac_uniq
+      ON therapists (pin_hmac) WHERE pin_hmac IS NOT NULL;
+
     -- SPA-PUSH-001 — tablets/phones that should buzz when a booking lands.
     -- One row per device token; a device re-registers on every sign-in, so a
     -- token that stops working is simply pruned when Firebase rejects it.

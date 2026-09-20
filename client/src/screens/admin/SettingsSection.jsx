@@ -44,6 +44,7 @@ export default function SettingsSection() {
         </div>
       </div>
       <LineConnectCard value={settings.line_notify_user_id} onChanged={load} />
+      <IdleLogoutCard settings={settings} save={save} busy={busy} />
       <div className="card col">
         <h3 style={{ margin: 0 }}>Spa identity</h3>
         {KEYS.map((row) => (
@@ -417,6 +418,43 @@ function Row({ row, value, busy, onSave }) {
       {dirty
         ? <div style={{ fontSize: 11, color: '#b45309', marginTop: 3 }}>Unsaved — click away or press Enter to save</div>
         : (justSaved ? <div style={{ fontSize: 11, color: '#15803d', marginTop: 3 }}>✓ Saved</div> : null)}
+    </div>
+  );
+}
+
+// ── SPA-IDLE-LOGOUT-001 — sign out when the till is left alone ──────────────
+// A spa till sits on reception with medical notes and card history one tap
+// away, and staff walk off between treatments. This returns it to the PIN
+// screen; a 20-second countdown warns first, and any touch cancels.
+function IdleLogoutCard({ settings, save, busy }) {
+  const raw = settings.auto_logout_minutes;
+  const current = raw === undefined || raw === null || raw === '' ? '2' : String(raw);
+  const CHOICES = [
+    ['1', '1 minute'], ['2', '2 minutes'], ['5', '5 minutes'],
+    ['10', '10 minutes'], ['30', '30 minutes'], ['0', 'Never'],
+  ];
+  return (
+    <div className="card col" style={{ gap: 10 }}>
+      <div>
+        <h3 style={{ margin: 0 }}>Sign out when idle</h3>
+        <div className="muted" style={{ fontSize: 13 }}>
+          How long the till waits before returning to the PIN screen. Staff get a
+          20-second warning first, and touching the screen keeps them signed in.
+        </div>
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        {CHOICES.map(([val, label]) => (
+          <button key={val} onClick={() => save('auto_logout_minutes', val)} disabled={busy}
+            className={current === val ? 'primary' : ''}
+            style={{ minHeight: 42, fontWeight: 700, fontSize: 13 }}>{label}</button>
+        ))}
+      </div>
+      {current === '0' && (
+        <div className="muted" style={{ fontSize: 12, color: '#b45309' }}>
+          The till will stay signed in until someone taps Log out. Anyone who picks
+          it up can see client records and take payments as that staff member.
+        </div>
+      )}
     </div>
   );
 }

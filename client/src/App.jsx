@@ -13,6 +13,7 @@ import ClientSearchScreen  from './screens/ClientSearchScreen.jsx';
 import ClientProfileScreen from './screens/ClientProfileScreen.jsx';
 import AdminScreen         from './screens/AdminScreen.jsx';
 import NewBookingAlert     from './components/NewBookingAlert.jsx'; // SPA-NOTIFY-LIVE-001
+import IdleLogout         from './components/IdleLogout.jsx'; // SPA-IDLE-LOGOUT-001
 import { canSeeAdmin, refreshPermissions } from './permissions.js'; // SPA-RBAC-001
 import SpaSetupScreen from './screens/SpaSetupScreen.jsx'; // SPA-ANDROID-001
 import { needsSetup } from './apiBase.js';
@@ -338,6 +339,9 @@ function AppShell({ children }) {
     <div style={{ minHeight: '100vh', minHeight: '100dvh', display: 'flex', flexDirection: 'column' }}>
       <TopNav />
       <NewBookingAlert />
+      {/* SPA-IDLE-LOGOUT-001 — only inside the signed-in shell, so it can
+          never fire on the login or first-run screens. */}
+      <IdleLogout />
       <main className="app-main" style={{
         flex: 1,
         padding: '16px 16px 0',
