@@ -98,6 +98,11 @@ app.post(
 );
 
 // JSON body parser for everything else.
+// SPA-LINE-PAIR-001 — same rule as the Stripe webhook above: LINE signs the
+// RAW bytes, so this must be registered BEFORE express.json() or the signature
+// can never match (it didn't — "bad signature" on every inbound message).
+app.use('/api/line', require('./routes/lineWebhook'));
+
 app.use(express.json({ limit: '2mb' }));
 
 // Health check for Railway + uptime monitors.
@@ -192,7 +197,6 @@ app.get('/pay-thanks', (req, res) => {
 app.use('/api/widget',    widgetRoutes);
 app.use('/api/concierge', conciergeRoutes); // SPA-WHATSAPP-AI-001 — secret-gated (X-Concierge-Secret)
 app.use('/api/whatsapp',  whatsappRoutes);  // SPA-WHATSAPP-AI-001 Stage 2 — Twilio inbound (signature-gated)
-app.use('/api/line',      require('./routes/lineWebhook')); // SPA-LINE-PAIR-001 — inbound LINE (signature-checked, forwards the rest)
 app.use('/api/sms',       smsInboundRoutes); // SPA-SMS-COST-001 — Twilio SMS replies → empty TwiML (no paid auto-reply)
 app.use('/api/webchat',   webchatRoutes);   // SPA-WEBCHAT-AI-001 — public website chat (CORS-whitelisted + rate-limited)
 app.use('/api/treatwell', treatwellRoutes);
