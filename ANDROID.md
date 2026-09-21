@@ -38,8 +38,17 @@ Same channel as the restaurant app: a GitHub release on the public
 gh release create spa-v1.0.1 \
   ~/Documents/SiamEPOS-Android/SiamEPOS-Spa-v1.0.1.apk#SiamEPOS-Spa-v1.0.1.apk \
   -R kongponsrisiri-coder/siamepos-releases \
+  --prerelease \
   --title "SiamEPOS Spa (Android) v1.0.1" --notes "what changed"
 ```
+
+⚠️ **`--prerelease` is mandatory** (Krit, 21 Sep 2026). The restaurant DESKTOP
+till's auto-updater reads `/releases/latest` of this repo, and GitHub's
+"latest" = the newest NON-prerelease release of ANY tag. spa-v1.3.0, v1.4.0 and
+v1.4.1 were published as full releases → every restaurant till's update check
+404'd on `spa-v1.4.1/latest.yml` (seen on the Phakoon till). The tablet APKs
+(`tablet-v*`) follow the same rule. A prerelease downloads exactly the same way;
+the flag only keeps it out of "latest".
 
 The page to send a client is the release page; the tablet can also hit the
 asset directly:
