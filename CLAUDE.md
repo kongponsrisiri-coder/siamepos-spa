@@ -44,6 +44,8 @@ workflow is fundamentally different.
 - Medical data: never log or expose beyond what is needed
 - GDPR: client DELETE must be permanent (no soft delete for erasure requests)
 - Korakot is a beginner — explain every step clearly
+- **🔴 Publishing to `kongponsrisiri-coder/siamepos-releases` (Android APK, any `spa-v*` tag): ALWAYS `--prerelease`.** That repo's `/releases/latest` is what every RESTAURANT desktop till's auto-updater reads, and GitHub's "latest" = newest non-prerelease of ANY tag. spa-v1.3.0 / v1.4.0 / v1.4.1 went out as full releases (20–21 Sep 2026) and broke every restaurant till's update check. A guard workflow in that repo now auto-flips such releases within a minute, but do not rely on it — the flag costs nothing and a prerelease downloads identically. Also **never publish a non-prerelease on that repo** for anything except the restaurant desktop `vX.Y.Z` tags (Krit's). Recipe with the flag: `ANDROID.md` → Publishing.
+- **Netlify: never rely on git auto-build for the spa frontends** — `siamspa` and `siamepos-spa` have auto-build OFF (20 Sep 2026, 77 credit-burning deploys in one evening). Deploy deliberately with the SPA-DEPLOY-ALL-001 command after a push.
 
 ## Railway Env Vars
 - DATABASE_URL — auto-set by Railway Postgres plugin
