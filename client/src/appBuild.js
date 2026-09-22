@@ -13,6 +13,17 @@ export function isNativeApp() {
   } catch { return false; }
 }
 
+// SPA-IOS-001 — which native shell this is. 'ios' on the iPad app (updates come
+// through TestFlight, there is no APK to offer), 'android' on the APK, null on the web.
+export function nativePlatform() {
+  try {
+    const c = window.Capacitor;
+    if (!c || !isNativeApp()) return null;
+    const p = typeof c.getPlatform === 'function' ? c.getPlatform() : null;
+    return p === 'ios' || p === 'android' ? p : null;
+  } catch { return null; }
+}
+
 // "1.0.10" > "1.0.9" — compare as numbers, not as text.
 export function isNewer(latest, installed) {
   if (!latest || !installed) return false;

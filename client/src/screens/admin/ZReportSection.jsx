@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../api.js';
+import { nativePlatform } from '../../appBuild.js';   // SPA-IOS-001 — WKWebView has no window.print()
 
 function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
 const KIND_LABEL = { treatment: '💆 Treatments', retail: '🛍 Products', addon: '➕ Add-ons' };
@@ -254,7 +255,7 @@ export default function ZReportSection() {
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={{ width: 170 }} />
           <button onClick={() => setDate(todayISO())}>Today</button>
           <button onClick={exportCsv} disabled={!data || bills.length === 0} title="Download line-by-line CSV with split breakdown + summary">📥 Export CSV</button>
-          <button onClick={() => window.print()} title="Print-friendly view of this Z report">🖨 Print</button>
+          {nativePlatform() !== 'ios' && <button onClick={() => window.print()} title="Print-friendly view of this Z report">🖨 Print</button>}
         </div>
       </div>
       <div className="card col">

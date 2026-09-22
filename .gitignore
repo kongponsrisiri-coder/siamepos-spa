@@ -20,3 +20,8 @@ client/android/local.properties
 client/android/keystore.properties
 client/android/app/google-services.json
 client/android/app/src/main/assets/public/
+# iOS (SPA-IOS-001) — build products + SPM caches; the project itself IS committed
+client/ios/App/build/
+client/ios/App/App/public/
+client/ios/App/App/capacitor.config.json
+client/ios/DerivedData/

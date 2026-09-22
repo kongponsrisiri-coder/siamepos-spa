@@ -7,6 +7,7 @@
 // Silent no-op on the web and on any build without Firebase configured, so
 // nothing here can break the till.
 import { api } from './api.js';
+import { nativePlatform } from './appBuild.js';   // SPA-IOS-001
 
 let registered = false;
 
@@ -32,7 +33,7 @@ export async function initPush(onOpen) {
 
     push.addListener('registration', async ({ value }) => {
       try {
-        await api.post('/push/register', { token: value, platform: 'android' });
+        await api.post('/push/register', { token: value, platform: nativePlatform() || 'android' });
       } catch (e) { /* the till works fine without push */ }
     });
     push.addListener('registrationError', (e) => console.warn('[push] registration failed', e));

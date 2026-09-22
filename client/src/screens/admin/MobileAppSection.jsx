@@ -7,7 +7,7 @@
 import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { api, apiBase } from '../../api.js';
-import { APP_BUILD, isNativeApp, isNewer } from '../../appBuild.js';
+import { APP_BUILD, isNativeApp, isNewer, nativePlatform } from '../../appBuild.js';
 import LineConnectCard from './LineConnectCard.jsx'; // SPA-LINE-WHERE-001
 
 export default function MobileAppSection() {
@@ -17,6 +17,7 @@ export default function MobileAppSection() {
   const [error, setError] = useState('');
 
   const inApp = isNativeApp();
+  const isIos = nativePlatform() === 'ios';   // SPA-IOS-001 — TestFlight updates itself; no APK to offer
 
   useEffect(() => {
     api.get('/app/android')
@@ -29,7 +30,7 @@ export default function MobileAppSection() {
   }, []);
 
   const link = info?.download_url || `${apiBase()}/app`;
-  const updateWaiting = inApp && isNewer(info?.version, APP_BUILD);
+  const updateWaiting = inApp && !isIos && isNewer(info?.version, APP_BUILD);
 
   async function copy() {
     try {
@@ -60,7 +61,8 @@ export default function MobileAppSection() {
             {updateWaiting ? `Update available — version ${info.version}` : 'You are on the latest version'}
           </div>
           <div style={{ fontSize: 13, color: updateWaiting ? '#92400e' : '#166534' }}>
-            Installed: {APP_BUILD || 'unknown'}{info?.version ? ` · Latest: ${info.version}` : ''}
+            Installed: {APP_BUILD || 'unknown'}{!isIos && info?.version ? ` · Latest: ${info.version}` : ''}
+            {isIos && ' · iPad app — updates arrive through TestFlight by themselves'}
           </div>
           {updateWaiting && (
             <>

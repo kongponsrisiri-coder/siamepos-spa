@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../api.js';
+import { nativePlatform } from '../../appBuild.js';   // SPA-IOS-001 — WKWebView has no window.print()
 
 function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
 function fmtMins(n) {
@@ -201,7 +202,7 @@ export default function ReportsSection() {
         </div>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
           <button onClick={exportCsv} disabled={!therapistData}>📥 Export CSV</button>
-          <button onClick={() => window.print()}>🖨 Print</button>
+          {nativePlatform() !== 'ios' && <button onClick={() => window.print()}>🖨 Print</button>}
         </div>
       </div>
 
