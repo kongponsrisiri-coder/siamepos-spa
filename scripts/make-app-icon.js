@@ -141,6 +141,16 @@ if (process.argv.includes('--desktop')) {
   process.exit(0);
 }
 
+// SPA-IOS-001 — the iPad app icon: Apple wants a plain opaque square (it rounds
+// the corners itself), so this is the Android preview artwork at 1024 px written
+// where @capacitor/assets picks it up for iOS (resources/icon-only.png).
+if (process.argv.includes('--ios')) {
+  const out = path.resolve(__dirname, '../client/resources/icon-only.png');
+  render(foregroundSvg(1024, true), 1024, out, false);
+  console.log('iOS icon source written to client/resources/icon-only.png (1024)');
+  process.exit(0);
+}
+
 if (process.argv.includes('--preview')) {
   const out = path.resolve(__dirname, '../docs/app-icon-preview.png');
   fs.mkdirSync(path.dirname(out), { recursive: true });
