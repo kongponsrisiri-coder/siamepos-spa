@@ -19,6 +19,7 @@ client/android/.gradle/
 client/android/local.properties
 client/android/keystore.properties
 client/android/app/google-services.json
+client/ios/App/App/GoogleService-Info.plist
 client/android/app/src/main/assets/public/
 # iOS (SPA-IOS-001) — build products + SPM caches; the project itself IS committed
 client/ios/App/build/
