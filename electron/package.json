@@ -75,7 +75,10 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "entitlements.mac.plist",
-      "entitlementsInherit": "entitlements.mac.plist"
+      "entitlementsInherit": "entitlements.mac.plist",
+      "extendInfo": {
+        "NSCameraUsageDescription": "SiamEPOS Spa uses the camera to scan voucher QR codes at checkout."
+      }
     },
     "dmg": {
       "title": "SiamEPOS Spa Setup"

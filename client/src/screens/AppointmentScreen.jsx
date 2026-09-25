@@ -1057,6 +1057,11 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   // already its title line, so only real bookings get the peek.
                   const noteText = isBlockAppt ? '' : String(a.notes || '').trim();
                   const hasNote  = Boolean(noteText);
+                  // SPA-CONTACT-PEEK-001 — the hover card also carries the
+                  // customer's phone (what the mobile detail sheet shows on
+                  // tap), so every real booking gets one, note or not.
+                  const phoneText = isBlockAppt ? '' : String(a.client_phone || '').trim();
+                  const hasPeek   = hasNote || Boolean(phoneText);
                   // SPA-INDICATORS-001 — ⭐ extended time: the booking runs
                   // longer than its treatment's standard duration (client ask;
                   // ❤️ = requested therapist, ⭐ = extended).
@@ -1108,11 +1113,12 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                       // shows the whole thing, so nobody opens the card just to
                       // read one line. Touch screens have no hover: there the
                       // foot strip and the detail sheet carry it.
-                      onMouseEnter={!isTouch && hasNote ? e => {
+                      onMouseEnter={!isTouch && hasPeek ? e => {
+                        if (draggedApptId) return;
                         const r = e.currentTarget.getBoundingClientRect();
-                        setNoteHover({ text: noteText, name: a.client_name, top: r.top, bottom: r.bottom, left: r.left });
+                        setNoteHover({ text: noteText, phone: phoneText, name: a.client_name, top: r.top, bottom: r.bottom, left: r.left });
                       } : undefined}
-                      onMouseLeave={!isTouch && hasNote ? () => setNoteHover(null) : undefined}
+                      onMouseLeave={!isTouch && hasPeek ? () => setNoteHover(null) : undefined}
                       onClick={e => { e.stopPropagation(); if (suppressClickRef.current) return; onSelect(isSel ? null : a); }}
                       // SPA-BLOCK-RESIZE-001 — children (the two grab bars) set
                       // this so the block's own drag never starts on a resize.
@@ -1339,7 +1345,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
             <span style={{ fontSize: 10 }}>🤰</span> Pregnancy — specialist
           </span>
           <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 10 }}>📝</span> Has a note — hover to read it
+            <span style={{ fontSize: 10 }}>📝</span> Has a note — hover a booking for note and phone
           </span>
           {/* SPA-DEPOSIT-BADGE legend */}
           <span style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -1351,7 +1357,8 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
           </span>
         </div>
       )}
-      {/* SPA-NOTE-PEEK-001 — the full remark, following the hovered card.
+      {/* SPA-NOTE-PEEK-001 / SPA-CONTACT-PEEK-001 — customer name, phone
+          and the full remark, following the hovered card.
           Fixed so the scroll area never clips it, pointerEvents:'none' so it
           can never sit between the mouse and the booking underneath. */}
       {noteHover && (() => {
@@ -1369,10 +1376,20 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
             boxShadow: '0 10px 28px rgba(13,27,62,0.34)',
             whiteSpace: 'pre-wrap', wordBreak: 'break-word',
           }}>
-            <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.7, textTransform: 'uppercase', opacity: 0.55, marginBottom: 3 }}>
-              Note{noteHover.name ? ` · ${noteHover.name}` : ''}
-            </div>
-            {noteHover.text}
+            {noteHover.name && (
+              <div style={{ fontSize: 13.5, fontWeight: 800, marginBottom: 2 }}>{noteHover.name}</div>
+            )}
+            {noteHover.phone && (
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#86efac' }}>📞 {noteHover.phone}</div>
+            )}
+            {noteHover.text && (
+              <>
+                <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: 0.7, textTransform: 'uppercase', opacity: 0.55, margin: '7px 0 3px' }}>
+                  Note
+                </div>
+                {noteHover.text}
+              </>
+            )}
           </div>
         );
       })()}
