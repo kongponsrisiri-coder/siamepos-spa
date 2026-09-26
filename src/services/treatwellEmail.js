@@ -99,6 +99,103 @@ function detectAction(subject, text) {
   return 'unknown';
 }
 
+
+// SPA-TREATWELL-MULTI-001 — one Treatwell ORDER can hold several treatments
+// (found live 26 Sep at Highbury: Reflexology 10:00 + Head, Neck & Shoulder
+// 10:45 under ONE T-ref; only the first reached the timetable). The email then
+// repeats the Appointment block per treatment and the Booking Details list
+// repeats `Product Name:`. We read BOTH shapes and return `services[]`
+// (always ≥1 entry when a treatment/time is found). Top-level fields stay the
+// FIRST service, so single-treatment callers behave exactly as before.
+
+// "(1 hour 30 minutes )" / "(45 minutes)" / "(1 hour )" → minutes | null
+function durFrom(s) {
+  if (!s) return null;
+  const h = s.match(/(\d+)\s*hours?/i);
+  const m = s.match(/(\d+)\s*min/i);
+  if (!h && !m) return null;
+  return (h ? Number(h[1]) * 60 : 0) + (m ? Number(m[1]) : 0);
+}
+
+// Appointment-block headers: a line ending in "(<n> hour[s] <n> min…)". The
+// LAST parenthesis on the line is the duration, so a name that carries its own
+// brackets ("Thai Massage (Deep)") survives.
+const HEADER_RE = /^[ \t]*([A-Za-z][^\n]*?)[ \t]*\([ \t]*((?:\d+[ \t]*hours?)?[ \t]*(?:\d+[ \t]*min\w*)?)[ \t]*\)[ \t]*$/gim;
+
+function appointmentBlocks(body) {
+  const stopAt = (() => {
+    const m = body.search(/^\s*\*?Booking Details\*?\s*$|^\s*Booked:/im);
+    return m < 0 ? body.length : m;
+  })();
+  const heads = [];
+  let m;
+  HEADER_RE.lastIndex = 0;
+  while ((m = HEADER_RE.exec(body)) && m.index < stopAt) {
+    const durationMin = durFrom(m[2]);
+    if (durationMin) heads.push({ at: m.index, end: m.index + m[0].length, treatment: m[1].trim(), durationMin });
+  }
+  return heads.map((h, i) => {
+    const seg = body.slice(h.end, i + 1 < heads.length ? heads[i + 1].at : stopAt);
+    const dt = field(seg, ['Date/time']);
+    const when = dt ? parseDateTime(dt) : parseDateTime(field(seg, ['Date']), field(seg, ['Time']));
+    const pm = seg.match(/Price(?:\s+paid)?\s*:?\s*£\s*([\d.,]+)/i);
+    return {
+      treatment: h.treatment,
+      durationMin: h.durationMin,
+      startLocal: when && when.hasTime ? when.startLocal : null,
+      room: field(seg, ['with']),
+      price: pm ? Number(pm[1].replace(/,/g, '')) : null,
+    };
+  });
+}
+
+function productLines(body) {
+  const out = [];
+  const re = /^\s*Product Name\s*:?\s+(.+?)\s*$/gim;
+  const idx = [];
+  let m;
+  while ((m = re.exec(body))) idx.push({ at: m.index, end: m.index + m[0].length, name: m[1].trim() });
+  idx.forEach((p, i) => {
+    const seg = body.slice(p.end, i + 1 < idx.length ? idx[i + 1].at : body.length);
+    const opt = field(seg, ['Product option']);
+    const pm = seg.match(/Price paid\s*:?\s*£\s*([\d.,]+)/i);
+    out.push({ treatment: p.name, durationMin: durFrom(opt), price: pm ? Number(pm[1].replace(/,/g, '')) : null });
+  });
+  return out;
+}
+
+// Merge blocks (carry times) with product lines (carry clean names). When the
+// email gives fewer times than treatments, the missing ones run back-to-back
+// after the previous one — that is how Treatwell sells a multi-treatment order.
+function buildServices(body, first) {
+  const blocks = appointmentBlocks(body);
+  const products = productLines(body);
+  const n = Math.max(blocks.length, products.length);
+  if (n <= 1) return first.startLocal || first.treatment ? [first] : [];
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const b = blocks[i] || {};
+    const p = products[i] || {};
+    const svc = {
+      treatment: p.treatment || b.treatment || null,
+      durationMin: b.durationMin || p.durationMin || null,
+      startLocal: b.startLocal || null,
+      room: b.room || null,
+      price: p.price != null ? p.price : (b.price != null ? b.price : null),
+    };
+    if (!svc.startLocal) {
+      const prev = out[i - 1];
+      if (i === 0) svc.startLocal = first.startLocal;
+      else if (prev && prev.startLocal) {
+        const t = new Date(`${prev.startLocal}Z`).getTime() + (prev.durationMin || 60) * 60000;
+        svc.startLocal = new Date(t).toISOString().slice(0, 19);
+      }
+    }
+    out.push(svc);
+  }
+  return out;
+}
+
 /**
  * Parse a forwarded Treatwell email.
  * @param {{subject?:string, text:string}} email  raw plaintext body (+ optional subject)
@@ -187,6 +284,17 @@ function parseTreatwellEmail({ subject = '', text = '' } = {}) {
   }
   const confidence = missing.length === 0 ? 'high' : (missing.length <= 1 ? 'medium' : 'low');
 
+  // SPA-TREATWELL-MULTI-001 — every treatment in the order (see buildServices).
+  const services = buildServices(body, {
+    treatment, durationMin, startLocal: when ? when.startLocal : null, room, price,
+  });
+  if (services.length > 1) {
+    // Top-level = the first treatment of the order (the block, not the first
+    // "Product Name" line, may carry a cleaner time) — keeps old callers right.
+    treatment = services[0].treatment || treatment;
+    durationMin = services[0].durationMin || durationMin;
+  }
+
   return {
     ok: true,
     action,                       // 'create' | 'reschedule' | 'cancel'
@@ -204,9 +312,10 @@ function parseTreatwellEmail({ subject = '', text = '' } = {}) {
     prepaid,
     unpaid,                       // SPA-TREATWELL-UNPAID-001
     cancelReason,
+    services,                     // SPA-TREATWELL-MULTI-001 — [{treatment,durationMin,startLocal,room,price}]
     confidence,                   // 'high' | 'medium' | 'low'
     missing,                      // [] when fully parsed
   };
 }
 
-module.exports = { parseTreatwellEmail };
+module.exports = { parseTreatwellEmail, buildServices };
