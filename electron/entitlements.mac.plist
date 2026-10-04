@@ -18,6 +18,9 @@
     <true/>
     <key>com.apple.security.device.print</key>
     <true/>
+    <!-- SPA-VOUCHER-QR-001 — camera for scanning voucher QR codes -->
+    <key>com.apple.security.device.camera</key>
+    <true/>
     <key>com.apple.security.network.client</key>
     <true/>
     <key>com.apple.security.network.server</key>

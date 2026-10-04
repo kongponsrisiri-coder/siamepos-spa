@@ -20,7 +20,7 @@
 // Native extras carried over from Phase A: silent receipt printing, silent
 // background auto-update, single installed-app window.
 
-const { app, BrowserWindow, Menu, ipcMain, shell, dialog, safeStorage } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, shell, dialog, safeStorage, session, systemPreferences } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -183,6 +183,22 @@ function waitForServer(timeoutMs = 25000) {
     };
     const retry = () => (Date.now() > deadline ? resolve(false) : setTimeout(probe, 400));
     probe();
+  });
+}
+
+// ── Camera (SPA-VOUCHER-QR-001) ─────────────────────────────────────
+// The voucher scanner at checkout opens the camera. On a Mac, macOS itself must
+// say yes first — ask it (Info.plist + entitlement make the ask possible), or
+// the first scan can fail before the macOS prompt ever shows. Every other
+// permission keeps Electron's default: allowed.
+function installPermissionHandler() {
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback, details) => {
+    const wantsCamera = permission === 'media' && ((details && details.mediaTypes) || []).includes('video');
+    if (wantsCamera && process.platform === 'darwin') {
+      systemPreferences.askForMediaAccess('camera').then((ok) => callback(ok), () => callback(false));
+      return;
+    }
+    callback(true);
   });
 }
 
@@ -428,6 +444,7 @@ if (!gotLock) {
   });
 
   app.whenReady().then(() => {
+    installPermissionHandler();
     buildMenu();
     createWindow();
     boot();

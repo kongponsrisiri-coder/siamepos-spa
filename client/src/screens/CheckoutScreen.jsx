@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
 import { can } from '../permissions.js'; // SPA-RBAC-001
 import { toast } from '../toast.js';
+import QrScanModal from '../components/QrScanModal.jsx'; // SPA-VOUCHER-QR-001
 
 function fmtMoney(n) { return `£${Number(n || 0).toFixed(2)}`; }
 
@@ -21,6 +22,7 @@ export default function CheckoutScreen() {
   const [voucherError, setVoucherError]   = useState('');
   const [showVoucher, setShowVoucher]     = useState(false);
   const [extVoucherAmt, setExtVoucherAmt] = useState('');  // external (pre-SiamEPOS) voucher amount
+  const [scanVoucher, setScanVoucher]     = useState(false);  // SPA-VOUCHER-QR-001 camera open
   const [showSplit, setShowSplit]         = useState(false);
   const [showDiscount, setShowDiscount]   = useState(false);
   const [discountReason, setDiscountReason] = useState('');
@@ -213,11 +215,14 @@ export default function CheckoutScreen() {
     }
   }
 
-  async function lookupVoucher() {
-    if (!voucherCode.trim()) return;
+  // codeArg — SPA-VOUCHER-QR-001: a scanned code is looked up straight away,
+  // before the voucherCode state update has landed.
+  async function lookupVoucher(codeArg) {
+    const code = String(typeof codeArg === 'string' ? codeArg : voucherCode).trim().toUpperCase();
+    if (!code) return;
     setVoucherError('');
     try {
-      const r = await api.get(`/vouchers/lookup?code=${encodeURIComponent(voucherCode.trim().toUpperCase())}`);
+      const r = await api.get(`/vouchers/lookup?code=${encodeURIComponent(code)}`);
       if (r.voucher.status !== 'active') {
         setVoucherError(`Voucher is ${r.voucher.status}`);
         setVoucherLookup(null);
@@ -806,8 +811,20 @@ export default function CheckoutScreen() {
                     style={{ flex: 1, fontFamily: 'monospace', letterSpacing: 1 }}
                     onKeyDown={e => e.key === 'Enter' && lookupVoucher()}
                   />
-                  <button onClick={lookupVoucher} disabled={!voucherCode.trim()}>Check</button>
+                  <button onClick={() => lookupVoucher()} disabled={!voucherCode.trim()}>Check</button>
+                  <button onClick={() => setScanVoucher(true)} title="Scan the voucher's QR code with the camera">📷 Scan</button>
                 </div>
+                {scanVoucher && (
+                  <QrScanModal
+                    onClose={() => setScanVoucher(false)}
+                    onResult={code => {
+                      const c = code.toUpperCase();
+                      setScanVoucher(false);
+                      setVoucherCode(c); setVoucherLookup(null);
+                      lookupVoucher(c);
+                    }}
+                  />
+                )}
                 {voucherError && <div style={{ color: 'var(--danger)', fontSize: 13, marginTop: 6 }}>{voucherError}</div>}
                 {/* SPA-EXT-VOUCHER — record a voucher the customer already had
                     before moving to SiamEPOS (not in our system). */}
@@ -1223,6 +1240,7 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
   ]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [scanRow, setScanRow] = useState(null);  // SPA-VOUCHER-QR-001 — row index being scanned
 
   const METHODS = [
     { id: 'cash',     label: 'Cash',    bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
@@ -1336,6 +1354,12 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
 
   return (
     <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+      {scanRow != null && (
+        <QrScanModal
+          onClose={() => setScanRow(null)}
+          onResult={code => { const i = scanRow; setScanRow(null); lookupVoucher(i, code.toUpperCase()); }}
+        />
+      )}
       {/* Flex-column layout so the balance header + Confirm footer stay
           visible on portrait mobile, while the payment-row list scrolls
           in between. Override the default .modal padding so we can pin
@@ -1451,6 +1475,11 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
                           disabled={!r.voucherCode}
                           style={{ background: ms.border, color: 'white', fontWeight: 700, padding: '6px 14px' }}
                         >Check</button>
+                        <button
+                          onClick={() => setScanRow(i)}
+                          title="Scan the voucher's QR code with the camera"
+                          style={{ padding: '6px 10px' }}
+                        >📷</button>
                       </div>
                     ) : (
                       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', background: 'white', borderRadius: 6, padding: '6px 12px', border: `1px solid ${ms.border}` }}>

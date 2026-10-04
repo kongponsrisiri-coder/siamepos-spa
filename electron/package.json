@@ -1,6 +1,6 @@
 {
   "name": "siamepos-spa-electron",
-  "version": "0.2.53",
+  "version": "0.2.54",
   "description": "SiamEPOS Spa desktop shell \u2014 Thai massage & spa management till",
   "main": "main.js",
   "private": true,
@@ -75,7 +75,10 @@
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "entitlements.mac.plist",
-      "entitlementsInherit": "entitlements.mac.plist"
+      "entitlementsInherit": "entitlements.mac.plist",
+      "extendInfo": {
+        "NSCameraUsageDescription": "SiamEPOS Spa uses the camera to scan voucher QR codes at checkout."
+      }
     },
     "dmg": {
       "title": "SiamEPOS Spa Setup"

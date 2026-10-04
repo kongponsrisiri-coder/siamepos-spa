@@ -144,19 +144,57 @@ async function autoAssign(treatmentId, startIso) {
 }
 
 // ── CREATE ───────────────────────────────────────────────────────────────────
+// SPA-TREATWELL-MULTI-001 — appointment key per treatment in an order. The
+// first keeps the bare T-ref (so every row imported before this fix, and Sam's
+// webhook rows, still match); the 2nd, 3rd… get "T…#2", "T…#3". One order =
+// ref OR ref#n, which is what reschedule/cancel look up.
+function serviceKey(ref, i) { return i === 0 ? ref : `${ref}#${i + 1}`; }
+const ORDER_MATCH = `(treatwell_booking_id = $1 OR treatwell_booking_id LIKE $1 || '#%')`;
+
 async function createBooking(parsed, raw, io) {
-  const startIso = toStartIso(parsed);
-  if (!startIso) {
-    await logIngestion({ ...logBase(parsed, raw), status: 'needs_review', error: 'no parseable start time' });
-    return { action: 'create', status: 'needs_review', reason: 'no start time' };
+  const services = Array.isArray(parsed.services) && parsed.services.length > 1 ? parsed.services : null;
+  if (!services) {
+    const r = await placeOne(parsed, parsed.ref, raw, io);
+    if (r.status !== 'placed' && r.status !== 'duplicate') {
+      await logIngestion({ ...logBase(parsed, raw), status: r.status, error: r.error });
+      return { action: 'create', status: r.status, reason: r.reason };
+    }
+    await logIngestion({ ...logBase(parsed, raw), status: r.status, appointmentId: r.appointment_id });
+    return { action: 'create', ...r };
   }
+  // Multi-treatment order: place each treatment; a re-delivered email only
+  // fills the ones still missing (e.g. an order imported before this fix).
+  const results = [];
+  for (let i = 0; i < services.length; i++) {
+    const svc = services[i];
+    const one = {
+      ...parsed,
+      treatment: svc.treatment || (i === 0 ? parsed.treatment : null),
+      durationMin: svc.durationMin || null,
+      startLocal: svc.startLocal || null,
+      room: svc.room || (i === 0 ? parsed.room : null),
+      price: svc.price != null ? svc.price : null,
+    };
+    results.push(await placeOne(one, serviceKey(parsed.ref, i), raw, io));
+  }
+  const ids = results.map((r) => r.appointment_id).filter(Boolean);
+  const placed = results.filter((r) => r.status === 'placed').length;
+  const review = results.filter((r) => r.status === 'needs_review').length;
+  const status = review ? 'needs_review' : (placed ? 'placed' : 'duplicate');
+  await logIngestion({ ...logBase(parsed, raw), status, appointmentId: ids[0] || null,
+    error: review ? `${review} of ${services.length} treatments had no parseable start time` : null });
+  return { action: 'create', status, appointment_id: ids[0] || null, appointment_ids: ids,
+           treatments: services.length, placed };
+}
+
+// Place ONE appointment under `bookingId`. Returns an outcome; the caller logs.
+async function placeOne(parsed, bookingId, raw, io) {
+  const startIso = toStartIso(parsed);
+  if (!startIso) return { status: 'needs_review', reason: 'no start time', error: 'no parseable start time' };
 
   // Dedup first (outside any txn) — cheap + idempotent against re-delivery.
-  const dup = await pool.query(`SELECT id FROM appointments WHERE treatwell_booking_id = $1 LIMIT 1`, [parsed.ref]);
-  if (dup.rows[0]) {
-    await logIngestion({ ...logBase(parsed, raw), status: 'duplicate', appointmentId: dup.rows[0].id });
-    return { action: 'create', status: 'duplicate', appointment_id: dup.rows[0].id };
-  }
+  const dup = await pool.query(`SELECT id FROM appointments WHERE treatwell_booking_id = $1 LIMIT 1`, [bookingId]);
+  if (dup.rows[0]) return { status: 'duplicate', appointment_id: dup.rows[0].id };
 
   const treatment = await matchTreatment(pool, parsed.treatment,
     { durationMin: parsed.durationMin, prepaid: !!parsed.prepaid });
@@ -200,7 +238,7 @@ async function createBooking(parsed, raw, io) {
   if (DB_MODE === 'local') {
     const cli = await findOrCreateClient(pool, parsed);
     const r = await pool.query(insertSql,
-      [cli.id, treatmentId, therapistId, roomId, startIso, endIso, notes, parsed.ref, priceAtBooking, paymentType, src]);
+      [cli.id, treatmentId, therapistId, roomId, startIso, endIso, notes, bookingId, priceAtBooking, paymentType, src]);
     appt = r.rows[0];
   } else {
     const db = await pool.connect();
@@ -212,7 +250,7 @@ async function createBooking(parsed, raw, io) {
       if (therapistId) await db.query('SELECT pg_advisory_xact_lock(1, $1)', [therapistId]);
       if (roomId)      await db.query('SELECT pg_advisory_xact_lock(2, $1)', [roomId]);
       const r = await db.query(insertSql,
-        [cli.id, treatmentId, therapistId, roomId, startIso, endIso, notes, parsed.ref, priceAtBooking, paymentType, src]);
+        [cli.id, treatmentId, therapistId, roomId, startIso, endIso, notes, bookingId, priceAtBooking, paymentType, src]);
       await db.query('COMMIT');
       appt = r.rows[0];
     } catch (e) {
@@ -246,25 +284,67 @@ async function createBooking(parsed, raw, io) {
     } catch (e) { console.error('[treatwellIngest] owner notify failed:', e.message); }
   })();
 
-  await logIngestion({ ...logBase(parsed, raw), status: 'placed', appointmentId: appt.id });
-  return { action: 'create', status: 'placed', appointment_id: appt.id,
+  return { status: 'placed', appointment_id: appt.id,
            treatment_matched: !!treatmentId, therapist_assigned: !!therapistId, conflict: !!conflict };
 }
 
 // ── RESCHEDULE (move) — the gap Sam's webhook doesn't cover ───────────────────
+// SPA-TREATWELL-MULTI-001 — an order may hold several appointments (ref, ref#2…).
+// Email gives a time per treatment → pair them up in time order. Email gives
+// ONE time → if it names exactly one of the order's treatments move just that
+// one, otherwise move the whole order by the same shift (keeps them back to back).
 async function rescheduleBooking(parsed, raw, io) {
   const startIso = toStartIso(parsed);
   const found = await pool.query(
-    `SELECT id, treatment_id, therapist_id, notes FROM appointments WHERE treatwell_booking_id = $1 AND status NOT IN ('cancelled','no_show') ORDER BY id DESC LIMIT 1`,
+    `SELECT a.id, a.treatment_id, a.therapist_id, a.notes, a.starts_at, a.ends_at, t.name AS treatment_name
+       FROM appointments a LEFT JOIN treatments t ON t.id = a.treatment_id
+      WHERE ${ORDER_MATCH.replace(/treatwell_booking_id/g, 'a.treatwell_booking_id')}
+        AND a.status NOT IN ('cancelled','no_show')
+      ORDER BY a.starts_at ASC, a.id ASC`,
     [parsed.ref]);
-  const row = found.rows[0];
-  if (!row || !startIso) {
+  const rows = found.rows;
+  if (!rows.length || !startIso) {
     // We never ingested the original (or no new time) → leave for staff.
     await logIngestion({ ...logBase(parsed, raw), status: 'needs_review',
-      error: !row ? 'reschedule for unknown booking ref' : 'no parseable new time' });
+      error: !rows.length ? 'reschedule for unknown booking ref' : 'no parseable new time' });
     return { action: 'reschedule', status: 'needs_review' };
   }
-  let durationMin = parsed.durationMin;
+
+  const ms = (v) => new Date(v).getTime();
+  const lengthOf = (r) => Math.round((ms(r.ends_at) - ms(r.starts_at)) / 60000) || null;
+  const svcs = (Array.isArray(parsed.services) ? parsed.services : [])
+    .filter((x) => x.startLocal)
+    .map((x) => ({ ...x, startIso: toStartIso({ startLocal: x.startLocal, date: x.startLocal.slice(0, 10) }) }))
+    .sort((x, y) => ms(x.startIso) - ms(y.startIso));
+
+  let moves;
+  if (rows.length === 1) {
+    moves = [{ row: rows[0], startIso, durationMin: parsed.durationMin || null }];
+  } else if (svcs.length === rows.length) {
+    moves = rows.map((row, i) => ({ row, startIso: svcs[i].startIso, durationMin: svcs[i].durationMin || lengthOf(row) }));
+  } else {
+    const named = parsed.treatment
+      ? rows.filter((r) => r.treatment_name && r.treatment_name.toLowerCase() === String(parsed.treatment).toLowerCase())
+      : [];
+    if (named.length === 1) {
+      moves = [{ row: named[0], startIso, durationMin: parsed.durationMin || lengthOf(named[0]) }];
+    } else {
+      const shift = ms(startIso) - ms(rows[0].starts_at);
+      moves = rows.map((row) => ({ row, startIso: new Date(ms(row.starts_at) + shift).toISOString(), durationMin: lengthOf(row) }));
+    }
+  }
+
+  const done = [];
+  for (const mv of moves) done.push(await moveOne(mv.row, mv.startIso, mv.durationMin, io));
+  const conflicts = done.filter((d) => d.conflictNote);
+  await logIngestion({ ...logBase(parsed, raw),
+    status: conflicts.length ? 'needs_review' : 'placed', appointmentId: done[0].id,
+    error: conflicts.length ? conflicts[0].conflictNote : null });
+  return { action: 'reschedule', status: conflicts.length ? 'needs_review' : 'moved',
+           appointment_id: done[0].id, appointment_ids: done.map((d) => d.id) };
+}
+
+async function moveOne(row, startIso, durationMin, io) {
   if (!durationMin && row.treatment_id) {
     const t = await pool.query('SELECT duration_minutes FROM treatments WHERE id = $1', [row.treatment_id]);
     durationMin = t.rows[0]?.duration_minutes;
@@ -307,22 +387,21 @@ async function rescheduleBooking(parsed, raw, io) {
     `UPDATE appointments SET starts_at = $2, ends_at = $3, therapist_id = $4, notes = $5 WHERE id = $1 RETURNING *`,
     [row.id, startIso, endIso, newTherapistId, newNotes]);
   io?.emit('appointment_updated', upd.rows[0]);
-  await logIngestion({ ...logBase(parsed, raw),
-    status: conflictNote ? 'needs_review' : 'placed', appointmentId: row.id,
-    error: conflictNote });
-  return { action: 'reschedule', status: conflictNote ? 'needs_review' : 'moved', appointment_id: row.id };
+  return { id: row.id, conflictNote };
 }
 
 // ── CANCEL ───────────────────────────────────────────────────────────────────
+// Treatwell cancels the ORDER → every treatment in it (ref, ref#2, …).
 async function cancelBooking(parsed, raw, io) {
   const r = await pool.query(
-    `UPDATE appointments SET status = 'cancelled' WHERE treatwell_booking_id = $1 AND status <> 'cancelled' RETURNING id`,
+    `UPDATE appointments SET status = 'cancelled' WHERE ${ORDER_MATCH} AND status <> 'cancelled' RETURNING id`,
     [parsed.ref]);
-  const id = r.rows[0]?.id || null;
-  if (id) io?.emit('appointment_status', { id, status: 'cancelled' });
+  const ids = r.rows.map((x) => x.id);
+  for (const id of ids) io?.emit('appointment_status', { id, status: 'cancelled' });
+  const id = ids[0] || null;
   await logIngestion({ ...logBase(parsed, raw), status: id ? 'placed' : 'needs_review',
     appointmentId: id, error: id ? null : 'cancel for unknown booking ref' });
-  return { action: 'cancel', status: id ? 'cancelled' : 'needs_review', appointment_id: id };
+  return { action: 'cancel', status: id ? 'cancelled' : 'needs_review', appointment_id: id, appointment_ids: ids };
 }
 
 function logBase(parsed, raw) {

@@ -115,6 +115,17 @@
   }
 
   function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
+
+  // SPA-WIDGET-GROUP-002 — "Thai massage 60 mins" → "Thai massage". Only a
+  // trailing duration that matches the treatment's OWN duration is removed,
+  // so a name like "Package 5 x 60 mins" on a 300-min treatment stays whole.
+  function baseTreatmentName(t) {
+    var name = String(t.name || '').trim();
+    var m = /^(.*?)[\s\-–—(,:]*(\d+(?:\.\d+)?)\s*(minutes|minute|mins|min|m|hours|hour|hrs|hr|h)\.?\)?$/i.exec(name);
+    if (!m || !m[1].trim()) return name;
+    var mins = /^h/i.test(m[3]) ? Number(m[2]) * 60 : Number(m[2]);
+    return Math.round(mins) === Number(t.duration_minutes) ? m[1].trim() : name;
+  }
   function fmtTime(iso) {
     return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
   }
@@ -446,10 +457,20 @@
         // Group this category's rows by treatment NAME → ONE card per treatment,
         // with each duration shown as a tap-pill (min · price). Fixes the
         // "5 identical cards for one massage" scroll problem.
+        // SPA-WIDGET-GROUP-002 — a spa that writes the duration INTO the name
+        // ("Thai massage 60 mins", "Thai massage 90 mins" — Highbury) now gets
+        // one card too: the card groups by the name minus that suffix.
         var byName = {};
-        byCat[cat].forEach(function (t) { (byName[t.name] = byName[t.name] || []).push(t); });
-        Object.keys(byName).forEach(function (name) {
-          var variants = byName[name].slice().sort(function (a, b) {
+        var order = [];
+        byCat[cat].forEach(function (t) {
+          var base = baseTreatmentName(t);
+          var key = base.toLowerCase().replace(/\s+/g, ' ');
+          if (!byName[key]) { byName[key] = []; order.push({ key: key, name: base }); }
+          byName[key].push(t);
+        });
+        order.forEach(function (o) {
+          var name = o.name;
+          var variants = byName[o.key].slice().sort(function (a, b) {
             return (a.duration_minutes || 0) - (b.duration_minutes || 0);
           });
           var anyOn = variants.some(function (v) { return state.treatmentId === v.id; });
