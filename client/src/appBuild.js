@@ -24,3 +24,12 @@ export function isNewer(latest, installed) {
   }
   return false;
 }
+
+// PLAY-CLOSED-001 — the Google Play build registers a marker plugin. There, Play updates the app and Play's policy
+// bans linking to APK files, so Admin → Mobile App hides the download link / QR / "Download the update".
+export function isPlayBuild() {
+  try {
+    const c = window.Capacitor;
+    return isNativeApp() && !!(c && c.isPluginAvailable && c.isPluginAvailable('PlayStore'));
+  } catch { return false; }
+}

@@ -7,7 +7,7 @@
 import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
 import { api, apiBase } from '../../api.js';
-import { APP_BUILD, isNativeApp, isNewer } from '../../appBuild.js';
+import { APP_BUILD, isNativeApp, isNewer, isPlayBuild } from '../../appBuild.js';
 import LineConnectCard from './LineConnectCard.jsx'; // SPA-LINE-WHERE-001
 
 export default function MobileAppSection() {
@@ -17,6 +17,7 @@ export default function MobileAppSection() {
   const [error, setError] = useState('');
 
   const inApp = isNativeApp();
+  const play = isPlayBuild();   // PLAY-CLOSED-001
 
   useEffect(() => {
     api.get('/app/android')
@@ -49,8 +50,19 @@ export default function MobileAppSection() {
 
       {error && <div className="card" style={{ background: '#fef2f2', border: '1px solid #fca5a5', color: '#991b1b' }}>{error}</div>}
 
+      {/* PLAY-CLOSED-001 — the Google Play build: Play keeps it up to date, and Play's rules ban APK links in the app */}
+      {play && (
+        <div className="card col" style={{ gap: 6, background: '#f0fdf4', border: '1px solid #86efac' }}>
+          <div style={{ fontWeight: 800, fontSize: 15, color: '#166534' }}>Updates come from Google Play</div>
+          <div style={{ fontSize: 13, color: '#166534' }}>
+            Installed: {APP_BUILD || 'unknown'}. Google Play installs new versions by itself. To add another tablet,
+            ask SiamEPOS to invite that tablet&rsquo;s Google account, then install SiamEPOS Spa from Google Play.
+          </div>
+        </div>
+      )}
+
       {/* Update status — only meaningful inside the app */}
-      {inApp && (
+      {inApp && !play && (
         <div className="card col" style={{
           gap: 8,
           background: updateWaiting ? '#fffbeb' : '#f0fdf4',
@@ -86,8 +98,8 @@ export default function MobileAppSection() {
       {/* SPA-DEVICE-PAIR-001 — inviting a tablet, right next to the download. */}
       <PairTabletCard />
 
-      {/* The link itself */}
-      <div className="card" style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+      {/* The link itself (not in the Google Play build) */}
+      {!play && <div className="card" style={{ display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
         {qr && (
           <div style={{ textAlign: 'center' }}>
             <img src={qr} alt="QR code to download the app" width={160} height={160}
@@ -110,10 +122,10 @@ export default function MobileAppSection() {
             {info?.notes_url && <a href={info.notes_url} target="_blank" rel="noreferrer"><button>What&rsquo;s new</button></a>}
           </div>
         </div>
-      </div>
+      </div>}
 
-      {/* How to install */}
-      <div className="card col" style={{ gap: 8 }}>
+      {/* How to install (not in the Google Play build) */}
+      {!play && <div className="card col" style={{ gap: 8 }}>
         <h3 style={{ margin: 0 }}>Setting up a new tablet</h3>
         <ol style={{ margin: 0, paddingLeft: 20, fontSize: 14, lineHeight: 1.7 }}>
           <li>Open the link above on the tablet, or scan the QR code with its camera.</li>
@@ -125,7 +137,7 @@ export default function MobileAppSection() {
           Updates work the same way: open the link, download, tap. Installing over the app keeps your spa and your login.
           iPhones and iPads are not supported yet — they can use the till in Safari as before.
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

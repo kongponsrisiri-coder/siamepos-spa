@@ -32,6 +32,15 @@ android {
             }
         }
     }
+    // PLAY-CLOSED-001 — two channels, same applicationId + key:
+    //   sideload = the APK on siamepos-releases (spa-v*, prerelease) — unchanged
+    //   store    = Google Play closed track: registers the tiny PlayStore marker plugin, so Admin → Mobile App
+    //              hides the APK link / QR / "Download the update" (Play updates the app; Play bans APK links)
+    flavorDimensions = ["channel"]
+    productFlavors {
+        sideload { dimension "channel" }
+        store { dimension "channel" }
+    }
     buildTypes {
         release {
             minifyEnabled false
