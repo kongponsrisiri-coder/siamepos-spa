@@ -14,8 +14,20 @@
     "netlifySite: ALWAYS passed explicitly with --site. client/.netlify/state.json",
     "points at Jinta, so a bare 'netlify deploy' from client/ ships to the wrong shop."
   ],
-
   "tenants": [
+    {
+      "key": "lotuslane",
+      "name": "Lotus Lane Thai Spa (FICTIONAL demo — Play reviewers, screenshots, sales)",
+      "stage": 0,
+      "api": "https://demo-spa-api-production.up.railway.app",
+      "till": "https://siamspa-lotuslane-demo.netlify.app",
+      "netlifySite": "8326b849-8450-4827-8797-4ff9bb2409ab",
+      "railway": {
+        "project": "ae76ed14-5cfe-49a9-88cb-ffd3b44b1761",
+        "environment": "3911f800-c55d-49de-ac41-808b6bfbe44e",
+        "service": "124c7fd9-45ad-4d3c-90d6-9a33b9ecd610"
+      }
+    },
     {
       "key": "demo",
       "name": "SiamEPOS Spa (demo)",
@@ -27,7 +39,8 @@
         "project": "d32e28d2-8f0a-4c4f-bc1c-fd88cc555f7f",
         "environment": "e6fcb99b-137f-4a80-addf-516b0d81f919",
         "service": "b707d60d-5e16-4d2e-b495-c72d8e3eda6c"
-      }
+      },
+      "hold": "SWITCHED OFF 10 Oct 2026 (Korakot): held a copy of Highbury clients. Server + DB stopped, repo disconnected, backup kept. Never redeploy."
     },
     {
       "key": "highbury",
@@ -54,7 +67,7 @@
         "environment": "a3a99576-6521-482b-9c2c-d291285fc427",
         "service": "ea92e91f-6ec7-495c-91d1-50010f6db235"
       },
-      "hold": "CHURNED — Korakot, 2026-09-20: Jinta is no longer a client. Not a pause: do not deploy to them. Left in this file on purpose so the cloud and Netlify site are not forgotten when someone decides to shut them down."
+      "hold": "SWITCHED OFF 10 Oct 2026 (Korakot): Jinta left 20 Sep. Server + DB stopped, repo disconnected, backup kept. Their website (jinta-massage) untouched."
     }
   ]
 }
