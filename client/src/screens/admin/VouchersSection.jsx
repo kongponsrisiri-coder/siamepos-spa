@@ -515,6 +515,25 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
     } finally { setSavingExpiry(false); }
   }
 
+  // SPA-VOUCHER-EDIT-001 — fill in / correct the sale details afterwards.
+  const [editing, setEditing] = useState(false);
+
+  // SPA-VOUCHER-RESEND-001 — (re)send the voucher email.
+  const [mailDraft, setMailDraft] = useState('');
+  const [mailBusy, setMailBusy]   = useState(false);
+  const [mailMsg, setMailMsg]     = useState(null);  // { ok, text }
+  async function sendEmail(email) {
+    setMailBusy(true); setMailMsg(null);
+    try {
+      const r = await api.post(`/vouchers/${v.id}/send-email`, email ? { email } : {});
+      setMailMsg({ ok: true, text: `Sent to ${r.sent_to} ✓` });
+      setMailDraft('');
+      onUpdated && onUpdated();
+    } catch (e) {
+      setMailMsg({ ok: false, text: e.data?.error || e.message || 'Could not send the email' });
+    } finally { setMailBusy(false); }
+  }
+
   // Client search for linking
   const [clientQuery, setClientQuery] = useState('');
   const [clientResults, setClientResults] = useState([]);
@@ -587,19 +606,53 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
         </div>
 
         <div className="col" style={{ gap: 10 }}>
+          {editing && (
+            <EditVoucherDetails v={v} canEditTerms={canEditThis}
+              onCancel={() => setEditing(false)}
+              onSaved={() => { setEditing(false); onUpdated && onUpdated(); }} />
+          )}
           {/* Meta */}
-          <div className="card col" style={{ padding: 12, gap: 6 }}>
+          {!editing && <div className="card col" style={{ padding: 12, gap: 6 }}>
+            {v.status !== 'cancelled' && (
+              <button onClick={() => setEditing(true)} style={{ alignSelf: 'flex-end', fontSize: 12, padding: '4px 12px', minHeight: 30, marginBottom: -4 }}>
+                ✏️ Edit details
+              </button>
+            )}
+            {v.payment_method && (
+              <div style={{ fontSize: 13 }}><span className="muted">Paid </span>{payLabel(v)}</div>
+            )}
             {v.purchased_by && <div style={{ fontSize: 13 }}><span className="muted">Bought by </span><strong>{v.purchased_by}</strong></div>}
             {v.purchased_for && <div style={{ fontSize: 13 }}><span className="muted">Gift for </span><strong>{v.purchased_for}</strong></div>}
             {/* SPA-VOUCHER-CONTACT — the buyer's email was stored (we even
                 email the voucher to it) but never displayed anywhere, so staff
                 couldn't contact an online buyer ("Terry" case, Highbury). */}
             {v.recipient_email && (
-              <div style={{ fontSize: 13 }}>
-                <span className="muted">Email </span>
-                <a href={`mailto:${v.recipient_email}`} style={{ color: 'var(--navy)', fontWeight: 600 }}>{v.recipient_email}</a>
+              <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <span>
+                  <span className="muted">Email </span>
+                  <a href={`mailto:${v.recipient_email}`} style={{ color: 'var(--navy)', fontWeight: 600 }}>{v.recipient_email}</a>
+                  <span className="muted" style={{ fontSize: 12 }}>
+                    {v.email_sent_at ? ` · sent ${fmtDate(v.email_sent_at)}` : ' · not sent yet'}
+                  </span>
+                </span>
+                {v.status !== 'cancelled' && (
+                  <button disabled={mailBusy} onClick={() => sendEmail()} style={{ fontSize: 12, padding: '2px 10px', minHeight: 26 }}>
+                    {mailBusy ? 'Sending…' : v.email_sent_at ? '📧 Resend voucher' : '📧 Send voucher'}
+                  </button>
+                )}
               </div>
             )}
+            {!v.recipient_email && v.status !== 'cancelled' && (
+              <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                <input type="email" placeholder="Customer email to send the voucher" value={mailDraft}
+                  onChange={e => setMailDraft(e.target.value)} style={{ flex: '1 1 200px', fontSize: 14 }} />
+                <button disabled={mailBusy || !mailDraft.trim()} onClick={() => sendEmail(mailDraft.trim())}
+                  style={{ fontSize: 12, padding: '6px 12px' }}>
+                  {mailBusy ? 'Sending…' : '📧 Send voucher'}
+                </button>
+              </div>
+            )}
+            {mailMsg && <div style={{ fontSize: 12, color: mailMsg.ok ? '#15803d' : 'var(--danger)' }}>{mailMsg.text}</div>}
             {v.sold_by_name && <div style={{ fontSize: 13 }}><span className="muted">Sold by </span>{v.sold_by_name}</div>}
             <div style={{ fontSize: 13 }}><span className="muted">Sold </span>{fmtDate(v.purchased_at)}</div>
 
@@ -644,7 +697,7 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
               </div>
             )}
             {v.notes && <div style={{ fontSize: 13 }}><span className="muted">Notes </span>{v.notes}</div>}
-          </div>
+          </div>}
 
           {/* Link to client */}
           <div>
@@ -709,6 +762,214 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// "Split (cash £30.00 · card £20.00)" — how a voucher was paid for.
+function payLabel(v) {
+  const names = { cash: 'Cash', card: 'Card', split: 'Split', comp: 'Comp (free)', online: 'Online' };
+  let parts = v.split_payments;
+  if (typeof parts === 'string') { try { parts = JSON.parse(parts); } catch { parts = null; } }
+  const name = names[v.payment_method] || v.payment_method;
+  if (v.payment_method === 'split' && Array.isArray(parts) && parts.length) {
+    return `${name} (${parts.map(p => `${p.method} ${fmtMoney(p.amount)}`).join(' · ')})`;
+  }
+  return name;
+}
+
+// ── SPA-VOUCHER-EDIT-001 — fill in / correct a voucher's details ─────────────
+// In a rush staff sell the voucher with half the boxes empty. Names, email and
+// notes: any till user. Price, payment, sessions, treatment: managers (and
+// session packages follow the manage_sessions permission) — same rule as the
+// server. Expiry keeps its own "Change date" control above.
+function EditVoucherDetails({ v, canEditTerms, onCancel, onSaved }) {
+  const isSessions = v.voucher_type === 'sessions';
+  const parseSplit = () => {
+    let p = v.split_payments;
+    if (typeof p === 'string') { try { p = JSON.parse(p); } catch { p = null; } }
+    const get = (m) => (Array.isArray(p) ? p.filter(x => x.method === m).reduce((t, x) => t + Number(x.amount || 0), 0) : 0);
+    return { cash: get('cash') ? String(get('cash')) : '', card: get('card') ? String(get('card')) : '' };
+  };
+  const [f, setF] = useState({
+    purchased_by: v.purchased_by || '',
+    purchased_for: v.purchased_for || '',
+    recipient_email: v.recipient_email || '',
+    notes: v.notes || '',
+    value: String(Number(v.initial_value || 0)),
+    payment_method: v.payment_method || '',
+    total_sessions: String(v.total_sessions || ''),
+    treatment_id: v.treatment_id ? String(v.treatment_id) : '',
+    ...(() => { const sp = parseSplit(); return { splitCash: sp.cash, splitCard: sp.card }; })(),
+  });
+  const [sendNow, setSendNow] = useState(false);
+  const [treatments, setTreatments] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const set = (k, val) => setF(x => ({ ...x, [k]: val }));
+
+  useEffect(() => {
+    if (!isSessions || !canEditTerms) return;
+    api.get('/treatments').then(r => setTreatments(r.treatments || [])).catch(() => {});
+  }, [isSessions, canEditTerms]);
+
+  const usedSessions = Number(v.total_sessions || 0) - Number(v.sessions_remaining || 0);
+  const emailChanged = f.recipient_email.trim() && f.recipient_email.trim() !== (v.recipient_email || '');
+
+  async function save() {
+    setError('');
+    const body = {
+      purchased_by: f.purchased_by, purchased_for: f.purchased_for,
+      recipient_email: f.recipient_email, notes: f.notes,
+    };
+    if (canEditTerms) {
+      const price = Number(f.value);
+      if (!f.payment_method) { setError('Choose how the customer paid.'); return; }
+      if (f.payment_method !== 'comp' && !(price > 0)) { setError('Enter the sale price.'); return; }
+      body.value = price;
+      body.payment_method = f.payment_method;
+      if (f.payment_method === 'split') {
+        const cash = +Number(f.splitCash || 0).toFixed(2);
+        const card = +Number(f.splitCard || 0).toFixed(2);
+        if (Math.abs(cash + card - price) > 0.005) {
+          setError(`Cash £${cash.toFixed(2)} + card £${card.toFixed(2)} must equal the price £${price.toFixed(2)}.`);
+          return;
+        }
+        body.split_payments = [
+          ...(cash > 0 ? [{ method: 'cash', amount: cash }] : []),
+          ...(card > 0 ? [{ method: 'card', amount: card }] : []),
+        ];
+      }
+      if (isSessions) {
+        body.total_sessions = Number(f.total_sessions);
+        body.treatment_id = f.treatment_id || '';
+      }
+    }
+    setBusy(true);
+    try {
+      await api.put(`/vouchers/${v.id}`, body);
+      if (sendNow && f.recipient_email.trim()) {
+        try { await api.post(`/vouchers/${v.id}/send-email`, {}); }
+        catch (e) { setError(`Saved, but the email didn't send: ${e.data?.error || e.message}`); setBusy(false); return; }
+      }
+      onSaved();
+    } catch (e) {
+      setError(e.data?.error || e.message || 'Could not save');
+      setBusy(false);
+    }
+  }
+
+  const price = Number(f.value || 0);
+  const left = +(price - Number(f.splitCash || 0) - Number(f.splitCard || 0)).toFixed(2);
+  const rest = (n) => { const r = +(price - Number(n || 0)).toFixed(2); return r > 0 ? String(r) : '0'; };
+  const METHODS = [
+    { id: 'cash',  label: 'Cash',  bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
+    { id: 'card',  label: 'Card',  bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
+    { id: 'split', label: 'Split', bg: '#ede9fe', border: '#7c3aed', text: '#4c1d95' },
+    { id: 'comp',  label: '🎁 Comp', bg: '#f0fdf4', border: '#16a34a', text: '#14532d' },
+  ];
+
+  return (
+    <div className="card col" style={{ padding: 12, gap: 10, border: '2px solid var(--gold)' }}>
+      <div style={{ fontWeight: 700, fontSize: 14 }}>✏️ Edit details</div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 160px' }}>
+          <label>Bought by</label>
+          <input value={f.purchased_by} onChange={e => set('purchased_by', e.target.value)} placeholder="Buyer's name" />
+        </div>
+        <div style={{ flex: '1 1 160px' }}>
+          <label>Gift for</label>
+          <input value={f.purchased_for} onChange={e => set('purchased_for', e.target.value)} placeholder="Recipient's name" />
+        </div>
+      </div>
+      <div>
+        <label>Email</label>
+        <input type="email" value={f.recipient_email} onChange={e => set('recipient_email', e.target.value)} placeholder="name@example.com" />
+        {f.recipient_email.trim() && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, marginTop: 6, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+            <input type="checkbox" checked={sendNow || false} onChange={e => setSendNow(e.target.checked)} style={{ width: 'auto' }} />
+            {emailChanged ? 'Email the voucher to this address when I save' : 'Resend the voucher email when I save'}
+          </label>
+        )}
+      </div>
+      <div>
+        <label>Notes</label>
+        <textarea rows={2} value={f.notes} onChange={e => set('notes', e.target.value)} placeholder="Any notes…" />
+      </div>
+
+      {canEditTerms ? (
+        <>
+          {isSessions && (
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <div style={{ flex: '2 1 200px' }}>
+                <label>Treatment</label>
+                <select value={f.treatment_id} onChange={e => set('treatment_id', e.target.value)}>
+                  <option value="">Any treatment</option>
+                  {treatments.map(t => <option key={t.id} value={t.id}>{t.name}{t.duration_minutes ? ` (${t.duration_minutes} min)` : ''}</option>)}
+                  {f.treatment_id && !treatments.some(t => String(t.id) === f.treatment_id) && (
+                    <option value={f.treatment_id}>{v.treatment_name || 'Current treatment'}</option>
+                  )}
+                </select>
+              </div>
+              <div style={{ flex: '1 1 110px' }}>
+                <label>Sessions</label>
+                <input type="number" min={Math.max(1, usedSessions)} step="1" value={f.total_sessions}
+                  onChange={e => set('total_sessions', e.target.value)} />
+                {usedSessions > 0 && <div className="muted" style={{ fontSize: 11 }}>{usedSessions} already used</div>}
+              </div>
+            </div>
+          )}
+          <div>
+            <label>{isSessions ? 'Sale price £' : 'Voucher value £'}</label>
+            <input type="number" step="0.01" min="0" value={f.value} onChange={e => set('value', e.target.value)} />
+          </div>
+          <div>
+            <label>How did the customer pay?</label>
+            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+              {METHODS.map(m => {
+                const active = f.payment_method === m.id;
+                return (
+                  <button key={m.id} onClick={() => set('payment_method', m.id)} style={{
+                    flex: '1 1 70px', padding: '8px 10px', fontWeight: 700, fontSize: 13, borderRadius: 8,
+                    background: active ? m.border : m.bg, color: active ? '#fff' : m.text, border: `2px solid ${m.border}`,
+                  }}>{m.label}</button>
+                );
+              })}
+            </div>
+            {f.payment_method === 'split' && (
+              <div style={{ marginTop: 8, padding: '8px 10px', background: '#ede9fe', border: '1px solid #7c3aed', borderRadius: 8 }}>
+                <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                  <label style={{ flex: '1 1 120px', margin: 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#9a3412' }}>Cash £</span>
+                    <input type="number" step="0.01" min="0" placeholder="0.00" value={f.splitCash}
+                      onFocus={e => e.target.select()}
+                      onChange={e => setF(x => ({ ...x, splitCash: e.target.value, splitCard: rest(e.target.value) }))}
+                      style={{ textAlign: 'right' }} />
+                  </label>
+                  <label style={{ flex: '1 1 120px', margin: 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#9d174d' }}>Card £</span>
+                    <input type="number" step="0.01" min="0" placeholder="0.00" value={f.splitCard}
+                      onFocus={e => e.target.select()}
+                      onChange={e => setF(x => ({ ...x, splitCard: e.target.value, splitCash: rest(e.target.value) }))}
+                      style={{ textAlign: 'right' }} />
+                  </label>
+                </div>
+                <div style={{ fontSize: 12, marginTop: 4, fontWeight: 600, color: Math.abs(left) < 0.005 ? '#15803d' : '#b91c1c' }}>
+                  {Math.abs(left) < 0.005 ? `Adds up to £${price.toFixed(2)} ✓` : left > 0 ? `£${left.toFixed(2)} still to allocate` : `Over by £${Math.abs(left).toFixed(2)}`}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="muted" style={{ fontSize: 12 }}>A manager can change the price, payment{isSessions ? ', sessions and treatment' : ''}.</div>
+      )}
+
+      {error && <div style={{ color: 'var(--danger)', fontSize: 13, background: '#fee2e2', padding: '8px 12px', borderRadius: 6 }}>{error}</div>}
+      <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
+        <button onClick={onCancel} disabled={busy}>Cancel</button>
+        <button className="primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save details'}</button>
       </div>
     </div>
   );

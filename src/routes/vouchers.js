@@ -170,6 +170,41 @@ router.get('/:id', async (req, res) => {
 // them in their own bucket. Face value may be 0 (e.g. a free-session gift).
 const VOUCHER_PAYMENT_METHODS = ['cash', 'card', 'split', 'comp'];
 
+// SPA-VOUCHER-SPLIT-001 — a split sale must say how much was cash and how
+// much card, adding up to the sale price; otherwise the day's cash-up can't
+// tell where the money went. Returns { json } or { error }.
+function cleanSplit(split_payments, value) {
+  if (!Array.isArray(split_payments) || split_payments.length === 0) {
+    return { error: 'Enter how much was paid by cash and how much by card.' };
+  }
+  const clean = [];
+  for (const p of split_payments) {
+    const m = String((p && p.method) || '').toLowerCase();
+    const a = Number(p && p.amount);
+    if (!['cash', 'card'].includes(m)) return { error: `split_payments: bad method "${p && p.method}"` };
+    if (!isFinite(a) || a <= 0) return { error: 'split_payments: each amount must be more than £0' };
+    clean.push({ method: m, amount: +a.toFixed(2) });
+  }
+  const sum = clean.reduce((t, p) => t + p.amount, 0);
+  if (Math.abs(sum - Number(value)) > 0.005) {
+    return { error: `Split adds up to £${sum.toFixed(2)} — it must equal the sale price £${Number(value).toFixed(2)}.` };
+  }
+  return { json: JSON.stringify(clean) };
+}
+
+async function sendGiftEmail(voucher) {
+  const tName = voucher.treatment_id
+    ? (await pool.query('SELECT name FROM treatments WHERE id = $1', [voucher.treatment_id])).rows[0]?.name
+    : null;
+  sendVoucherGiftEmail({ voucher, treatment_name: tName })
+    .then(async (r) => {
+      if (r && r.ok) {
+        await pool.query('UPDATE vouchers SET email_sent_at = now() WHERE id = $1', [voucher.id]);
+      }
+    })
+    .catch((e) => console.error('[vouchers] gift email failed', e));
+}
+
 router.post('/', async (req, res) => {
   const {
     value, purchased_by, purchased_for, client_id, expires_at, notes, sold_by,  // expires_at cleaned below (SPA-VOUCHER-YEAR-001)
@@ -189,27 +224,11 @@ router.post('/', async (req, res) => {
   if (!payment_method || !VOUCHER_PAYMENT_METHODS.includes(payment_method)) {
     return res.status(400).json({ error: 'payment_method required (cash | card | split)' });
   }
-  // SPA-VOUCHER-SPLIT-001 — a split sale must say how much was cash and how
-  // much card, adding up to the sale price; otherwise the day's cash-up can't
-  // tell where the money went.
   let splitJson = null;
   if (payment_method === 'split') {
-    if (!Array.isArray(split_payments) || split_payments.length === 0) {
-      return res.status(400).json({ error: 'Enter how much was paid by cash and how much by card.' });
-    }
-    const clean = [];
-    for (const p of split_payments) {
-      const m = String((p && p.method) || '').toLowerCase();
-      const a = Number(p && p.amount);
-      if (!['cash', 'card'].includes(m)) return res.status(400).json({ error: `split_payments: bad method "${p && p.method}"` });
-      if (!isFinite(a) || a <= 0) return res.status(400).json({ error: 'split_payments: each amount must be more than £0' });
-      clean.push({ method: m, amount: +a.toFixed(2) });
-    }
-    const sum = clean.reduce((t, p) => t + p.amount, 0);
-    if (Math.abs(sum - Number(value)) > 0.005) {
-      return res.status(400).json({ error: `Split adds up to £${sum.toFixed(2)} — it must equal the sale price £${Number(value).toFixed(2)}.` });
-    }
-    splitJson = JSON.stringify(clean);
+    const sp = cleanSplit(split_payments, value);
+    if (sp.error) return res.status(400).json({ error: sp.error });
+    splitJson = sp.json;
   }
   // SPA-VOUCHER-YEAR-001 — say so rather than quietly storing no expiry.
   if (expires_at && !cleanExpiry(expires_at)) {
@@ -261,18 +280,7 @@ router.post('/', async (req, res) => {
     // Fire-and-forget gift email. If BREVO_API_KEY isn't set the helper
     // returns { skipped:true } without throwing; recipient_email is left
     // on the row so the operator can resend later.
-    if (voucher.recipient_email) {
-      const tName = voucher.treatment_id
-        ? (await pool.query('SELECT name FROM treatments WHERE id = $1', [voucher.treatment_id])).rows[0]?.name
-        : null;
-      sendVoucherGiftEmail({ voucher, treatment_name: tName })
-        .then(async (r) => {
-          if (r && r.ok) {
-            await pool.query('UPDATE vouchers SET email_sent_at = now() WHERE id = $1', [voucher.id]);
-          }
-        })
-        .catch((e) => console.error('[vouchers] gift email failed', e));
-    }
+    if (voucher.recipient_email) sendGiftEmail(voucher);
 
     res.status(201).json({ voucher });
   } catch (err) {
@@ -282,43 +290,170 @@ router.post('/', async (req, res) => {
 });
 
 // PUT /api/vouchers/:id  — update details (link client, notes, etc.)
+// SPA-VOUCHER-EDIT-001 — every detail taken at the sale can be corrected
+// afterwards (Korakot: in a rush staff can't fill everything in). Only the
+// fields present in the body change; '' / null clears a text field.
+//   text:     purchased_by, purchased_for, recipient_email, notes
+//   link:     client_id, expires_at, status ('active' | 'cancelled')
+//   sale:     value (price), payment_method (+ split_payments)
+//   sessions: treatment_id ('' = any treatment), total_sessions
+// Names / email / notes / client link: any till user (filling in after a rush).
+// Price, payment, sessions, treatment, expiry, status: a session package needs
+// manage_sessions (SPA-SESSIONS-LOCK-001); a money voucher needs admin/manager.
 router.put('/:id', async (req, res) => {
   const id = Number(req.params.id);
-  const { purchased_by, purchased_for, client_id, expires_at, notes, status } = req.body || {};
+  const body = req.body || {};
+  const has = (k) => Object.prototype.hasOwnProperty.call(body, k);
   try {
-    // SPA-SESSIONS-LOCK-001 — same lock when the row is a session package.
-    const kind = await pool.query('SELECT voucher_type, status, expires_at FROM vouchers WHERE id = $1', [id]);
-    if (!kind.rows[0]) return res.status(404).json({ error: 'not found' });
-    if (kind.rows[0].voucher_type === 'sessions' && await denyAction(req, res, 'manage_sessions')) return;
-    const allowed = ['active', 'cancelled'];
+    const cur = (await pool.query('SELECT * FROM vouchers WHERE id = $1', [id])).rows[0];
+    if (!cur) return res.status(404).json({ error: 'not found' });
+    const isSessions = cur.voucher_type === 'sessions';
+    const termsChange = ['value', 'payment_method', 'split_payments', 'total_sessions', 'treatment_id', 'expires_at', 'status'].some(has);
+    if (termsChange) {
+      if (isSessions) {
+        if (await denyAction(req, res, 'manage_sessions')) return;
+      } else if (!['admin', 'manager'].includes(req.staff?.role)) {
+        return res.status(403).json({ error: 'Only a manager can change the price, payment or expiry.' });
+      }
+    }
+
+    const set = {};   // column → new value (column names are fixed below, never from the body)
+    const text = (v) => { const t = String(v == null ? '' : v).trim(); return t || null; };
+    for (const k of ['purchased_by', 'purchased_for', 'notes']) if (has(k)) set[k] = text(body[k]);
+    if (has('recipient_email')) {
+      const e = text(body.recipient_email);
+      if (e && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return res.status(400).json({ error: 'That email address does not look right.' });
+      set.recipient_email = e;
+    }
+    if (body.client_id) set.client_id = Number(body.client_id);
+
     // SPA-VOUCHER-EXPIRY-001 — a voucher that was auto-expired comes BACK when
     // the shop corrects the date (Highbury sold a 3-session package with the
     // expiry set to the day of sale, so it read Expired with nothing used).
-    // Without this the new date saves but the badge stays red.
-    let nextStatus = (status && allowed.includes(status)) ? status : null;
-    // SPA-VOUCHER-YEAR-001 — a mistyped year never reaches the column.
-    const newExpiry = cleanExpiry(expires_at);
-    if (expires_at && !newExpiry) {
-      return res.status(400).json({ error: 'That expiry date does not look right — check the year.' });
+    let nextStatus = ['active', 'cancelled'].includes(body.status) ? body.status : null;
+    if (has('expires_at')) {
+      if (body.expires_at) {
+        // SPA-VOUCHER-YEAR-001 — a mistyped year never reaches the column.
+        const newExpiry = cleanExpiry(body.expires_at);
+        if (!newExpiry) return res.status(400).json({ error: 'That expiry date does not look right — check the year.' });
+        set.expires_at = newExpiry;
+        if (!nextStatus && cur.status === 'expired' && !isExpired(newExpiry)) nextStatus = 'active';
+      } else if (body.expires_at === '' || body.expires_at === null) {
+        set.expires_at = null;  // "no expiry"
+        if (!nextStatus && cur.status === 'expired') nextStatus = 'active';
+      }
     }
-    if (!nextStatus && newExpiry && kind.rows[0].status === 'expired' && !isExpired(newExpiry)) {
-      nextStatus = 'active';
+
+    // ── Sale price, sessions, treatment ─────────────────────────────────
+    const oldValue = Number(cur.initial_value);
+    const newValue = has('value') ? Number(body.value) : oldValue;
+    const method   = has('payment_method') ? body.payment_method : cur.payment_method;
+    if (has('value') || has('payment_method')) {
+      if (method && !VOUCHER_PAYMENT_METHODS.includes(method)) {
+        return res.status(400).json({ error: 'payment_method must be cash | card | split | comp' });
+      }
+      if (!isFinite(newValue) || newValue < 0 || (method !== 'comp' && newValue <= 0)) {
+        return res.status(400).json({ error: 'Enter a sale price.' });
+      }
+      set.initial_value = +newValue.toFixed(2);
+      set.payment_method = method;
+      if (method === 'split') {
+        const sp = cleanSplit(body.split_payments, newValue);
+        if (sp.error) return res.status(400).json({ error: sp.error });
+        set.split_payments = sp.json;
+      } else {
+        set.split_payments = null;
+      }
     }
-    const { rows } = await pool.query(
-      `UPDATE vouchers SET
-         purchased_by  = COALESCE($2, purchased_by),
-         purchased_for = COALESCE($3, purchased_for),
-         client_id     = COALESCE($4, client_id),
-         expires_at    = COALESCE($5, expires_at),
-         notes         = COALESCE($6, notes),
-         status        = COALESCE($7, status)
-       WHERE id = $1 RETURNING *`,
-      [id, purchased_by, purchased_for, client_id, newExpiry, notes, nextStatus],
-    );
-    if (!rows[0]) return res.status(404).json({ error: 'not found' });
-    res.json({ voucher: rows[0] });
+
+    let remainingStatus = null;  // 'used' / 'active' when the balance changes
+    if (isSessions) {
+      if (has('treatment_id')) {
+        if (body.treatment_id) {
+          const t = await pool.query('SELECT id FROM treatments WHERE id = $1', [Number(body.treatment_id)]);
+          if (!t.rows[0]) return res.status(400).json({ error: 'treatment not found' });
+          set.treatment_id = Number(body.treatment_id);
+        } else {
+          set.treatment_id = null;  // any treatment
+        }
+      }
+      const oldTotal = Number(cur.total_sessions || 0);
+      const used = oldTotal - Number(cur.sessions_remaining || 0);
+      const newTotal = has('total_sessions') ? Number(body.total_sessions) : oldTotal;
+      if (has('total_sessions') && (!Number.isInteger(newTotal) || newTotal < 1)) {
+        return res.status(400).json({ error: 'Number of sessions must be a whole number, 1 or more.' });
+      }
+      if (newTotal < used) {
+        return res.status(400).json({ error: `${used} session${used === 1 ? ' has' : 's have'} already been used — the package can't have fewer than that.` });
+      }
+      if (newTotal !== oldTotal || newValue !== oldValue) {
+        const left = newTotal - used;
+        set.total_sessions = newTotal;
+        set.sessions_remaining = left;
+        set.remaining_value = +(newValue / newTotal * left).toFixed(2);
+        remainingStatus = left <= 0 ? 'used' : 'active';
+      }
+    } else if (newValue !== oldValue) {
+      const usedValue = +(oldValue - Number(cur.remaining_value || 0)).toFixed(2);
+      if (newValue + 0.005 < usedValue) {
+        return res.status(400).json({ error: `£${usedValue.toFixed(2)} has already been used — the value can't be less than that.` });
+      }
+      const left = +(newValue - usedValue).toFixed(2);
+      set.remaining_value = left;
+      remainingStatus = left <= 0 ? 'used' : 'active';
+    }
+    // A balance change only flips used ↔ active; it never revives a
+    // cancelled or expired voucher on its own.
+    if (!nextStatus && remainingStatus && ['used', 'active'].includes(cur.status)) nextStatus = remainingStatus;
+    if (nextStatus) set.status = nextStatus;
+
+    const cols = Object.keys(set);
+    let voucher = cur;
+    if (cols.length) {
+      const assignments = cols.map((c, i) => `${c} = $${i + 2}`).join(', ');
+      const { rows } = await pool.query(
+        `UPDATE vouchers SET ${assignments} WHERE id = $1 RETURNING *`,
+        [id, ...cols.map((c) => set[c])],
+      );
+      voucher = rows[0];
+    }
+    walletPush.bumpVoucherPass(voucher.code).catch(() => {});
+    res.json({ voucher });
   } catch (err) {
     console.error('[vouchers] update', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// POST /api/vouchers/:id/send-email   body: { email? }
+// SPA-VOUCHER-RESEND-001 — (re)send the gift voucher email. An `email` in the
+// body is saved on the voucher first (customer gave a new / corrected
+// address). Waits for Brevo so the till can say whether it really went.
+router.post('/:id/send-email', async (req, res) => {
+  const id = Number(req.params.id);
+  const email = String((req.body && req.body.email) || '').trim();
+  try {
+    const cur = (await pool.query('SELECT voucher_type FROM vouchers WHERE id = $1', [id])).rows[0];
+    if (!cur) return res.status(404).json({ error: 'not found' });
+    if (email) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'That email address does not look right.' });
+      await pool.query('UPDATE vouchers SET recipient_email = $2 WHERE id = $1', [id, email]);
+    }
+    const voucher = (await pool.query('SELECT * FROM vouchers WHERE id = $1', [id])).rows[0];
+    if (!voucher.recipient_email) return res.status(400).json({ error: 'Add an email address first.' });
+    if (voucher.status === 'cancelled') return res.status(400).json({ error: 'This voucher is cancelled — it can\'t be sent.' });
+    const tName = voucher.treatment_id
+      ? (await pool.query('SELECT name FROM treatments WHERE id = $1', [voucher.treatment_id])).rows[0]?.name
+      : null;
+    const r = await sendVoucherGiftEmail({ voucher, treatment_name: tName });
+    if (r && r.ok) {
+      await pool.query('UPDATE vouchers SET email_sent_at = now() WHERE id = $1', [id]);
+      return res.json({ ok: true, sent_to: voucher.recipient_email });
+    }
+    if (r && r.skipped) return res.status(503).json({ error: 'Email is not set up for this shop yet — ask SiamEPOS to switch it on.' });
+    return res.status(502).json({ error: 'The email service refused the message — try again in a minute.' });
+  } catch (err) {
+    console.error('[vouchers] send-email', err);
     res.status(500).json({ error: 'server error' });
   }
 });
