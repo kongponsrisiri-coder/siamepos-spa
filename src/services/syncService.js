@@ -175,7 +175,9 @@ async function upsertByCloudId(table, rows, pendingCloudIds, fkRemap = {}) {
       if (k === 'id') continue;
       if (!localCols.includes(k)) continue;
       if (v === null || v === undefined) continue;
-      fields[k] = v;
+      // JSONB columns (e.g. vouchers.split_payments) arrive as objects; SQLite
+      // stores them as TEXT and can't bind an object.
+      fields[k] = (typeof v === 'object' && !(v instanceof Date)) ? JSON.stringify(v) : v;
     }
     // FK remaps (may set a column to a translated local id, or signal a skip).
     // Distinguish a LEGIT null cloud FK (e.g. a walk-in appointment whose

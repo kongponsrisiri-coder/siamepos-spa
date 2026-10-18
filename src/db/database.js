@@ -399,6 +399,9 @@ async function initSchema() {
     -- record it here. NULL is allowed for legacy rows; new sales are
     -- required to set this (enforced in the API + admin form).
     ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS payment_method TEXT;
+    -- SPA-VOUCHER-SPLIT-001: a 'split' voucher sale records how much was
+    -- cash and how much card ([{method, amount}]), so the cash-up adds up.
+    ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS split_payments JSONB;
 
     -- SPA-SEC-001: Stripe PaymentIntent backing an online voucher purchase.
     -- Lets the public /api/widget/vouchers endpoint verify a real payment

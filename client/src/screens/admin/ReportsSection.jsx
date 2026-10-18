@@ -2,6 +2,13 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { api } from '../../api.js';
 
 function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
+// SPA-VOUCHER-SPLIT-001 — "split (cash £30.00 · card £20.00)" for a split voucher sale.
+function voucherPayLabel(v) {
+  let parts = v.split_payments;
+  if (typeof parts === 'string') { try { parts = JSON.parse(parts); } catch { parts = null; } }
+  if (v.payment_method !== 'split' || !Array.isArray(parts) || !parts.length) return v.payment_method;
+  return `split (${parts.map(p => `${p.method} ${fmtMoney(p.amount)}`).join(' · ')})`;
+}
 function fmtMins(n) {
   const m = Number(n || 0);
   if (m <= 0) return '—';
@@ -126,7 +133,7 @@ export default function ReportsSection() {
       rows.push(['Date', 'Code', 'Value £', 'Bought by', 'For', 'Paid', 'Sold by', 'Status']);
       vsData.vouchers.rows.forEach((v) => rows.push([
         String(v.purchased_at).slice(0, 10), v.code, Number(v.initial_value).toFixed(2),
-        v.purchased_by || '', v.purchased_for || '', v.payment_method, v.sold_by_name || '', v.status,
+        v.purchased_by || '', v.purchased_for || '', voucherPayLabel(v), v.sold_by_name || '', v.status,
       ]));
       rows.push([]);
       rows.push([`Session packages sold: ${vsData.sessions.count}`, `Total £${Number(vsData.sessions.total).toFixed(2)}`]);
@@ -134,7 +141,7 @@ export default function ReportsSection() {
       vsData.sessions.rows.forEach((v) => rows.push([
         String(v.purchased_at).slice(0, 10), v.code, v.treatment_name || 'Any treatment',
         v.total_sessions ?? '', Number(v.initial_value).toFixed(2),
-        v.purchased_by || '', v.payment_method, v.sold_by_name || '', v.status,
+        v.purchased_by || '', voucherPayLabel(v), v.sold_by_name || '', v.status,
       ]));
       downloadCsv(`${ukDate(from)}_to_${ukDate(to)}_voucher-session-sales.csv`, rows);
       return;
@@ -296,7 +303,7 @@ export default function ReportsSection() {
                         <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>{fmtMoney(v.initial_value)}</td>
                         <td style={{ padding: '10px 6px' }}>{v.purchased_by || <span className="muted">—</span>}</td>
                         <td style={{ padding: '10px 6px' }}>{v.purchased_for || <span className="muted">—</span>}</td>
-                        <td style={{ padding: '10px 6px', textTransform: 'capitalize' }}>{v.payment_method}</td>
+                        <td style={{ padding: '10px 6px' }}>{voucherPayLabel(v)}</td>
                         <td style={{ padding: '10px 6px' }}>{v.sold_by_name || <span className="muted">—</span>}</td>
                         <td style={{ padding: '10px 6px', textTransform: 'capitalize' }}>{v.status}</td>
                       </tr>
@@ -341,7 +348,7 @@ export default function ReportsSection() {
                         <td style={{ padding: '10px 6px', textAlign: 'right', color: 'var(--muted)' }}>{v.sessions_remaining ?? '—'}</td>
                         <td style={{ padding: '10px 6px', textAlign: 'right', fontFamily: 'monospace', fontWeight: 700 }}>{fmtMoney(v.initial_value)}</td>
                         <td style={{ padding: '10px 6px' }}>{v.purchased_by || <span className="muted">—</span>}</td>
-                        <td style={{ padding: '10px 6px', textTransform: 'capitalize' }}>{v.payment_method}</td>
+                        <td style={{ padding: '10px 6px' }}>{voucherPayLabel(v)}</td>
                         <td style={{ padding: '10px 6px' }}>{v.sold_by_name || <span className="muted">—</span>}</td>
                         <td style={{ padding: '10px 6px', textTransform: 'capitalize' }}>{v.status}</td>
                       </tr>

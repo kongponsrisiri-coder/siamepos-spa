@@ -1091,6 +1091,7 @@ function runMigrations() {
   addColumnIfMissing('vouchers', 'recipient_email',          'TEXT');
   addColumnIfMissing('vouchers', 'email_sent_at',            'TEXT');
   addColumnIfMissing('vouchers', 'payment_method',           'TEXT');
+  addColumnIfMissing('vouchers', 'split_payments',           'TEXT'); // SPA-VOUCHER-SPLIT-001
   addColumnIfMissing('vouchers', 'stripe_payment_intent_id', 'TEXT');
   addColumnIfMissing('vouchers', 'cloud_id',                 'INTEGER');
 

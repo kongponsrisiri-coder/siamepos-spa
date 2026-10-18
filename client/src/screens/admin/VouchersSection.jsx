@@ -159,6 +159,9 @@ function CreateVoucherModal({ onClose, onSaved }) {
   const [purchasedFor, setPurchasedFor] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
   const [paymentMethod, setPaymentMethod] = useState(''); // 'cash' | 'card' | 'split'
+  // SPA-VOUCHER-SPLIT-001 — how a split sale was paid (must add up to the price)
+  const [splitCash, setSplitCash]   = useState('');
+  const [splitCard, setSplitCard]   = useState('');
   const [expiresAt, setExpiresAt]   = useState('');
   const [notes, setNotes]           = useState('');
   const [busy, setBusy]             = useState(false);
@@ -194,6 +197,20 @@ function CreateVoucherModal({ onClose, onSaved }) {
       if (!sessions || Number(sessions) <= 0) { setError('Please enter the number of sessions.'); return; }
     }
     if (!paymentMethod) { setError('Please record how the customer paid (Cash / Card / Split — or Comp for a free gift).'); return; }
+    let split_payments;
+    if (paymentMethod === 'split') {
+      const cash = +Number(splitCash || 0).toFixed(2);
+      const card = +Number(splitCard || 0).toFixed(2);
+      if (cash < 0 || card < 0) { setError('Split amounts cannot be negative.'); return; }
+      if (Math.abs(cash + card - Number(value)) > 0.005) {
+        setError(`Cash £${cash.toFixed(2)} + card £${card.toFixed(2)} = £${(cash + card).toFixed(2)} — it must equal the price £${Number(value).toFixed(2)}.`);
+        return;
+      }
+      split_payments = [
+        ...(cash > 0 ? [{ method: 'cash', amount: cash }] : []),
+        ...(card > 0 ? [{ method: 'card', amount: card }] : []),
+      ];
+    }
     setBusy(true); setError('');
     try {
       const body = {
@@ -202,6 +219,7 @@ function CreateVoucherModal({ onClose, onSaved }) {
         purchased_for: purchasedFor.trim() || null,
         recipient_email: recipientEmail.trim() || null,
         payment_method: paymentMethod,
+        ...(split_payments ? { split_payments } : {}),
         expires_at: expiresAt || null,
         notes: notes.trim() || null,
       };
@@ -413,6 +431,39 @@ function CreateVoucherModal({ onClose, onSaved }) {
                   );
                 })}
               </div>
+              {paymentMethod === 'split' && (() => {
+                // Typing one amount fills the other with the rest of the price.
+                const price = Number(value || 0);
+                const rest = (n) => { const r = +(price - Number(n || 0)).toFixed(2); return r > 0 ? String(r) : '0'; };
+                const left = +(price - Number(splitCash || 0) - Number(splitCard || 0)).toFixed(2);
+                return (
+                  <div style={{ marginTop: 10, padding: '10px 12px', background: '#ede9fe', border: '1px solid #7c3aed', borderRadius: 8 }}>
+                    <div className="row" style={{ gap: 10, flexWrap: 'wrap' }}>
+                      <label style={{ flex: '1 1 140px', margin: 0 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#9a3412' }}>Cash £</span>
+                        <input type="number" step="0.01" min="0" placeholder="0.00" value={splitCash}
+                          onFocus={e => e.target.select()}
+                          onChange={e => { setSplitCash(e.target.value); setSplitCard(rest(e.target.value)); }}
+                          style={{ fontSize: 16, fontWeight: 600, textAlign: 'right' }} />
+                      </label>
+                      <label style={{ flex: '1 1 140px', margin: 0 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: '#9d174d' }}>Card £</span>
+                        <input type="number" step="0.01" min="0" placeholder="0.00" value={splitCard}
+                          onFocus={e => e.target.select()}
+                          onChange={e => { setSplitCard(e.target.value); setSplitCash(rest(e.target.value)); }}
+                          style={{ fontSize: 16, fontWeight: 600, textAlign: 'right' }} />
+                      </label>
+                    </div>
+                    <div style={{ fontSize: 12, marginTop: 6, fontWeight: 600, color: Math.abs(left) < 0.005 ? '#15803d' : '#b91c1c' }}>
+                      {!price
+                        ? 'Enter the price first.'
+                        : Math.abs(left) < 0.005
+                          ? `Adds up to £${price.toFixed(2)} ✓`
+                          : left > 0 ? `£${left.toFixed(2)} still to allocate` : `Over by £${Math.abs(left).toFixed(2)}`}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {error && <div style={{ color: 'var(--danger)', fontSize: 13, background: '#fee2e2', padding: '8px 12px', borderRadius: 6 }}>{error}</div>}
@@ -422,6 +473,8 @@ function CreateVoucherModal({ onClose, onSaved }) {
               <button className="primary" onClick={submit} disabled={busy || !paymentMethod}>
                 {busy
                   ? 'Creating…'
+                  : paymentMethod === 'split'
+                    ? `Take £${Number(splitCash || 0).toFixed(2)} cash + £${Number(splitCard || 0).toFixed(2)} card & issue voucher`
                   : paymentMethod
                     ? `Take £${Number(value || 0).toFixed(2)} ${paymentMethod} & issue voucher`
                     : 'Create Voucher'}

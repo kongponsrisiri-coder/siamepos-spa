@@ -174,6 +174,7 @@ router.post('/', async (req, res) => {
   const {
     value, purchased_by, purchased_for, client_id, expires_at, notes, sold_by,  // expires_at cleaned below (SPA-VOUCHER-YEAR-001)
     voucher_type, total_sessions, treatment_id, recipient_email, payment_method,
+    split_payments,
   } = req.body || {};
   const isSessions = voucher_type === 'sessions';
   // SPA-SESSIONS-LOCK-001 — selling a session package is an admin action by
@@ -187,6 +188,28 @@ router.post('/', async (req, res) => {
   }
   if (!payment_method || !VOUCHER_PAYMENT_METHODS.includes(payment_method)) {
     return res.status(400).json({ error: 'payment_method required (cash | card | split)' });
+  }
+  // SPA-VOUCHER-SPLIT-001 — a split sale must say how much was cash and how
+  // much card, adding up to the sale price; otherwise the day's cash-up can't
+  // tell where the money went.
+  let splitJson = null;
+  if (payment_method === 'split') {
+    if (!Array.isArray(split_payments) || split_payments.length === 0) {
+      return res.status(400).json({ error: 'Enter how much was paid by cash and how much by card.' });
+    }
+    const clean = [];
+    for (const p of split_payments) {
+      const m = String((p && p.method) || '').toLowerCase();
+      const a = Number(p && p.amount);
+      if (!['cash', 'card'].includes(m)) return res.status(400).json({ error: `split_payments: bad method "${p && p.method}"` });
+      if (!isFinite(a) || a <= 0) return res.status(400).json({ error: 'split_payments: each amount must be more than £0' });
+      clean.push({ method: m, amount: +a.toFixed(2) });
+    }
+    const sum = clean.reduce((t, p) => t + p.amount, 0);
+    if (Math.abs(sum - Number(value)) > 0.005) {
+      return res.status(400).json({ error: `Split adds up to £${sum.toFixed(2)} — it must equal the sale price £${Number(value).toFixed(2)}.` });
+    }
+    splitJson = JSON.stringify(clean);
   }
   // SPA-VOUCHER-YEAR-001 — say so rather than quietly storing no expiry.
   if (expires_at && !cleanExpiry(expires_at)) {
@@ -219,8 +242,8 @@ router.post('/', async (req, res) => {
          (code, initial_value, remaining_value, purchased_by, purchased_for,
           client_id, expires_at, notes, sold_by,
           voucher_type, total_sessions, sessions_remaining, treatment_id,
-          recipient_email, payment_method)
-       VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$12,$13) RETURNING *`,
+          recipient_email, payment_method, split_payments)
+       VALUES ($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,$11,$12,$13,$14) RETURNING *`,
       [
         code, Number(value), purchased_by || null, purchased_for || null,
         client_id || null, cleanExpiry(expires_at), notes || null,
@@ -230,6 +253,7 @@ router.post('/', async (req, res) => {
         isSessions ? (treatment_id ? Number(treatment_id) : null) : null,
         recipient_email || null,
         payment_method,
+        splitJson,
       ],
     );
     const voucher = rows[0];

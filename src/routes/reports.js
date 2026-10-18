@@ -73,6 +73,42 @@ async function billsByMethod(baseWhere, params) {
   return { rows };
 }
 
+// SPA-VOUCHER-SPLIT-001 — voucher sales for one day grouped by how they were
+// paid. A 'split' sale adds its split_payments[] parts to cash / card (like a
+// split bill in billsByMethod); a split sale saved before the breakdown
+// existed stays on a 'split' line. Expanded in JS so it runs on PG and SQLite.
+async function voucherSalesByMethodOn(date) {
+  const { rows } = await pool.query(
+    `SELECT payment_method, channel, initial_value, split_payments
+       FROM vouchers
+      WHERE purchased_at::date = $1::date
+        AND COALESCE(payment_method, '') <> 'comp'`,
+    [date],
+  );
+  const agg = {};
+  const add = (method, channel, amount) => {
+    const key = `${method}|${channel}`;
+    if (!agg[key]) agg[key] = { payment_method: method, channel, n: 0, revenue: 0 };
+    agg[key].n += 1;
+    agg[key].revenue += Number(amount) || 0;
+  };
+  for (const r of rows) {
+    const channel = r.channel || 'till';
+    let parts = r.split_payments; // JSONB→object on PG, TEXT→string on SQLite
+    if (typeof parts === 'string') { try { parts = JSON.parse(parts); } catch { parts = null; } }
+    if (r.payment_method === 'split' && Array.isArray(parts) && parts.length) {
+      for (const p of parts) add(p.method, channel, p.amount);
+    } else {
+      add(r.payment_method || 'unknown', channel, r.initial_value);
+    }
+  }
+  return {
+    rows: Object.values(agg)
+      .map((r) => ({ ...r, revenue: +r.revenue.toFixed(2) }))
+      .sort((a, b) => b.revenue - a.revenue),
+  };
+}
+
 // SPA-REVENUE-CLARITY — split a day's/range's payments into two clear groups so
 // the "by payment method" view is easy to understand and reconciles to revenue:
 //   • money_taken  — real money in today (= Revenue): till cash/card +
@@ -236,19 +272,7 @@ router.get('/trading', requireRole('admin', 'manager'), async (req, res) => {
          AND COALESCE(payment_method, '') <> 'comp'`,
       [date],
     );
-    const voucherSalesByMethod = await pool.query(
-      `SELECT
-         COALESCE(payment_method, 'unknown') AS payment_method,
-         COALESCE(channel, 'till')           AS channel,
-         COUNT(*)::int                       AS n,
-         COALESCE(SUM(initial_value), 0)::numeric AS revenue
-       FROM vouchers
-       WHERE purchased_at::date = $1::date
-         AND COALESCE(payment_method, '') <> 'comp'
-       GROUP BY COALESCE(payment_method, 'unknown'), COALESCE(channel, 'till')
-       ORDER BY revenue DESC`,
-      [date],
-    );
+    const voucherSalesByMethod = await voucherSalesByMethodOn(date);
     // SPA-PAY-001 — online deposits collected today (separate from
     // bill revenue: money landed in the spa's Stripe account when the
     // customer booked online, regardless of whether they've arrived).
@@ -431,7 +455,7 @@ router.get('/voucher-session-sales', requireRole('admin', 'manager'), async (req
       `SELECT v.id, v.code, v.voucher_type, v.initial_value, v.remaining_value,
               v.total_sessions, v.sessions_remaining, v.status,
               v.purchased_at, v.purchased_by, v.purchased_for,
-              COALESCE(v.payment_method, 'unknown') AS payment_method,
+              COALESCE(v.payment_method, 'unknown') AS payment_method, v.split_payments,
               th.name AS sold_by_name, t.name AS treatment_name
        FROM vouchers v
        LEFT JOIN therapists th ON th.id = v.sold_by
@@ -618,19 +642,7 @@ router.get('/z-report', requireRole('admin', 'manager'), async (req, res) => {
          AND COALESCE(payment_method, '') <> 'comp'`,
       [date],
     );
-    const voucherSalesByMethod = await pool.query(
-      `SELECT
-         COALESCE(payment_method, 'unknown') AS payment_method,
-         COALESCE(channel, 'till')           AS channel,
-         COUNT(*)::int                       AS n,
-         COALESCE(SUM(initial_value), 0)::numeric AS revenue
-       FROM vouchers
-       WHERE purchased_at::date = $1::date
-         AND COALESCE(payment_method, '') <> 'comp'
-       GROUP BY COALESCE(payment_method, 'unknown'), COALESCE(channel, 'till')
-       ORDER BY revenue DESC`,
-      [date],
-    );
+    const voucherSalesByMethod = await voucherSalesByMethodOn(date);
     // SPA-PETTYCASH-001 — cash paid OUT of the drawer today for expenses.
     // Not revenue; it reduces the cash that should be in the drawer at close.
     const pettyCash = await pool.query(
