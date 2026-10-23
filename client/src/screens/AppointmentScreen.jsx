@@ -815,8 +815,10 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
           {columns.map((col, ci) => {
             const activeAppts = col.appts.filter(a => !['cancelled','no_show'].includes(a.status));
             // SPA-BLOCK-HOURS-001 (client ask) — blocked time is not work:
-            // keep it out of the "Xh booked" total.
-            const workedMins  = activeAppts.filter(a => a.source !== 'block').reduce((sum, a) =>
+            // keep it out of the "Xh booked" total AND the "N✓" count
+            // (SPA-BLOCK-COUNT-001 — a block-only column showed "1✓").
+            const serviceAppts = activeAppts.filter(a => a.source !== 'block');
+            const workedMins  = serviceAppts.reduce((sum, a) =>
               sum + (new Date(a.ends_at) - new Date(a.starts_at)) / 60000, 0);
             const workedLabel = workedMins >= 60
               ? `${Math.floor(workedMins / 60)}h${workedMins % 60 ? ` ${workedMins % 60}m` : ''}`
@@ -853,7 +855,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
                   </span>
                 </div>
                 <div style={{ fontSize: 10, marginTop: 1, color: col.isOff ? 'rgba(255,200,100,0.55)' : '#f5c07a' }}>
-                  {col.isOff ? 'Off' : activeAppts.length === 0 ? 'free' : `${activeAppts.length}✓`}
+                  {col.isOff ? 'Off' : activeAppts.length === 0 ? 'free' : `${serviceAppts.length}✓`}
                 </div>
                 {/* Working window — shown when the column has explicit
                     hours (rota or override). Gold star prefix flags an
