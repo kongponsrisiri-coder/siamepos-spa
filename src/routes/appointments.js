@@ -609,8 +609,13 @@ router.put('/:id', async (req, res) => {
          WHERE a.id = $1`, [id]);
       if (!cur.rows[0]) return res.status(404).json({ error: 'not found' });
       effectiveStart = starts_at || cur.rows[0].starts_at;
-      let dur = cur.rows[0].duration_minutes;
-      if (treatment_id) {
+      // SPA-TREATWELL-DURATION-001 — a move (or an Edit save that keeps the
+      // same treatment) keeps the booking's CURRENT length. Snapping back to the
+      // treatment's default cut a 90-min Treatwell booking to 60 when it was
+      // moved, and would undo any length the booking was given. Only picking a
+      // DIFFERENT treatment resets the length to that treatment's default.
+      let dur = null;
+      if (treatment_id && Number(treatment_id) !== Number(cur.rows[0].treatment_id)) {
         const t2 = await pool.query('SELECT duration_minutes FROM treatments WHERE id = $1', [treatment_id]);
         if (!t2.rows[0]) return res.status(400).json({ error: 'treatment not found' });
         dur = t2.rows[0].duration_minutes;

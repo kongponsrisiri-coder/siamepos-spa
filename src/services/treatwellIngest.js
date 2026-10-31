@@ -103,13 +103,21 @@ async function findOrCreateClient(db, parsed) {
 // Returns { id, duration_minutes, catchAll? } | null.
 async function matchTreatment(db, name, { durationMin = null, prepaid = false } = {}) {
   if (name) {
+    // SPA-TREATWELL-DURATION-001 — a shop often has one row per length
+    // ("Aromatherapy Massage 60mins" / "… 90mins"). Prefer the row whose length
+    // matches the email; shortest-name-first alone booked a 90-min Treatwell
+    // order as the 60-min treatment (Highbury, Claudia Fox, 31 Oct 2026).
+    const pick = (rows) => (durationMin && rows.find((r) => Number(r.duration_minutes) === Number(durationMin))) || rows[0];
     const exact = await db.query(
-      `SELECT id, duration_minutes FROM treatments WHERE active = TRUE AND LOWER(name) = LOWER($1) LIMIT 1`, [name]);
-    if (exact.rows[0]) return exact.rows[0];
+      `SELECT id, duration_minutes FROM treatments WHERE active = TRUE AND LOWER(name) = LOWER($1)`, [name]);
     const loose = await db.query(
-      `SELECT id, duration_minutes FROM treatments WHERE active = TRUE AND name ILIKE $1 ORDER BY LENGTH(name) ASC LIMIT 1`,
+      `SELECT id, duration_minutes FROM treatments WHERE active = TRUE AND name ILIKE $1 ORDER BY LENGTH(name) ASC`,
       [`%${name}%`]);
-    if (loose.rows[0]) return loose.rows[0];
+    const exactHit = pick(exact.rows);
+    if (exactHit && (!durationMin || Number(exactHit.duration_minutes) === Number(durationMin))) return exactHit;
+    const looseHit = pick(loose.rows);
+    if (looseHit && durationMin && Number(looseHit.duration_minutes) === Number(durationMin)) return looseHit;
+    if (exactHit || looseHit) return exactHit || looseHit;
   }
   // Catch-all fallback — venues keep generic "TW 60 mins prepaid £75"-style
   // treatments precisely for marketplace bookings whose names don't match the
@@ -439,4 +447,4 @@ async function ingestBooking(parsed, raw, io, opts = {}) {
   }
 }
 
-module.exports = { ingestBooking, toStartIso, londonOffset };
+module.exports = { ingestBooking, toStartIso, londonOffset, matchTreatment };
