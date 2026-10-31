@@ -18,7 +18,7 @@ restaurant at siamepos.net) does for the restaurant EPOS.
 
 Every page loads the booking widget from the spa-api:
 ```html
-<script src="https://spa-api.siamepos.co.uk/booking-widget.js" defer></script>
+<script src="https://demo-spa-api-production.up.railway.app/booking-widget.js" defer></script>
 ```
 
 The widget needs the following endpoints, all already shipped in SPA-002 and

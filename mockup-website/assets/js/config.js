@@ -7,7 +7,7 @@
   var params = new URLSearchParams(location.search);
   var override = params.get('api');
   var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-  var prod = 'https://spa-api.siamepos.co.uk';
+  var prod = 'https://demo-spa-api-production.up.railway.app'; // Lotus Lane demo backend (old spa-api switched off 10 Oct 2026)
   window.SPA_API = (override || (isLocal ? 'http://localhost:5050' : prod)).replace(/\/$/, '');
   // The booking widget reads this same value to know where to send /api/widget/*
   window.SIAMEPOS_SPA_API = window.SPA_API;
