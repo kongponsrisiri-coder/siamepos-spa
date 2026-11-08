@@ -7,6 +7,7 @@ import { historyLocked } from '../permissions.js'; // SPA-HISTORY-LOCK-001
 import NewAppointmentModal from '../components/NewAppointmentModal.jsx';
 import BlockTimeModal from '../components/BlockTimeModal.jsx';
 import ExtendModal from '../components/ExtendModal.jsx'; // SPA-EXTEND-001
+import MarketplacePayBadge from '../components/MarketplacePayBadge.jsx'; // SPA-TREATWELL-PREPAID-001
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function todayISO() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
@@ -251,6 +252,9 @@ function MobileActionSheet({ appt, onClose, onEdit, onStatus, onCheckout, onSwap
             {appt.client_phone}
           </a>
         )}
+
+        {/* SPA-TREATWELL-PREPAID-001 — prepaid / deposit / unpaid in words */}
+        <MarketplacePayBadge appt={appt} style={{ marginBottom: 12 }} />
 
         {/* Payment badge if paid */}
         {appt.payment_method && (
@@ -2020,6 +2024,7 @@ export default function AppointmentScreen() {
                             📞 {a.client_phone}
                           </a>
                         )}
+                        <MarketplacePayBadge appt={a} style={{ marginTop: 6, padding: '4px 8px', fontSize: 12 }} />
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
                         {a.source === 'block'

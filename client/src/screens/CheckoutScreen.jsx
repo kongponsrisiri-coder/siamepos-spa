@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { can } from '../permissions.js'; // SPA-RBAC-001
 import { toast } from '../toast.js';
 import QrScanModal from '../components/QrScanModal.jsx'; // SPA-VOUCHER-QR-001
+import MarketplacePayBadge from '../components/MarketplacePayBadge.jsx'; // SPA-TREATWELL-PREPAID-001
 
 function fmtMoney(n) { return `£${Number(n || 0).toFixed(2)}`; }
 
@@ -720,6 +721,17 @@ export default function CheckoutScreen() {
                   return (
                     <div style={{ fontSize: 13, marginTop: 6, lineHeight: 1.5, background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 6, padding: '8px 12px', color: '#991b1b', fontWeight: 600 }}>
                       {mktEmoji} This {mktName} booking is <strong>NOT paid</strong> — the customer pays here. Collect <strong>{fmtMoney(balance)}</strong> by Cash or Card.
+                    </div>
+                  );
+                }
+                if (appt.treatwell_payment_type === 'full') {
+                  // SPA-TREATWELL-PREPAID-001 — say PREPAID, not a neutral hint.
+                  return (
+                    <div style={{ marginTop: 6 }}>
+                      <MarketplacePayBadge appt={appt} amount={total} style={{ fontSize: 14, fontWeight: 500 }} />
+                      <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                        Tap {mktEmoji} {mktName} once to close the bill — the till takes £0, {mktName} pays you minus commission.
+                      </div>
                     </div>
                   );
                 }
