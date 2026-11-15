@@ -222,7 +222,13 @@ function parseTreatwellEmail({ subject = '', text = '' } = {}) {
 
   // Name — strip the trailing "New" badge word on new/reschedule.
   let name = field(body, ['Client Name', 'Guest name']);
-  if (name) name = name.replace(/\s+New$/i, '').trim();
+  // SPA-TREATWELL-NAME-001 — the line can also carry the "Repeat" badge and
+  // the "Open appointment in Treatwell Connect" link text when the email
+  // arrives unwrapped ("Sara Dodd Repeat Open appointment", 15 Nov 2026).
+  if (name) {
+    name = name.replace(/\s+Open appointment\b.*$/i, '')
+      .replace(/\s+(?:New|Repeat|Returning(?:\s+client)?)$/i, '').trim();
+  }
 
   // Guest contact — ONLY the "Guest" labels (never the venue's Customer Service block).
   const email = field(body, ['Guest Email']);

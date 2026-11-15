@@ -3,7 +3,7 @@
 // signal, so the shop didn't know Jordan Robles had prepaid £75 on Treatwell
 // (Highbury, 8 Nov 2026). treatwell_payment_type comes from the import:
 // 'full' = the marketplace took the full price, 'partial' = deposit only,
-// 'unpaid' = pay at venue.
+// 'unpaid' = pay at venue, empty = the email confirmed neither.
 export default function MarketplacePayBadge({ appt, amount, style }) {
   if (!appt || !['treatwell', 'fresha'].includes(appt.source)) return null;
   if (appt.payment_method) return null;   // bill already closed — the "Paid by" badge says how
@@ -23,7 +23,10 @@ export default function MarketplacePayBadge({ appt, amount, style }) {
     look = { bg: '#fef3c7', border: '#fcd34d', color: '#92400e',
       text: <>💷 <strong>Deposit only</strong> paid on {mkt} — collect the balance at the till.</> };
   } else {
-    return null;
+    // SPA-TREATWELL-PREPAID-002 — the email confirmed neither prepaid nor
+    // unpaid. Never claim PREPAID on a guess (Sara Dodd, 15 Nov 2026).
+    look = { bg: '#fef3c7', border: '#f59e0b', color: '#92400e',
+      text: <>❓ <strong>Payment not confirmed</strong> — check {mkt} Connect before taking money: Prepaid → no charge, Unpaid → collect{money}.</> };
   }
   return (
     <div style={{ background: look.bg, border: `1px solid ${look.border}`, color: look.color,

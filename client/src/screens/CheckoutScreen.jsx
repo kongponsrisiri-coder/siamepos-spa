@@ -160,7 +160,10 @@ export default function CheckoutScreen() {
   function payConfirm(method, label) {
     const mktName = { treatwell: 'Treatwell', fresha: 'Fresha' }[method];
     const amountText = mktName
-      ? `close this bill as paid by ${label}? (Till takes £0; ${mktName} settles to your account)`
+      ? (appt.treatwell_payment_type === 'full'
+          ? `close this bill as paid by ${label}? (Till takes £0; ${mktName} settles to your account)`
+          // SPA-TREATWELL-PREPAID-002 — not confirmed as prepaid: make staff check first.
+          : `close this bill as paid by ${label}?\n\n⚠️ ${mktName}'s email did NOT confirm this booking is prepaid. Only press OK if ${mktName} Connect shows it as PREPAID — if it says Unpaid, press Cancel and collect ${fmtMoney(balance)} by Cash or Card.`)
       : `take ${fmtMoney(balance)} by ${label} and close this bill?`;
     if (!confirm(`Confirm: ${amountText}`)) return;
     pay(method);
@@ -724,13 +727,15 @@ export default function CheckoutScreen() {
                     </div>
                   );
                 }
-                if (appt.treatwell_payment_type === 'full') {
-                  // SPA-TREATWELL-PREPAID-001 — say PREPAID, not a neutral hint.
+                if (appt.treatwell_payment_type === 'full' || !appt.treatwell_payment_type) {
+                  // SPA-TREATWELL-PREPAID-001/002 — PREPAID (confirmed) or "check" (not confirmed).
                   return (
                     <div style={{ marginTop: 6 }}>
                       <MarketplacePayBadge appt={appt} amount={total} style={{ fontSize: 14, fontWeight: 500 }} />
                       <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
-                        Tap {mktEmoji} {mktName} once to close the bill — the till takes £0, {mktName} pays you minus commission.
+                        {appt.treatwell_payment_type === 'full'
+                          ? <>Tap {mktEmoji} {mktName} once to close the bill — the till takes £0, {mktName} pays you minus commission.</>
+                          : <>Prepaid in {mktName} Connect → tap {mktEmoji} {mktName}. Unpaid → take Cash or Card.</>}
                       </div>
                     </div>
                   );

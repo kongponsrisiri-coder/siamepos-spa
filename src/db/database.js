@@ -914,6 +914,30 @@ async function initSchema() {
     `CREATE UNIQUE INDEX IF NOT EXISTS uq_appointments_deposit_stripe_id ON appointments (deposit_stripe_id) WHERE deposit_stripe_id IS NOT NULL`,
   );
 
+  // SPA-TREATWELL-PREPAID-002 — ONE-TIME: open email-imported bookings that
+  // were stamped 'full' by the old default although the email never said
+  // "Prepaid" go back to NULL ("not confirmed"), so the till stops calling
+  // them PREPAID. Runs once (settings flag) so a type staff set by hand later
+  // is never overwritten.
+  const prepaidFix = await pool.query(`SELECT 1 FROM settings WHERE key = 'migr_treatwell_prepaid_002'`);
+  if (!prepaidFix.rows[0]) {
+    const r = await pool.query(`
+      UPDATE appointments a SET treatwell_payment_type = NULL
+       WHERE a.treatwell_payment_type = 'full'
+         AND a.status IN ('booked', 'in_progress')
+         AND a.treatwell_booking_id IS NOT NULL
+         AND EXISTS (SELECT 1 FROM ingestion_log l
+                      WHERE l.external_ref = split_part(a.treatwell_booking_id, '#', 1)
+                        AND l.action = 'create'
+                        AND COALESCE(l.parsed->>'prepaid', 'false') <> 'true')
+         AND NOT EXISTS (SELECT 1 FROM ingestion_log l
+                      WHERE l.external_ref = split_part(a.treatwell_booking_id, '#', 1)
+                        AND COALESCE(l.parsed->>'prepaid', 'false') = 'true')`);
+    await pool.query(`INSERT INTO settings (key, value) VALUES ('migr_treatwell_prepaid_002', $1) ON CONFLICT (key) DO NOTHING`,
+      [String(r.rowCount)]);
+    console.log(`[db] SPA-TREATWELL-PREPAID-002 — ${r.rowCount} open Treatwell booking(s) set to "payment not confirmed"`);
+  }
+
   console.log('[db] schema ready');
 }
 

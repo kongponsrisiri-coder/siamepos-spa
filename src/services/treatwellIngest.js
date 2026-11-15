@@ -234,7 +234,12 @@ async function placeOne(parsed, bookingId, raw, io) {
   // else keeps the old full-prepay default (marketplace bookings are
   // normally prepaid, and over-collecting from a prepaid customer is the
   // worse failure).
-  const paymentType = (parsed.unpaid && !parsed.prepaid) ? 'unpaid' : 'full';
+  // SPA-TREATWELL-PREPAID-002 — 'full' now needs an explicit "Prepaid" in
+  // the email too. With neither signal the type stays NULL ("not confirmed"):
+  // the till then says "check Treatwell before closing" instead of PREPAID.
+  // Highbury 15 Nov: Sara Dodd (repeat, matched "TW 45 mins unpaid") was
+  // stamped 'full' by the old default and the checkout told staff PREPAID.
+  const paymentType = (parsed.unpaid && !parsed.prepaid) ? 'unpaid' : (parsed.prepaid ? 'full' : null);
 
   const insertSql = `
     INSERT INTO appointments
