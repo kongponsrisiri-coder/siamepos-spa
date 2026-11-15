@@ -343,7 +343,7 @@ router.get('/deletions', async (req, res) => {
   try {
     const since = req.query.since || '1970-01-01';
     const r = await pool.query(
-      `SELECT entity, cloud_id, deleted_at FROM deleted_records
+      `SELECT entity, cloud_id, merged_into, deleted_at FROM deleted_records
        WHERE deleted_at > $1 ORDER BY deleted_at ASC LIMIT 1000`,
       [since],
     );
@@ -386,6 +386,9 @@ const PUSH_ACTIONS = {
   // loyalty counters to the event's after-state (the till already ran the
   // maths; per-device ordering makes the apply deterministic).
   loyalty_event:             { table: 'loyalty_events',  kind: 'loyalty_event' },
+  // SPA-CLIENT-MERGE-002 — a till merged two profiles; repeat it here with the
+  // shared rules (which also writes the merge tombstone for the other tills).
+  merge_client:              { table: 'clients',         kind: 'merge_client' },
 };
 
 // Column list for a table, from the live catalog. Works on Postgres (cloud)
@@ -435,8 +438,28 @@ async function applyOp(action, data, db = pool) {
     return loyaltyService.applySyncedEvent(data, db);
   }
 
+  if (kind === 'merge_client') {
+    const keepId = Number(data.keep_id), dupId = Number(data.duplicate_id);
+    if (!keepId || !dupId) throw new Error('merge_client: keep_id and duplicate_id required');
+    const exists = await db.query('SELECT id FROM clients WHERE id IN ($1, $2)', [keepId, dupId]);
+    const ids = new Set(exists.rows.map((r) => Number(r.id)));
+    if (!ids.has(keepId)) throw new Error('merge_client: main client not on cloud');
+    if (!ids.has(dupId)) return keepId;   // already merged (another till) or erased — nothing left to move
+    const loyaltyOverride = data.loyalty_visits != null
+      ? { visits: data.loyalty_visits, cycle: data.loyalty_cycle } : null;
+    await require('../services/clientMerge').mergeClients(db, keepId, dupId, {
+      source: 'till', staffName: data.staff_name || null, loyaltyOverride,
+    });
+    return keepId;
+  }
+
   if (kind === 'insert') {
     const fields = await writableData(table, data);
+    // SPA-SYNC-NULL-001 — a till row carries NULL for columns SQLite can't
+    // default (clients.updated_at). Sending them made the cloud's NOT NULL
+    // columns refuse every offline-created client and wedged the queue. On an
+    // insert, NULL = "no value": omit it so the cloud default applies.
+    for (const k of Object.keys(fields)) if (fields[k] == null) delete fields[k];
     const keys = Object.keys(fields);
     if (keys.length === 0) throw new Error(`${action}: no writable columns`);
     const ph = keys.map((_, i) => `$${i + 1}`).join(',');
@@ -451,6 +474,9 @@ async function applyOp(action, data, db = pool) {
     const id = Number(data.id);
     if (!Number.isFinite(id)) throw new Error(`${action}: missing target id`);
     const fields = await writableData(table, data);
+    // SPA-SYNC-NULL-001 — the cloud keeps its own timestamps; a till's NULL
+    // there is "unknown", not "clear it" (clients.updated_at is NOT NULL).
+    for (const k of ['created_at', 'updated_at']) if (fields[k] == null) delete fields[k];
     const keys = Object.keys(fields);
     if (keys.length === 0) throw new Error(`${action}: no writable columns`);
     const sets = keys.map((k, i) => `${k}=$${i + 1}`).join(',');

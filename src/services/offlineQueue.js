@@ -120,4 +120,18 @@ async function markSynced(id) {
   );
 }
 
-module.exports = { enqueue, pending, pendingCount, markSynced, isLocal };
+// SPA-CLIENT-MERGE-002 — drop pending ops for a local row that no longer
+// exists (a merged-away duplicate). Replaying them would re-read a deleted row
+// and wedge the queue forever. Marked done with the reason, never deleted.
+async function cancelPending(actionTypes, localId, reason) {
+  if (!isLocal || !actionTypes.length) return 0;
+  const ph = actionTypes.map((_, i) => `$${i + 3}`).join(',');
+  const r = await pool.query(
+    `UPDATE sync_queue SET status = 'done', last_error = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE status = 'pending' AND entity_id = $2 AND op IN (${ph})`,
+    [`cancelled: ${reason}`, Number(localId), ...actionTypes],
+  );
+  return r.rowCount || 0;
+}
+
+module.exports = { enqueue, pending, pendingCount, markSynced, cancelPending, isLocal };

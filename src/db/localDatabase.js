@@ -753,6 +753,31 @@ async function initSchema() {
       applied_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- SPA-CLIENT-MERGE-002 — merge audit + duplicate flags (mirror the cloud).
+    CREATE TABLE IF NOT EXISTS client_merges (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      kept_id      INTEGER NOT NULL,
+      merged_id    INTEGER NOT NULL,
+      merged_name  TEXT,
+      snapshot     TEXT,
+      staff_id     INTEGER,
+      staff_name   TEXT,
+      source       TEXT NOT NULL DEFAULT 'till',
+      created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS client_duplicate_flags (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      client_a     INTEGER NOT NULL,
+      client_b     INTEGER NOT NULL,
+      status       TEXT NOT NULL DEFAULT 'flagged' CHECK (status IN ('flagged','not_duplicate')),
+      note         TEXT,
+      flagged_by   INTEGER,
+      created_at   TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      resolved_by  INTEGER,
+      resolved_at  TEXT,
+      UNIQUE (client_a, client_b)
+    );
+
     -- GDPR erasure tombstones (mirrors the cloud table). Used when this DB acts
     -- as the receiver/cloud; on a till it's unused but kept for shape parity.
     CREATE TABLE IF NOT EXISTS deleted_records (
@@ -1025,6 +1050,10 @@ function runMigrations() {
   addColumnIfMissing('clients', 'cloud_id',        'INTEGER');
   addColumnIfMissing('clients', 'loyalty_visits',  'INTEGER NOT NULL DEFAULT 0'); // SPA-LOYALTY-001
   addColumnIfMissing('clients', 'loyalty_cycle',   'INTEGER NOT NULL DEFAULT 0'); // SPA-LOYALTY-001
+  addColumnIfMissing('clients', 'alias',           'TEXT'); // SPA-SEARCH-001 — was cloud-only; till search 500'd
+  addColumnIfMissing('clients', 'alt_phone',       'TEXT'); // SPA-CLIENT-MERGE-002
+  addColumnIfMissing('clients', 'alt_email',       'TEXT'); // SPA-CLIENT-MERGE-002
+  addColumnIfMissing('deleted_records', 'merged_into', 'INTEGER'); // SPA-CLIENT-MERGE-002
 
   // appointments
   addColumnIfMissing('appointments', 'therapist_requested',    'INTEGER NOT NULL DEFAULT 0');

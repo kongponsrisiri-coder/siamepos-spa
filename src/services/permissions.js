@@ -29,6 +29,8 @@ const ACTIONS = [
   { key: 'refunds',         label: 'Issue refunds (bills and deposits)',      default: { manager: 'on',  reception: 'off', therapist: 'off' } },
   { key: 'void_bills',      label: 'Void / delete a bill',                    default: { manager: 'on',  reception: 'off', therapist: 'off' } },
   { key: 'manage_sessions', label: 'Sell / edit / void session packages',     default: { manager: 'off', reception: 'off', therapist: 'off' } },
+  // SPA-CLIENT-MERGE-002 — Korakot 15 Nov 2026: managers + admins; reception flags instead.
+  { key: 'merge_clients',   label: 'Merge duplicate client profiles',          default: { manager: 'on',  reception: 'off', therapist: 'off' } },
 ];
 const ACTION_KEYS = ACTIONS.map((a) => a.key);
 

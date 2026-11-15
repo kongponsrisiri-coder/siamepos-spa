@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, getStaff } from '../api.js';
 import MedicalQuestionnaireForm from '../components/MedicalQuestionnaireForm.jsx';
+import { FlagDuplicateModal } from '../components/ClientMergeUI.jsx'; // SPA-CLIENT-MERGE-002
 
 function fmtDate(d) { return d ? new Date(d).toLocaleDateString('en-GB') : '—'; }
 
@@ -23,6 +24,7 @@ export default function ClientProfileScreen() {
   const [medical, setMedical]         = useState(null);
   const [appointments, setAppointments] = useState([]);
   const [tab, setTab]                 = useState('profile');
+  const [flagging, setFlagging]       = useState(false);   // SPA-CLIENT-MERGE-002
   const [editing, setEditing]         = useState(false);
   const [draft, setDraft]             = useState(null);
   const [error, setError]             = useState('');
@@ -80,6 +82,7 @@ export default function ClientProfileScreen() {
 
   return (
     <div className="col">
+      {flagging && <FlagDuplicateModal client={client} onClose={() => setFlagging(false)} />}
       <button onClick={() => navigate('/clients')} style={{ alignSelf: 'flex-start' }}>← Back to clients</button>
 
       <div className="card">
@@ -92,6 +95,7 @@ export default function ClientProfileScreen() {
           </div>
           <div className="row">
             {!editing && <button onClick={startEdit}>Edit</button>}
+            {!editing && <button onClick={() => setFlagging(true)} title="This client has another profile — flag it for a manager to merge">🚩 Duplicate?</button>}
             {isAdmin && !editing && <button className="danger" onClick={gdprErase}>GDPR delete</button>}
           </div>
         </div>
@@ -214,7 +218,9 @@ function ProfileView({ client }) {
   return (
     <div className="card">
       {row('Phone', client.phone)}
+      {client.alt_phone ? row('Other phone', client.alt_phone) : null /* SPA-CLIENT-MERGE-002 — kept by a merge */}
       {row('Email', client.email)}
+      {client.alt_email ? row('Other email', client.alt_email) : null}
       {client.alias ? row('Nickname', client.alias) : null}
       {row('Date of birth', fmtDate(client.date_of_birth))}
       {row('Emergency contact', [client.emergency_contact_name, client.emergency_contact_phone].filter(Boolean).join(' · '))}

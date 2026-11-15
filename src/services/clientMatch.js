@@ -90,12 +90,15 @@ const TTL_MS = 60_000;
 function invalidate() { cache = null; }
 async function allClients() {
   if (cache && Date.now() - cacheAt < TTL_MS) return cache;
-  const { rows } = await pool.query('SELECT id, name, alias, phone, email FROM clients');
-  cache = rows.map((r) => ({
+  const { rows } = await pool.query('SELECT id, name, alias, phone, email, alt_phone, alt_email FROM clients');
+  cache = rows.map(({ alt_phone, alt_email, ...r }) => ({
     row: r,
     nameTokens: [...tokens(r.name), ...tokens(r.alias)],
     phone: phoneDigits(r.phone),
     email: String(r.email || '').toLowerCase().trim(),
+    // SPA-CLIENT-MERGE-002 — second contacts kept by a merge are searchable too
+    altPhone: phoneDigits(alt_phone),
+    altEmail: String(alt_email || '').toLowerCase().trim(),
   }));
   cacheAt = Date.now();
   return cache;
@@ -113,8 +116,8 @@ async function fuzzySearch(q, { limit = 25, excludeIds = new Set() } = {}) {
   for (const c of await allClients()) {
     if (excludeIds.has(c.row.id)) continue;
     let score = 0;
-    if (digits.length >= 3 && c.phone.includes(digits)) score = 0.95;
-    if (qEmail && c.email.includes(qEmail)) score = Math.max(score, 0.95);
+    if (digits.length >= 3 && (c.phone.includes(digits) || (c.altPhone && c.altPhone.includes(digits)))) score = 0.95;
+    if (qEmail && (c.email.includes(qEmail) || (c.altEmail && c.altEmail.includes(qEmail)))) score = Math.max(score, 0.95);
     if (qTokens.length) score = Math.max(score, nameScore(qTokens, c.nameTokens));
     if (score >= 0.6) out.push({ ...c.row, score: +score.toFixed(3) });
   }
@@ -135,8 +138,8 @@ async function findLikelyDuplicates({ name, phone, email } = {}, { excludeId = n
   for (const c of await allClients()) {
     if (excludeId && c.row.id === Number(excludeId)) continue;
     const reasons = [];
-    if (p.length >= 7 && c.phone && c.phone === p) reasons.push('phone');
-    if (e && c.email && c.email === e) reasons.push('email');
+    if (p.length >= 7 && [c.phone, c.altPhone].includes(p)) reasons.push('phone');
+    if (e && [c.email, c.altEmail].includes(e)) reasons.push('email');
     // Name alone only counts when BOTH parts match closely (not just "John").
     if (nTokens.length >= 2 && nameScore(nTokens, c.nameTokens) >= 0.8
         && nameScore(c.nameTokens.slice(0, 2), nTokens) >= 0.8) reasons.push('name');
@@ -147,4 +150,46 @@ async function findLikelyDuplicates({ name, phone, email } = {}, { excludeId = n
   return out.slice(0, 5);
 }
 
-module.exports = { fuzzySearch, findLikelyDuplicates, invalidate, _test: { norm, phoneDigits, soundKey, editDistance, wordScore, nameScore } };
+/**
+ * SPA-CLIENT-MERGE-002 — every likely duplicate PAIR across the client list,
+ * for the "Possible duplicates" review. Groups by exact keys only (same
+ * phone, same email, same name ignoring word order, same sound-alike name),
+ * so it stays O(n) on thousands of clients. Returns
+ * [{ a, b, reasons: ['phone'|'email'|'name'|'sounds_like'] }] (a.id < b.id).
+ */
+async function findDuplicatePairs() {
+  const groups = new Map();   // key → [client]
+  const add = (key, c) => { if (!groups.has(key)) groups.set(key, []); groups.get(key).push(c); };
+  for (const c of await allClients()) {
+    if (c.phone.length >= 7) add(`phone:${c.phone}`, c);
+    if (c.email) add(`email:${c.email}`, c);
+    const nameToks = tokens(c.row.name);
+    if (nameToks.length >= 2) {
+      add(`name:${[...nameToks].sort().join(' ')}`, c);
+      const keys = nameToks.map(soundKey);
+      if (keys.every((k) => k && k.length >= 2)) add(`sounds_like:${keys.sort().join(' ')}`, c);
+    }
+  }
+  const pairs = new Map();    // "a:b" → { a, b, reasons:Set }
+  for (const [key, list] of groups) {
+    if (list.length < 2 || list.length > 20) continue;   // 20+ sharing a key = a shop/test number, not a person
+    const reason = key.slice(0, key.indexOf(':'));
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const [x, y] = list[i].row.id < list[j].row.id ? [list[i], list[j]] : [list[j], list[i]];
+        const k = `${x.row.id}:${y.row.id}`;
+        if (!pairs.has(k)) pairs.set(k, { a: x.row, b: y.row, reasons: new Set() });
+        pairs.get(k).reasons.add(reason);
+      }
+    }
+  }
+  const out = [...pairs.values()].map((p) => {
+    if (p.reasons.has('name')) p.reasons.delete('sounds_like');
+    return { ...p, reasons: [...p.reasons] };
+  });
+  const weight = (p) => (p.reasons.includes('phone') ? 4 : 0) + (p.reasons.includes('email') ? 4 : 0)
+    + (p.reasons.includes('name') ? 2 : 0) + (p.reasons.includes('sounds_like') ? 1 : 0);
+  return out.sort((x, y) => weight(y) - weight(x));
+}
+
+module.exports = { fuzzySearch, findLikelyDuplicates, findDuplicatePairs, invalidate, _test: { norm, phoneDigits, soundKey, editDistance, wordScore, nameScore } };

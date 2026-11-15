@@ -268,6 +268,7 @@ async function pendingCloudIdsByTable() {
       if (p.appointmentCloudId) add('appointments', p.appointmentCloudId);
       if (p.billCloudId) add('bills', p.billCloudId);
       if (p.clientCloudId) add('clients', p.clientCloudId);
+      if (p.keepCloudId) add('clients', p.keepCloudId);   // SPA-CLIENT-MERGE-002 — merged main profile
       if (p.medicalCloudId) add('client_medical', p.medicalCloudId);
       if (p.voucherCloudId) add('vouchers', p.voucherCloudId);
     }
@@ -493,16 +494,44 @@ async function pullDeletions() {
     const data = await getJSON('/api/sync/deletions?since=' + encodeURIComponent(since), { headers: syncHeaders() });
     let n = 0;
     for (const d of (data.deletions || [])) {
-      if (d.entity === 'client') {
+      if (d.entity === 'client' && d.merged_into != null) {
+        // SPA-CLIENT-MERGE-002 — a MERGE, not an erasure: move this till's
+        // records onto the main profile before dropping the duplicate, so
+        // older history (outside the appointments pull window) isn't orphaned.
+        n += await applyMergeTombstone(d.cloud_id, d.merged_into);
+      } else if (d.entity === 'client') {
         const r = await pool.query('DELETE FROM clients WHERE cloud_id = $1', [d.cloud_id]);
         n += r.rowCount || 0;
       }
     }
     if (data.max_cursor) await writeSyncState('deletions_since', data.max_cursor);
-    if (n) console.log(`[sync] GDPR: erased ${n} locally-held record(s) per cloud tombstones`);
+    if (n) console.log(`[sync] applied ${n} cloud tombstone(s) (GDPR erasure / client merge)`);
   } catch (err) {
     console.warn('[sync] pull deletions failed:', err.message);
   }
+}
+
+// Re-point local rows from the merged-away client to the main one, then drop
+// it. Main profile not on this till yet → relabel the local copy as the main
+// profile instead (the next clients pull fills in its merged details).
+async function applyMergeTombstone(dupCloudId, keepCloudId) {
+  const dupLocal = await findLocalIdByCloudId('clients', dupCloudId);
+  if (!dupLocal) return 0;
+  const keepLocal = await findLocalIdByCloudId('clients', keepCloudId);
+  if (!keepLocal) {
+    await pool.query('UPDATE clients SET cloud_id = $1 WHERE id = $2', [keepCloudId, dupLocal]);
+    return 1;
+  }
+  const { CHILD_TABLES } = require('./clientMerge');
+  for (const t of CHILD_TABLES) {
+    await pool.query(`UPDATE ${t} SET client_id = $1 WHERE client_id = $2`, [keepLocal, dupLocal]);
+  }
+  const keptMed = await pool.query('SELECT id FROM client_medical WHERE client_id = $1', [keepLocal]);
+  if (keptMed.rows.length) await pool.query('DELETE FROM client_medical WHERE client_id = $1', [dupLocal]);
+  else await pool.query('UPDATE client_medical SET client_id = $1 WHERE client_id = $2', [keepLocal, dupLocal]);
+  await pool.query('DELETE FROM client_duplicate_flags WHERE client_a = $1 OR client_b = $1', [dupLocal]);
+  await pool.query('DELETE FROM clients WHERE id = $1', [dupLocal]);
+  return 1;
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -648,6 +677,23 @@ async function applyToCloud(entry) {
     if (cloudId == null) return; // never had a cloud copy — nothing to propagate
     const opKey = await makeOpKey(entry);
     const resp = await postJSON('/api/sync/push', { ops: [{ op_key: opKey, action, data: { id: cloudId } }] });
+    const result = resp.results && resp.results[0];
+    if (!result || !result.ok) throw new Error((result && result.error) || 'push rejected');
+    return;
+  }
+
+  // SPA-CLIENT-MERGE-002 — merge_client: the duplicate's local row is gone, so
+  // send ids: the main profile's cloud id (must have pushed first) + the
+  // duplicate's captured cloud id. The cloud repeats the merge.
+  if (action === 'merge_client') {
+    const p = entry.payload || {};
+    const keepCloud = await findCloudIdByLocalId('clients', p.keepLocalId);
+    if (keepCloud == null) throw new Error('merge_client: main client not on cloud yet — retry');
+    const opKey = await makeOpKey(entry);
+    const resp = await postJSON('/api/sync/push', { ops: [{ op_key: opKey, action, data: {
+      keep_id: keepCloud, duplicate_id: p.dupCloudId,
+      loyalty_visits: p.loyalty_visits, loyalty_cycle: p.loyalty_cycle,
+    } }] });
     const result = resp.results && resp.results[0];
     if (!result || !result.ok) throw new Error((result && result.error) || 'push rejected');
     return;

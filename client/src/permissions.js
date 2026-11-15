@@ -19,11 +19,12 @@ export const ACTIONS = [
   ['refunds',         'Issue refunds (bills and deposits)'],
   ['void_bills',      'Void / delete a bill'],
   ['manage_sessions', 'Sell / edit / void session packages'],
+  ['merge_clients',   'Merge duplicate client profiles'],   // SPA-CLIENT-MERGE-002
 ];
 const ACTION_DEFAULTS = {
-  manager:   { edit_schedule: 'on', refunds: 'on',  void_bills: 'on',  manage_sessions: 'off' },
-  reception: { edit_schedule: 'on', refunds: 'off', void_bills: 'off', manage_sessions: 'off' },
-  therapist: { edit_schedule: 'on', refunds: 'off', void_bills: 'off', manage_sessions: 'off' },
+  manager:   { edit_schedule: 'on', refunds: 'on',  void_bills: 'on',  manage_sessions: 'off', merge_clients: 'on' },
+  reception: { edit_schedule: 'on', refunds: 'off', void_bills: 'off', manage_sessions: 'off', merge_clients: 'off' },
+  therapist: { edit_schedule: 'on', refunds: 'off', void_bills: 'off', manage_sessions: 'off', merge_clients: 'off' },
 };
 export const LEVELS = [['none', 'Hidden'], ['view', 'View only'], ['edit', 'View + edit']];
 const ALL_SECTIONS = SECTION_GROUPS.flatMap((g) => g.items.map(([k]) => k));

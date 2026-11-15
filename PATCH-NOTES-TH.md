@@ -5,6 +5,31 @@
 
 ---
 
+## อัปเดต — (วันที่ปล่อย) — รวมประวัติลูกค้าที่ซ้ำกันเป็นคนเดียว
+
+* **🔗 รวมโปรไฟล์ลูกค้าที่ซ้ำ** — Admin → Clients → **🔍 Possible duplicates** ระบบจะหาคู่ที่น่าจะเป็นคนเดียวกัน
+  (เบอร์เดียวกัน อีเมลเดียวกัน หรือชื่อคล้ายกัน) กด **Review & merge** จะเห็นทั้งสองโปรไฟล์ก่อน และเห็นว่ารวมแล้วจะได้อะไร
+  ประวัติการจอง บิล บัตรกำนัล แพ็กเกจ แต้มสะสม และแบบฟอร์มสุขภาพ จะย้ายมารวมที่โปรไฟล์หลักทั้งหมด
+  ถ้าเบอร์หรืออีเมลต่างกัน ระบบเก็บไว้ทั้งสองอัน
+* **📧 ความยินยอมรับการตลาด ไม่ถูกเปิดเองเด็ดขาด** — ถ้ามีโปรไฟล์ใดไม่ยินยอม หรือเคยยกเลิกรับข่าวสาร โปรไฟล์ที่รวมแล้วจะไม่ได้รับอีเมลการตลาด
+* **🚩 พนักงานต้อนรับแจ้งว่า "น่าจะซ้ำ" ได้** — ในหน้าลูกค้า กด **🚩 Duplicate?** แล้วเลือกอีกโปรไฟล์ ผู้จัดการจะเห็นคู่นี้อยู่บนสุดของรายการ
+  การรวมจริงทำได้เฉพาะผู้จัดการและแอดมิน (เจ้าของร้านเปลี่ยนสิทธิ์ได้ที่ Staff → Roles)
+* ระบบบันทึกไว้เสมอว่าใครรวม เมื่อไร และรวมโปรไฟล์ไหน
+
+**สิ่งที่ร้านต้องทำ:** ผู้จัดการเปิด Admin → Clients → 🔍 Possible duplicates แล้วตรวจทีละคู่ — รวมเฉพาะเมื่อแน่ใจว่าเป็นคนเดียวกัน
+ถ้าไม่ใช่ กด "Not the same person" ระบบจะไม่เสนอคู่นี้อีก
+
+### English
+
+* **Merge duplicate client profiles** — Admin → Clients → **🔍 Possible duplicates** lists pairs that look like the same person (same phone, same email or a similar name). **Review & merge** shows both profiles and exactly what the merged one will have. Bookings, bills, vouchers, packages, loyalty stamps and the medical form all move to the main profile; a different phone or email is kept as well.
+* **Marketing consent is never switched on by a merge** — if either profile hadn't agreed or had unsubscribed, the merged profile gets no marketing emails.
+* **Reception can flag a duplicate** — on a client's page tap **🚩 Duplicate?** and pick the other profile; it goes to the top of the manager's list. Only managers and admins can merge (the owner can change this in Staff → Roles).
+* Every merge is recorded: who, when, and which profiles.
+
+**What you need to do:** a manager opens Admin → Clients → 🔍 Possible duplicates and goes through the pairs — merge only when you're sure it's the same person. If it isn't, tap "Not the same person" and the pair won't be suggested again.
+
+---
+
 ## อัปเดต — 15 พฤศจิกายน 2026 — ค้นหาลูกค้าได้แม้พิมพ์ชื่อผิด + เตือนก่อนสร้างลูกค้าซ้ำ
 
 * **🔎 ค้นหาลูกค้าได้ แม้สะกดชื่อผิด** — พิมพ์ "Somchay" ก็เจอ Somchai, "jon smyth" ก็เจอ John Smith,

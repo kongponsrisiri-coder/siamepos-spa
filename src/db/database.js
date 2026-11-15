@@ -914,6 +914,44 @@ async function initSchema() {
     `CREATE UNIQUE INDEX IF NOT EXISTS uq_appointments_deposit_stripe_id ON appointments (deposit_stripe_id) WHERE deposit_stripe_id IS NOT NULL`,
   );
 
+  // SPA-CLIENT-MERGE-002 — merge duplicates, properly.
+  //  • alt_phone / alt_email: a merge keeps BOTH contacts when they differ.
+  //  • deleted_records.merged_into: a merge tombstone tells each till which
+  //    client the records moved to, so it re-points instead of orphaning.
+  //  • client_merges: audit (who, when, which ids) + a snapshot of what moved
+  //    so a merge can be traced / undone later. Never holds medical answers.
+  //  • client_duplicate_flags: reception flags a pair; managers merge or mark
+  //    "not duplicates" (client_a < client_b always, so a pair is one row).
+  await pool.query(`
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS alt_phone TEXT;
+    ALTER TABLE clients ADD COLUMN IF NOT EXISTS alt_email TEXT;
+    ALTER TABLE deleted_records ADD COLUMN IF NOT EXISTS merged_into INT;
+    CREATE TABLE IF NOT EXISTS client_merges (
+      id           SERIAL PRIMARY KEY,
+      kept_id      INT NOT NULL,
+      merged_id    INT NOT NULL,
+      merged_name  TEXT,
+      snapshot     JSONB,
+      staff_id     INT,
+      staff_name   TEXT,
+      source       TEXT NOT NULL DEFAULT 'cloud',
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS idx_client_merges_kept ON client_merges (kept_id);
+    CREATE TABLE IF NOT EXISTS client_duplicate_flags (
+      id           SERIAL PRIMARY KEY,
+      client_a     INT NOT NULL,
+      client_b     INT NOT NULL,
+      status       TEXT NOT NULL DEFAULT 'flagged' CHECK (status IN ('flagged','not_duplicate')),
+      note         TEXT,
+      flagged_by   INT,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      resolved_by  INT,
+      resolved_at  TIMESTAMPTZ,
+      UNIQUE (client_a, client_b)
+    );
+  `);
+
   // SPA-TREATWELL-PREPAID-002 — ONE-TIME: open email-imported bookings that
   // were stamped 'full' by the old default although the email never said
   // "Prepaid" go back to NULL ("not confirmed"), so the till stops calling

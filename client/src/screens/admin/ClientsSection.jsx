@@ -7,6 +7,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api.js';
+import { canDo } from '../../permissions.js';
+import { toast } from '../../toast.js';
+import { MergeModal, PossibleDuplicatesPanel } from '../../components/ClientMergeUI.jsx'; // SPA-CLIENT-MERGE-002
 
 const STATUS_STYLE = {
   VIP:     { bg: '#ede9fe', color: '#5b21b6', icon: '⭐' },
@@ -61,6 +64,13 @@ export default function ClientsSection() {
   // SPA-CLIENT-MERGE — the duplicate row picked first (null = not merging)
   const [mergeFrom, setMergeFrom] = useState(null);
   const [merging,   setMerging]   = useState(false);
+  // SPA-CLIENT-MERGE-002 — preview/confirm modal + duplicates review.
+  // Without the merge_clients action (reception by default) the same two-tap
+  // pick FLAGS the pair for a manager instead of merging it.
+  const canMerge = canDo('merge_clients');
+  const [mergePair, setMergePair] = useState(null);      // { keep, dup } ids → MergeModal
+  const [showDupes, setShowDupes] = useState(false);
+  const [dupesKey, setDupesKey]   = useState(0);
   const navigate = useNavigate();
 
   async function load() {
@@ -118,25 +128,24 @@ export default function ClientsSection() {
     } catch (e) { alert(e.message); }
   }
 
-  // SPA-CLIENT-MERGE — two-tap merge for duplicate records (receptionist
+  // SPA-CLIENT-MERGE — two-tap pick for duplicate records (receptionist
   // typos create twins). Tap 🔗 Merge on the WRONG/duplicate row, then
-  // "Keep this one" on the correct client: everything (appointments,
-  // vouchers, history) moves onto the kept client and the duplicate is
-  // removed.
+  // "Keep this one" on the correct client → preview + confirm (MergeModal).
+  // Roles without merge_clients flag the pair instead.
   async function doMerge(keep) {
     if (!mergeFrom || merging) return;
-    const ok = window.confirm(
-      `Merge "${mergeFrom.name}" into "${keep.name}"?\n\n` +
-      `All appointments, vouchers and history from "${mergeFrom.name}" move to "${keep.name}", ` +
-      `and "${mergeFrom.name}" is removed. This cannot be undone.`
-    );
-    if (!ok) return;
+    if (canMerge) {
+      setMergePair({ keep: keep.id, dup: mergeFrom.id });
+      setMergeFrom(null);
+      return;
+    }
     setMerging(true);
     try {
-      await api.post(`/clients/${keep.id}/merge`, { duplicate_id: mergeFrom.id });
+      await api.post('/clients/duplicate-flags', { client_a: mergeFrom.id, client_b: keep.id });
+      toast(`🚩 Flagged "${mergeFrom.name}" + "${keep.name}" for a manager to merge`);
       setMergeFrom(null);
-      await load();
-    } catch (e) { alert(e.message || 'Merge failed'); }
+      setDupesKey((k) => k + 1);
+    } catch (e) { toast(e.data?.error || e.message || 'Could not flag', 'error'); }
     finally { setMerging(false); }
   }
 
@@ -223,10 +232,23 @@ export default function ClientsSection() {
         <button onClick={load} disabled={loading}>
           {loading ? 'Loading…' : 'Refresh'}
         </button>
+        <button onClick={() => setShowDupes((v) => !v)} title="Profiles that may be the same person">
+          🔍 Possible duplicates
+        </button>
         <button className="primary" onClick={exportCsv} disabled={!filtered.length}>
           ⬇ Export CSV
         </button>
       </div>
+
+      {/* SPA-CLIENT-MERGE-002 — duplicates review sits under the filters,
+          whether or not the table below has rows. */}
+      {showDupes && (
+        <div className="card" style={{ background: '#fffbeb' }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>🔍 Possible duplicates · อาจเป็นลูกค้าคนเดียวกัน</div>
+          <PossibleDuplicatesPanel canMerge={canMerge} refreshKey={dupesKey}
+            onReview={(a, b) => setMergePair({ keep: a, dup: b })} />
+        </div>
+      )}
 
       {/* ── Table ──────────────────────────────────────────────────── */}
       <div className="card">
@@ -242,7 +264,9 @@ export default function ClientsSection() {
             {mergeFrom && (
               <div style={{ background: '#fff8e6', border: '1px solid #f0c36d', borderRadius: 8, padding: '10px 14px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: '#8a6100' }}>
-                  🔗 Merging duplicate “{mergeFrom.name}” — now tap “✓ Keep this one” on the CORRECT client. Their history moves there.
+                  {canMerge
+                    ? <>🔗 Merging duplicate “{mergeFrom.name}” — now tap “✓ Keep this one” on the CORRECT client. You'll see a preview before anything changes.</>
+                    : <>🚩 Flagging “{mergeFrom.name}” — now tap “Same person” on the client it duplicates. A manager will review and merge.</>}
                 </span>
                 <button onClick={() => setMergeFrom(null)} style={{ fontSize: 12 }}>Cancel</button>
               </div>
@@ -341,13 +365,14 @@ export default function ClientsSection() {
                           ) : (
                             <button onClick={() => doMerge(c)} disabled={merging}
                               style={{ fontSize: 12, background: '#16a34a', color: 'white', border: 'none', borderRadius: 6, padding: '4px 10px', fontWeight: 700, cursor: 'pointer' }}>
-                              {merging ? '…' : '✓ Keep this one'}
+                              {merging ? '…' : (canMerge ? '✓ Keep this one' : '🚩 Same person')}
                             </button>
                           )
                         ) : (
                           <>
-                            <button onClick={() => setMergeFrom(c)} title="This row is a duplicate — merge it into the correct client"
-                              style={{ fontSize: 12, marginRight: 6 }}>🔗 Merge</button>
+                            <button onClick={() => setMergeFrom(c)}
+                              title={canMerge ? 'This row is a duplicate — merge it into the correct client' : 'This row looks like a duplicate — flag it for a manager'}
+                              style={{ fontSize: 12, marginRight: 6 }}>{canMerge ? '🔗 Merge' : '🚩 Duplicate?'}</button>
                             <button onClick={() => navigate(`/clients/${c.id}`)} style={{ fontSize: 12 }}>Open →</button>
                           </>
                         )}
@@ -375,6 +400,14 @@ export default function ClientsSection() {
           clients should receive campaigns. Toggle off-widget consent (verbal, phone, walk-in) using the buttons above — never opt in without proof.
         </div>
       </div>
+      {mergePair && (
+        <MergeModal
+          keepId={mergePair.keep}
+          dupId={mergePair.dup}
+          onClose={() => setMergePair(null)}
+          onMerged={() => { setMergePair(null); setDupesKey((k) => k + 1); load(); }}
+        />
+      )}
     </div>
   );
 }
