@@ -8,6 +8,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { PossibleMatchesLabel } from './ClientMatchUI.jsx'; // SPA-CLIENT-FUZZY-001
 
 // SPA-TREATWELL-COLOR — small inline selector for the Treatwell
 // payment type. Drives the timeline colour (green = full prepay,
@@ -833,12 +834,18 @@ export default function NewAppointmentModal({
                 />
                 {clients.length > 0 && (
                   <div style={{ border: '1px solid var(--border)', borderRadius: 8, marginTop: 4, maxHeight: 130, overflowY: 'auto', background: 'white', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
-                    {clients.map(c => (
-                      <div key={c.id} onClick={() => { setClientId(c.id); setClientName(c.name); setClientQuery(''); setClients([]); }}
+                    {clients.map((c, i) => (
+                      <React.Fragment key={c.id}>
+                      {/* SPA-CLIENT-FUZZY-001 — spelling-forgiving suggestions start here */}
+                      {c.approx && !(clients[i - 1] && clients[i - 1].approx) && (
+                        <PossibleMatchesLabel style={{ borderRadius: 0, border: 'none', borderBottom: '1px solid #fcd34d' }} />
+                      )}
+                      <div onClick={() => { setClientId(c.id); setClientName(c.name); setClientQuery(''); setClients([]); }}
                         style={{ padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: 14 }}
                         onMouseEnter={e => e.currentTarget.style.background = 'var(--navy-muted)'}
                         onMouseLeave={e => e.currentTarget.style.background = 'white'}
                       >{c.name}{c.phone && <span className="muted"> · {c.phone}</span>}</div>
+                      </React.Fragment>
                     ))}
                   </div>
                 )}

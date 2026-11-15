@@ -3,8 +3,16 @@ const { pool } = require('../db/dbAdapter');
 const { requireRole } = require('../middleware/auth');
 const offlineQueue = require('../services/offlineQueue');
 const { isOffline } = require('../services/syncService');
+const clientMatch = require('../services/clientMatch'); // SPA-CLIENT-FUZZY-001
 
 const router = express.Router();
+
+// SPA-CLIENT-FUZZY-001 — any client write here refreshes the search cache
+// (bookings made elsewhere, e.g. Treatwell imports, catch up within a minute).
+router.use((req, res, next) => {
+  if (req.method !== 'GET') res.on('finish', () => clientMatch.invalidate());
+  next();
+});
 
 // GET /api/clients?q=name_or_phone
 // Returns the client list enriched with visit + spend stats so both the
@@ -47,9 +55,35 @@ router.get('/search', async (req, res) => {
         LIMIT $5`,
       [pre, word, any, digits, limit],
     );
-    res.json({ clients: rows });
+    // SPA-CLIENT-FUZZY-001 — top up with forgiving matches (typos, sound-alikes,
+    // surname-first, accents, "07911…" vs "+44 7911…"). Exact hits stay first;
+    // fuzzy-only rows carry approx:true so the till can label them
+    // "Possible matches".
+    let approximate = false;
+    if (rows.length < limit) {
+      const seen = new Set(rows.map((r) => r.id));
+      const fuzzy = await clientMatch.fuzzySearch(q, { limit: limit - rows.length, excludeIds: seen });
+      for (const f of fuzzy) rows.push({ id: f.id, name: f.name, alias: f.alias, phone: f.phone, email: f.email, rank: 5, approx: f.score < 1 });
+      approximate = fuzzy.some((f) => f.score < 1);   // "Smith John" = same words, not a guess
+    }
+    res.json({ clients: rows, approximate });
   } catch (err) {
     console.error('[clients] search', err);
+    res.status(500).json({ error: 'server error' });
+  }
+});
+
+// SPA-CLIENT-FUZZY-001 — "This looks like [name]. Use existing profile?"
+// GET /api/clients/likely-duplicates?name=&phone=&email=[&exclude=id]
+// → existing clients with the same phone, same email, or a near-identical
+// full name. The till asks before saving a new profile.
+router.get('/likely-duplicates', async (req, res) => {
+  try {
+    const { name, phone, email, exclude } = req.query;
+    const clients = await clientMatch.findLikelyDuplicates({ name, phone, email }, { excludeId: exclude || null });
+    res.json({ clients });
+  } catch (err) {
+    console.error('[clients] likely-duplicates', err);
     res.status(500).json({ error: 'server error' });
   }
 });

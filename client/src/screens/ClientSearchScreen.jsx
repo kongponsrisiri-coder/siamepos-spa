@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
+import { PossibleMatchesLabel, DuplicateWarning } from '../components/ClientMatchUI.jsx'; // SPA-CLIENT-FUZZY-001
 
 // Same thresholds as Admin → Clients so both screens read the same.
 const STATUS_STYLE = {
@@ -131,7 +132,10 @@ export default function ClientSearchScreen() {
       )}
 
       <div className="col" style={{ gap: 6 }}>
-        {sortClients(clients, sort).map((c) => {
+        {/* SPA-CLIENT-FUZZY-001 — exact hits (in the chosen sort), then the
+            forgiving "possible matches" best-first under their own label. */}
+        {[...sortClients(clients.filter((c) => !c.approx), sort), ...clients.filter((c) => c.approx)].map((c, i, arr) => {
+          const firstApprox = c.approx && !(arr[i - 1] && arr[i - 1].approx);
           const visits = Number(c.total_visits || 0);
           const spend  = Number(c.total_spend  || 0);
           const daysSinceLast = c.last_visit
@@ -140,8 +144,9 @@ export default function ClientSearchScreen() {
           const status = visits === 0 ? null : statusFor(visits, spend, daysSinceLast);
           const st = status ? STATUS_STYLE[status] : null;
           return (
+            <React.Fragment key={c.id}>
+            {firstApprox && <PossibleMatchesLabel />}
             <div
-              key={c.id}
               className="card client-card"
               style={{ padding: 12, cursor: 'pointer' }}
               onClick={() => navigate(`/clients/${c.id}`)}
@@ -179,6 +184,7 @@ export default function ClientSearchScreen() {
                 </div>
               </div>
             </div>
+            </React.Fragment>
           );
         })}
         {!loading && clients.length === 0 && (
@@ -224,10 +230,17 @@ function NewClientModal({ onClose, onCreated }) {
 
   function set(k, v) { setB((s) => ({ ...s, [k]: v })); }
 
-  async function save() {
+  const [dups, setDups] = useState(null);   // SPA-CLIENT-FUZZY-001 — likely existing profiles
+
+  async function save(force = false) {
     if (!b.name) { setError('Name is required'); return; }
     setBusy(true); setError('');
     try {
+      if (!force) {
+        const qs = new URLSearchParams({ name: b.name, phone: b.phone || '', email: b.email || '' });
+        const d = await api.get(`/clients/likely-duplicates?${qs}`).catch(() => ({ clients: [] }));
+        if ((d.clients || []).length) { setDups(d.clients); return; }
+      }
       const r = await api.post('/clients', b);
       onCreated(r.client);
     } catch (e) { setError(e.message); }
@@ -264,10 +277,20 @@ function NewClientModal({ onClose, onCreated }) {
             <span>Marketing email opt-in</span>
           </label>
           {error && <div style={{ color: 'var(--danger)', fontSize: 14 }}>{error}</div>}
-          <div className="row" style={{ justifyContent: 'flex-end' }}>
-            <button onClick={onClose}>Cancel</button>
-            <button className="primary" onClick={save} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
-          </div>
+          {dups ? (
+            <DuplicateWarning
+              matches={dups}
+              busy={busy}
+              onUse={(m) => onCreated(m)}
+              onCreateAnyway={() => { setDups(null); save(true); }}
+              onBack={() => setDups(null)}
+            />
+          ) : (
+            <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <button onClick={onClose}>Cancel</button>
+              <button className="primary" onClick={() => save()} disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+            </div>
+          )}
         </div>
       </div>
     </div>

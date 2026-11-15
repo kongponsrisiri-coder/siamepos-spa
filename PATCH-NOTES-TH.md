@@ -5,6 +5,29 @@
 
 ---
 
+## อัปเดต — 15 พฤศจิกายน 2026 — ค้นหาลูกค้าได้แม้พิมพ์ชื่อผิด + เตือนก่อนสร้างลูกค้าซ้ำ
+
+* **🔎 ค้นหาลูกค้าได้ แม้สะกดชื่อผิด** — พิมพ์ "Somchay" ก็เจอ Somchai, "jon smyth" ก็เจอ John Smith,
+  พิมพ์นามสกุลก่อนก็ได้ ("Smith John"), ไม่สนตัวพิมพ์เล็ก-ใหญ่ ช่องว่าง หรือเครื่องหมาย ใช้ได้ทั้งชื่อไทยและอังกฤษ
+  ผลที่ "ใกล้เคียง" จะขึ้นใต้ป้ายสีเหลือง **Possible matches — ชื่อใกล้เคียง โปรดตรวจสอบ** ให้ดูก่อนเลือก
+* **📞 ค้นด้วยเบอร์บางส่วนได้** — พิมพ์ "07911 123" ก็เจอลูกค้าที่บันทึกเบอร์ไว้เป็น +44 7911 123456
+* **⚠️ เตือนก่อนสร้างลูกค้าซ้ำ** — ตอนกด Save ลูกค้าใหม่ ถ้าเบอร์ อีเมล หรือชื่อเต็มตรงกับคนที่มีอยู่แล้ว
+  ระบบจะถามว่า **"This looks like … ใช้ประวัติเดิมไหม?"** กด **Use this · ใช้คนนี้** เพื่อใช้ประวัติเดิม
+  หรือกด "different person" ถ้าเป็นคนละคนจริง ๆ — ประวัติ บัตรกำนัล และแต้มสะสมจะไม่กระจายไปหลายชื่ออีก
+
+**สิ่งที่ร้านต้องทำ:** ไม่ต้องทำอะไร — ใช้ได้ทันทีบนหน้าเว็บ (ถ้าเปิดหน้าทิ้งไว้นาน กด Ctrl + Shift + R หนึ่งครั้ง)
+แอป Android / Mac / Windows / iPad จะได้ในการอัปเดตแอปครั้งถัดไป
+
+### English
+
+* **Find clients even when the name is misspelt** — "Somchay" finds Somchai, "jon smyth" finds John Smith, surname-first works, Thai and English names. Close-but-not-exact results sit under a yellow **Possible matches** label so you check before picking.
+* **Search by part of a phone number** — "07911 123" finds a client saved as +44 7911 123456.
+* **A warning before creating a duplicate** — when a new client's phone, email or full name matches someone already on file, you're asked "This looks like … Use the existing profile?", so one person's history, vouchers and points stay in one place.
+
+**What you need to do:** nothing — it's live on the web till now (if the page has been open a long time, press Ctrl + Shift + R once). The Android, Mac, Windows and iPad apps get it with their next update.
+
+---
+
 ## อัปเดต — 23 ตุลาคม 2026 — เวลาบล็อกไม่นับเป็นงานนวด (แอป Android v1.5.2)
 
 * **🚫 เวลาที่บล็อกไว้ ไม่นับเป็นคิวนวดอีกแล้ว** — ตัวเลข **N✓** ใต้ชื่อหมอนวดบนตาราง นับเฉพาะลูกค้าจริง
