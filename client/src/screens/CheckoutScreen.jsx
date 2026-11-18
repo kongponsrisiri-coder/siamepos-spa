@@ -936,6 +936,7 @@ export default function CheckoutScreen() {
                       <MonetaryVoucherPanel
                         v={v}
                         total={total}
+                        treatmentName={appt.treatment_name}
                         busy={busy}
                         onRedeem={(amt) => payWithVoucher(amt)}
                       />
@@ -1193,7 +1194,7 @@ function LegacyVoucherPanel({ total, busy, amount, setAmount, onCancel, onConfir
 // total). Operator can drop the amount lower to save the balance for
 // next time — then the bill stays open and the receptionist picks
 // another method (cash/card/split) for the rest.
-function MonetaryVoucherPanel({ v, total, busy, onRedeem }) {
+function MonetaryVoucherPanel({ v, total, busy, onRedeem, treatmentName }) {
   const remaining = Number(v.remaining_value || 0);
   const cap = +Math.min(remaining, total).toFixed(2);
   const [amount, setAmount] = useState(cap);
@@ -1201,6 +1202,22 @@ function MonetaryVoucherPanel({ v, total, busy, onRedeem }) {
   const safe = Math.max(0, Math.min(cap, Number(amount) || 0));
   const willClose = Math.abs(safe - total) < 0.01;
   const remainderAfter = +(total - safe).toFixed(2);
+
+  // SPA-VOUCHER-ZERO-BILL-001 — a £ voucher can only pay what the bill costs.
+  // Highbury 18 Nov: a booking on the shop's £0 "session 60 mins" treatment
+  // (meant for session packages) offered "Redeem £0.00 & close bill" against
+  // an £81 gift voucher. Say what's wrong and how to fix it instead.
+  if (total <= 0) {
+    return (
+      <div style={{ marginTop: 8, fontSize: 13, lineHeight: 1.5, background: '#fef3c7', border: '1px solid #f59e0b',
+        borderRadius: 8, padding: '10px 12px', color: '#92400e' }}>
+        <strong>⚠️ This bill is £0.00, so the voucher has nothing to pay.</strong><br />
+        The booking's treatment{treatmentName ? <> “<strong>{treatmentName}</strong>”</> : ''} has no price. To use this £{remaining.toFixed(2)} gift voucher:
+        go <strong>← Back</strong>, open the booking, tap <strong>✏️ Edit</strong>, choose the treatment the customer had, Save — the bill updates — then redeem here.
+        <div style={{ marginTop: 4 }}>บิลนี้ราคา £0 — แก้การจองให้เป็นทรีตเมนต์ที่ลูกค้าทำจริงก่อน แล้วค่อยใช้บัตรกำนัล</div>
+      </div>
+    );
+  }
 
   return (
     <div className="col" style={{ gap: 8, marginTop: 8 }}>
