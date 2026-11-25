@@ -407,6 +407,7 @@ function CreateVoucherModal({ onClose, onSaved }) {
                 {[
                   { id: 'cash',  label: 'Cash',  bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
                   { id: 'card',  label: 'Card',  bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
+                  { id: 'bank_transfer', label: '🏦 Bank transfer', bg: '#ecfccb', border: '#4d7c0f', text: '#365314' }, // SPA-BANK-TRANSFER-001
                   { id: 'split', label: 'Split', bg: '#ede9fe', border: '#7c3aed', text: '#4c1d95' },
                   // SPA-COMP-VOUCHER-001 — free gift: £0 taken, kept out of revenue.
                   { id: 'comp',  label: '🎁 Comp (free)', bg: '#f0fdf4', border: '#16a34a', text: '#14532d' },
@@ -769,7 +770,7 @@ function VoucherDetailModal({ detail, onClose, onUpdated }) {
 
 // "Split (cash £30.00 · card £20.00)" — how a voucher was paid for.
 function payLabel(v) {
-  const names = { cash: 'Cash', card: 'Card', split: 'Split', comp: 'Comp (free)', online: 'Online' };
+  const names = { cash: 'Cash', card: 'Card', bank_transfer: 'Bank transfer', split: 'Split', comp: 'Comp (free)', online: 'Online' };
   let parts = v.split_payments;
   if (typeof parts === 'string') { try { parts = JSON.parse(parts); } catch { parts = null; } }
   const name = names[v.payment_method] || v.payment_method;
@@ -866,6 +867,7 @@ function EditVoucherDetails({ v, canEditTerms, onCancel, onSaved }) {
   const METHODS = [
     { id: 'cash',  label: 'Cash',  bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
     { id: 'card',  label: 'Card',  bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
+    { id: 'bank_transfer', label: '🏦 Bank transfer', bg: '#ecfccb', border: '#4d7c0f', text: '#365314' }, // SPA-BANK-TRANSFER-001
     { id: 'split', label: 'Split', bg: '#ede9fe', border: '#7c3aed', text: '#4c1d95' },
     { id: 'comp',  label: '🎁 Comp', bg: '#f0fdf4', border: '#16a34a', text: '#14532d' },
   ];

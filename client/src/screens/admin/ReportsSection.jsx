@@ -51,6 +51,7 @@ const METHOD_STYLE = {
   // shop; website money is its own line so card totals match the terminal.
   cash:      { color: '#9a3412', label: '💵 Cash (in person)' },
   card:      { color: '#9d174d', label: '💳 Card (in person)' },
+  bank_transfer: { color: '#365314', label: '🏦 Bank transfer' },
   voucher:   { color: '#14532d', label: '🎁 Voucher' },
   deposit:   { color: '#1e3a6e', label: '🌐 Deposit (prepaid online)' },
   treatwell: { color: '#854d0e', label: '🌐 Treatwell' },

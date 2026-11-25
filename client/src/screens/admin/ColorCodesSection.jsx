@@ -18,6 +18,7 @@ const CATEGORIES = [
   { key: 'cancelled',         label: '🚫 Cancelled',          def: '#9ca3af' },
   { key: 'cash',              label: '💵 Paid — cash',        def: '#c2410c' },
   { key: 'card',              label: '💳 Paid — card',        def: '#db2777' },
+  { key: 'bank_transfer',     label: '🏦 Paid — bank transfer', def: '#4d7c0f' },
   { key: 'voucher',           label: '🎁 Paid — voucher',     def: '#7c3aed' },
   { key: 'split',             label: '⇄ Paid — split',        def: '#c026d3' },
 ];

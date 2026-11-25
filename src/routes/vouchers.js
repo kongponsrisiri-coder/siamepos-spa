@@ -168,7 +168,7 @@ router.get('/:id', async (req, res) => {
 // SPA-COMP-VOUCHER-001 — 'comp' = complimentary / gifted by the shop. No
 // money changes hands: reports exclude comp sales from money-taken and show
 // them in their own bucket. Face value may be 0 (e.g. a free-session gift).
-const VOUCHER_PAYMENT_METHODS = ['cash', 'card', 'split', 'comp'];
+const VOUCHER_PAYMENT_METHODS = ['cash', 'card', 'bank_transfer', 'split', 'comp']; // SPA-BANK-TRANSFER-001
 
 // SPA-VOUCHER-SPLIT-001 — a split sale must say how much was cash and how
 // much card, adding up to the sale price; otherwise the day's cash-up can't
@@ -181,7 +181,7 @@ function cleanSplit(split_payments, value) {
   for (const p of split_payments) {
     const m = String((p && p.method) || '').toLowerCase();
     const a = Number(p && p.amount);
-    if (!['cash', 'card'].includes(m)) return { error: `split_payments: bad method "${p && p.method}"` };
+    if (!['cash', 'card', 'bank_transfer'].includes(m)) return { error: `split_payments: bad method "${p && p.method}"` };
     if (!isFinite(a) || a <= 0) return { error: 'split_payments: each amount must be more than £0' };
     clean.push({ method: m, amount: +a.toFixed(2) });
   }

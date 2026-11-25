@@ -164,7 +164,9 @@ export default function CheckoutScreen() {
           ? `close this bill as paid by ${label}? (Till takes £0; ${mktName} settles to your account)`
           // SPA-TREATWELL-PREPAID-002 — not confirmed as prepaid: make staff check first.
           : `close this bill as paid by ${label}?\n\n⚠️ ${mktName}'s email did NOT confirm this booking is prepaid. Only press OK if ${mktName} Connect shows it as PREPAID — if it says Unpaid, press Cancel and collect ${fmtMoney(balance)} by Cash or Card.`)
-      : `take ${fmtMoney(balance)} by ${label} and close this bill?`;
+      : method === 'bank_transfer'
+        ? `record ${fmtMoney(balance)} paid by BANK TRANSFER and close this bill?\n\nOnly press OK once the money has arrived in the shop's bank account.`
+        : `take ${fmtMoney(balance)} by ${label} and close this bill?`;
     if (!confirm(`Confirm: ${amountText}`)) return;
     pay(method);
   }
@@ -609,7 +611,7 @@ export default function CheckoutScreen() {
                   instead of a ragged flex-wrap. auto-fit → 3 per row at ~375px,
                   more on a wide screen. */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 8 }}>
-                {/* Order: Cash · Card · Voucher · Treatwell · Fresha · Split · Already paid */}
+                {/* Order: Cash · Card · Bank transfer · Voucher · Treatwell · Fresha · Split · Already paid */}
                 <button
                   onClick={() => payConfirm('cash', 'CASH')} disabled={busy}
                   style={{ flex: 1, padding: 14, minWidth: 80, background: '#ffedd5', color: '#9a3412', border: '1px solid #f97316', fontWeight: 600 }}
@@ -618,6 +620,12 @@ export default function CheckoutScreen() {
                   onClick={() => payConfirm('card', 'CARD')} disabled={busy}
                   style={{ flex: 1, padding: 14, minWidth: 80, background: '#fce7f3', color: '#9d174d', border: '1px solid #ec4899', fontWeight: 600 }}
                 >Card</button>
+                {/* SPA-BANK-TRANSFER-001 — paid into the shop's bank account (no terminal, works offline). */}
+                <button
+                  onClick={() => payConfirm('bank_transfer', 'BANK TRANSFER')} disabled={busy}
+                  title="Customer paid by bank transfer — check it has arrived in the shop's account first"
+                  style={{ flex: 1, padding: 14, minWidth: 80, background: '#ecfccb', color: '#365314', border: '1px solid #4d7c0f', fontWeight: 600 }}
+                >🏦 Bank transfer</button>
                 <button
                   onClick={() => setShowVoucher(v => !v)} disabled={busy}
                   style={{ flex: 1, padding: 14, minWidth: 80, background: showVoucher ? '#16a34a' : '#dcfce7', color: showVoucher ? 'white' : '#14532d', border: '1px solid #16a34a', fontWeight: 600 }}
@@ -1279,6 +1287,7 @@ function SplitPaymentModal({ total, onClose, onConfirm }) {
   const METHODS = [
     { id: 'cash',     label: 'Cash',    bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
     { id: 'card',     label: 'Card',    bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
+    { id: 'bank_transfer', label: '🏦 Bank transfer', bg: '#ecfccb', border: '#4d7c0f', text: '#365314' }, // SPA-BANK-TRANSFER-001
     { id: 'voucher',  label: '🎁 Voucher', bg: '#dcfce7', border: '#16a34a', text: '#14532d' },
     // Already paid outside SiamEPOS (pre-install voucher / online). Excluded from
     // revenue — the money came in when the voucher was sold / paid online.

@@ -11,6 +11,7 @@ function fmtDate(d) { return d ? new Date(d).toLocaleDateString('en-GB') : '—'
 const PAYMENT_COLOR = {
   cash:      '#f97316',
   card:      '#ec4899',
+  bank_transfer: '#4d7c0f',   // SPA-BANK-TRANSFER-001
   voucher:   '#16a34a',
   treatwell: '#eab308',
   split:     '#7c3aed',

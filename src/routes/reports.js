@@ -123,7 +123,7 @@ async function voucherSalesByMethodOn(date) {
 // and online prepayments) is its own line so the daily cash-up reconciles
 // against the physical terminal, not against Stripe.
 const ONLINE_METHOD = 'online';
-const MONEY_IN_METHODS = new Set(['cash', 'card', 'treatwell', 'fresha']);
+const MONEY_IN_METHODS = new Set(['cash', 'card', 'bank_transfer', 'treatwell', 'fresha']); // SPA-BANK-TRANSFER-001
 const ALREADY_PAID_METHODS = new Set(['voucher', 'external', 'deposit']);
 function buildPaymentBreakdown(byMethodRows, voucherSalesRows, prepay) {
   const agg = {};

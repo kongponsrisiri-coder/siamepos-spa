@@ -3,10 +3,10 @@ import { api } from '../../api.js';
 
 function fmtMoney(n) { return '£' + Number(n || 0).toFixed(2); }
 const KIND_LABEL = { treatment: '💆 Treatments', retail: '🛍 Products', addon: '➕ Add-ons' };
-const PM_LABEL = { card: '💳 Card (in person)', cash: '💵 Cash (in person)', treatwell: '🌐 Treatwell', online: '🌐 Online (website)', split: '⇄ Split', voucher: '🎁 Voucher' };
+const PM_LABEL = { card: '💳 Card (in person)', cash: '💵 Cash (in person)', bank_transfer: '🏦 Bank transfer', treatwell: '🌐 Treatwell', online: '🌐 Online (website)', split: '⇄ Split', voucher: '🎁 Voucher' };
 const AP_LABEL = { voucher: '🎁 Voucher redeemed', external: '🧾 Already paid (external)', deposit: '🌐 Deposit (prepaid online)' };
 // Plain labels (no emoji) for the CSV export.
-const PM_PLAIN = { card: 'Card (in person)', cash: 'Cash (in person)', treatwell: 'Treatwell', online: 'Online (website)', split: 'Split', voucher: 'Voucher' };
+const PM_PLAIN = { card: 'Card (in person)', cash: 'Cash (in person)', bank_transfer: 'Bank transfer', treatwell: 'Treatwell', online: 'Online (website)', split: 'Split', voucher: 'Voucher' };
 const AP_PLAIN = { voucher: 'Voucher redeemed', external: 'Already paid (external)', deposit: 'Deposit (prepaid online)' };
 // Local-time YYYY-MM-DD — toISOString returns UTC, which rolls over to
 // "tomorrow" between 23:00 and 00:00 local for any TZ ahead of UTC.
@@ -105,12 +105,12 @@ export default function ZReportSection() {
       alert('No bills closed on this date — nothing to export.');
       return;
     }
-    const METHODS = ['cash', 'card', 'voucher', 'deposit', 'treatwell'];
+    const METHODS = ['cash', 'card', 'bank_transfer', 'voucher', 'deposit', 'treatwell'];
     const header = [
       'Date', 'Time', 'Bill #', 'Client', 'Treatment',
       'Subtotal £', 'Tip £', 'Total £',
       'Method',
-      ...METHODS.map((m) => `${m[0].toUpperCase()}${m.slice(1)} £`),
+      ...METHODS.map((m) => (m === 'bank_transfer' ? 'Bank transfer £' : `${m[0].toUpperCase()}${m.slice(1)} £`)),
       'Status',
     ];
     const rows = [];

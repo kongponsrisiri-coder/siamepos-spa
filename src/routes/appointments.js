@@ -1105,8 +1105,8 @@ router.post('/:id/deposit-manual', async (req, res) => {
   if (!isFinite(amt) || amt <= 0) {
     return res.status(400).json({ error: 'amount must be a positive number' });
   }
-  if (!['cash', 'card'].includes(method)) {
-    return res.status(400).json({ error: 'method must be cash or card' });
+  if (!['cash', 'card', 'bank_transfer'].includes(method)) {   // SPA-BANK-TRANSFER-001
+    return res.status(400).json({ error: 'method must be cash, card or bank_transfer' });
   }
   try {
     const cur = await pool.query(
@@ -1188,6 +1188,7 @@ router.get('/deposit-summary', async (req, res) => {
          COALESCE(SUM(deposit_amount) FILTER (WHERE deposit_stripe_id IS NOT NULL),  0)::numeric(10,2) AS online_total,
          COALESCE(SUM(deposit_amount) FILTER (WHERE deposit_method = 'cash'),       0)::numeric(10,2) AS cash_total,
          COALESCE(SUM(deposit_amount) FILTER (WHERE deposit_method = 'card'),       0)::numeric(10,2) AS card_total,
+         COALESCE(SUM(deposit_amount) FILTER (WHERE deposit_method = 'bank_transfer'), 0)::numeric(10,2) AS bank_total,
          COUNT(*) FILTER (WHERE payment_status = 'deposit_pending')::int        AS pending_count
        FROM appointments
        WHERE starts_at::date = $1::date

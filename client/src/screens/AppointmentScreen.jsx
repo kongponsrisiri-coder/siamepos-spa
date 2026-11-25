@@ -58,6 +58,7 @@ function getWorkHours(therapistId, dateStr, weeklyRota, overrides) {
 const PAYMENT_COLOR = {
   cash:      '#c2410c',   // brick orange (deepened — separates from Treatwell-deposit amber)
   card:      '#db2777',   // pink
+  bank_transfer: '#4d7c0f', // olive — SPA-BANK-TRANSFER-001 (the one hue still clear of the rest)
   voucher:   '#7c3aed',   // violet  (was green — collided with Treatwell/Online)
   treatwell: '#0891b2',   // cyan    — Treatwell's single signature colour
   fresha:    '#0d9488',   // teal    — Fresha, Treatwell's marketplace sibling
@@ -65,7 +66,10 @@ const PAYMENT_COLOR = {
   other:     '#6b7280',
 };
 function pmColor(method) { return PAYMENT_COLOR[method] || PAYMENT_COLOR.other; }
-function pmLabel(method) { return method ? method.charAt(0).toUpperCase() + method.slice(1) : ''; }
+function pmLabel(method) {
+  if (method === 'bank_transfer') return 'Bank transfer';
+  return method ? method.charAt(0).toUpperCase() + method.slice(1) : '';
+}
 
 // ── Timeline constants ────────────────────────────────────────────────────────
 const COL_W      = 154;   // desktop column width
@@ -114,6 +118,7 @@ const SOURCE_STYLE = {
 const PAYMENT_STYLE = {
   cash:      { bg: '#ffedd5', border: '#c2410c', text: '#7c2d12' },  // brick orange — distinct from amber deposit
   card:      { bg: '#fce7f3', border: '#db2777', text: '#9d174d' },  // pink
+  bank_transfer: { bg: '#ecfccb', border: '#4d7c0f', text: '#365314' },  // olive — SPA-BANK-TRANSFER-001
   voucher:   { bg: '#ede9fe', border: '#7c3aed', text: '#5b21b6' },  // violet — moved off green
   treatwell: { bg: '#cffafe', border: '#0891b2', text: '#155e75' },  // cyan — matches the Treatwell block
   fresha:    { bg: '#ccfbf1', border: '#0d9488', text: '#115e59' },  // teal — matches the Fresha block
@@ -1327,6 +1332,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
           {[
             { key: 'cash',      label: '💵 Cash' },
             { key: 'card',      label: '💳 Card' },
+            { key: 'bank_transfer', label: '🏦 Bank' },
             { key: 'voucher',   label: '🎁 Voucher' },
             { key: 'treatwell', label: '🌐 Treatwell' },
             { key: 'fresha',    label: '💜 Fresha' },
@@ -1747,6 +1753,7 @@ export default function AppointmentScreen() {
         const online = withDep.filter(a => a.deposit_stripe_id);
         const cash   = withDep.filter(a => a.deposit_method === 'cash');
         const card   = withDep.filter(a => a.deposit_method === 'card');
+        const bank   = withDep.filter(a => a.deposit_method === 'bank_transfer');
         const pending = active.filter(a => a.payment_status === 'deposit_pending');
         const totalCollected = sum(withDep);
         return (
@@ -1786,6 +1793,11 @@ export default function AppointmentScreen() {
             {!isMobile && card.length > 0 && (
               <span style={{ fontSize: 11, color: '#9d174d' }}>
                 💳 £{sum(card).toFixed(0)} card
+              </span>
+            )}
+            {!isMobile && bank.length > 0 && (
+              <span style={{ fontSize: 11, color: '#365314' }}>
+                🏦 £{sum(bank).toFixed(0)} bank
               </span>
             )}
             {pending.length > 0 && (

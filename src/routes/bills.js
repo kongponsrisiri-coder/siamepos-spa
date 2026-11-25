@@ -36,9 +36,11 @@ function buildReceiptHtml({ bill, client, settings }) {
   const net        = isVat ? +(goodsGross / (1 + rate / 100)).toFixed(2) : goodsGross;
   const vat        = isVat ? +(goodsGross - net).toFixed(2) : 0;
   const when       = bill.closed_at ? new Date(bill.closed_at).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/London' }) : '';
+  // SPA-BANK-TRANSFER-001 — print "Bank transfer", not the stored code.
+  const mName      = (m) => (m === 'bank_transfer' ? 'Bank transfer' : m);
   const method     = bill.payment_method === 'split' && Array.isArray(bill.split_payments)
-    ? bill.split_payments.map((p) => `${esc(p.method)} ${gbp(p.amount)}`).join(', ')
-    : esc(bill.payment_method || '—');
+    ? bill.split_payments.map((p) => `${esc(mName(p.method))} ${gbp(p.amount)}`).join(', ')
+    : esc(mName(bill.payment_method) || '—');
 
   const rows = items.map((it) => `
     <tr>
@@ -290,7 +292,8 @@ router.post('/:id/pay', async (req, res) => {
   // online/card payment taken BEFORE this system was installed). We just close
   // the bill and record the reference — no money moves through us, so it's
   // excluded from revenue and allowed offline (no Stripe/voucher lookup needed).
-  if (!['cash', 'card', 'split', 'voucher', 'treatwell', 'fresha', 'external'].includes(method)) {
+  // SPA-BANK-TRANSFER-001 — 'bank_transfer': customer paid into the shop's bank account (money in, works offline).
+  if (!['cash', 'card', 'bank_transfer', 'split', 'voucher', 'treatwell', 'fresha', 'external'].includes(method)) {
     return res.status(400).json({ error: 'invalid method' });
   }
 
@@ -320,7 +323,7 @@ router.post('/:id/pay', async (req, res) => {
     if (!Array.isArray(split_payments) || split_payments.length === 0) {
       return res.status(400).json({ error: 'split_payments required when method=split' });
     }
-    const ALLOWED = ['cash', 'card', 'voucher', 'external'];
+    const ALLOWED = ['cash', 'card', 'bank_transfer', 'voucher', 'external'];
     const clean = [];
     for (const p of split_payments) {
       const m = String(p.method || '').toLowerCase();
@@ -594,7 +597,8 @@ router.put('/:id/method', requireRole('admin', 'manager'), async (req, res) => {
   const externalVoucherCode = (req.body && req.body.external_voucher_code)
     ? String(req.body.external_voucher_code).trim().slice(0, 200) || null
     : null;
-  if (!['cash', 'card', 'split', 'voucher', 'treatwell', 'fresha', 'external'].includes(method)) {
+  // SPA-BANK-TRANSFER-001 — 'bank_transfer': customer paid into the shop's bank account (money in, works offline).
+  if (!['cash', 'card', 'bank_transfer', 'split', 'voucher', 'treatwell', 'fresha', 'external'].includes(method)) {
     return res.status(400).json({ error: 'invalid method' });
   }
   try {
@@ -623,7 +627,7 @@ router.put('/:id/method', requireRole('admin', 'manager'), async (req, res) => {
       if (!Array.isArray(split_payments) || split_payments.length === 0) {
         return res.status(400).json({ error: 'split_payments required when method=split' });
       }
-      const ALLOWED = ['cash', 'card', 'voucher', 'external'];
+      const ALLOWED = ['cash', 'card', 'bank_transfer', 'voucher', 'external'];
       const clean = [];
       for (const p of split_payments) {
         const m = String(p.method || '').toLowerCase();

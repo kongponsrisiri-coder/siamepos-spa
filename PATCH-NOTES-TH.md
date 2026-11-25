@@ -5,6 +5,25 @@
 
 ---
 
+## อัปเดต — 25 พฤศจิกายน 2026 — เพิ่มวิธีชำระเงิน "โอนเงินผ่านธนาคาร"
+
+* **🏦 Bank transfer (โอนเงิน)** — ปุ่มใหม่ตอนชำระเงิน (ถัดจาก Card) กดแล้วระบบจะถามยืนยันว่าเงินเข้าบัญชีร้านแล้ว จึงปิดบิล
+* ใช้ได้ทุกที่ที่เลือกวิธีจ่าย: **Split (แบ่งจ่าย)**, **รับมัดจำ** ในหน้าการจอง (ปุ่ม 🏦 Bank), **ขายบัตรกำนัล / แพ็กเกจ** และ **แก้วิธีจ่าย** ของบิลที่ปิดแล้ว
+* รายงาน Trading, Z Report, Bills และใบเสร็จ แสดงยอด **Bank transfer** แยกจากเงินสดและบัตร — ปิดยอดเงินสดและเครื่องรูดบัตรได้ตรง
+  บนตารางนัด บิลที่จ่ายด้วยการโอนเป็นสีเขียวมะกอก (เปลี่ยนสีได้ที่ Admin → Colour Codes)
+
+**สิ่งที่ร้านต้องทำ:** ตรวจในแอปธนาคารว่าเงินเข้าแล้วก่อนกด OK ทุกครั้ง (ถ้าเปิดหน้าทิ้งไว้นาน กด Ctrl + Shift + R หนึ่งครั้ง)
+
+### English
+
+* **🏦 Bank transfer** — a new payment button at checkout (next to Card). It asks you to confirm the money has arrived in the shop's account before closing the bill.
+* Also available in **Split**, **deposits** on a booking (🏦 Bank), **gift voucher / package sales**, and when **changing the method** on a closed bill.
+* Trading, Z Report, Bills and receipts show **Bank transfer** as its own line, so cash and card-machine totals still reconcile. Paid-by-transfer bookings are olive green on the timetable (changeable in Admin → Colour Codes).
+
+**What you need to do:** check your banking app shows the money before pressing OK. If the till page has been open a long time, press Ctrl + Shift + R once.
+
+---
+
 ## อัปเดต — 15 พฤศจิกายน 2026 (ค่ำ) — รวมประวัติลูกค้าที่ซ้ำกันเป็นคนเดียว
 
 * **🔗 รวมโปรไฟล์ลูกค้าที่ซ้ำ** — Admin → Clients → **🔍 Possible duplicates** ระบบจะหาคู่ที่น่าจะเป็นคนเดียวกัน

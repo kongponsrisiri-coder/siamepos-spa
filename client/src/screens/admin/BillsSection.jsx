@@ -21,9 +21,9 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-const METHOD_LABEL = { cash: '💵 Cash', card: '💳 Card', split: '🔀 Split', voucher: '🎁 Voucher', treatwell: '🌐 Treatwell', fresha: '💜 Fresha', external: '🧾 Already paid' };
-const PM_EMOJI = { deposit: '🌐', voucher: '🎁', cash: '💵', card: '💳', external: '🧾', treatwell: '🌐', fresha: '💜', online: '🌐' };
-const PM_NAME  = { deposit: 'Deposit (prepaid online)', voucher: 'Voucher', cash: 'Cash', card: 'Card', external: 'Already paid', treatwell: 'Treatwell', fresha: 'Fresha' };
+const METHOD_LABEL = { cash: '💵 Cash', card: '💳 Card', bank_transfer: '🏦 Bank transfer', split: '🔀 Split', voucher: '🎁 Voucher', treatwell: '🌐 Treatwell', fresha: '💜 Fresha', external: '🧾 Already paid' };
+const PM_EMOJI = { deposit: '🌐', voucher: '🎁', cash: '💵', card: '💳', bank_transfer: '🏦', external: '🧾', treatwell: '🌐', fresha: '💜', online: '🌐' };
+const PM_NAME  = { deposit: 'Deposit (prepaid online)', voucher: 'Voucher', cash: 'Cash', card: 'Card', bank_transfer: 'Bank transfer', external: 'Already paid', treatwell: 'Treatwell', fresha: 'Fresha' };
 const UNLOCK_MS = 5 * 60 * 1000; // 5 minutes
 
 // split_payments arrives as a real array on the cloud (JSONB) but as a JSON
@@ -110,7 +110,7 @@ export default function BillsSection() {
   // Money actually taken at the till — mirrors the revenue report: only the
   // cash/card/Treatwell portions count. Voucher redemptions, 'external' (already
   // paid), and online deposits are excluded (that money came in earlier).
-  const TILL_METHODS = new Set(['cash', 'card', 'treatwell', 'fresha']);
+  const TILL_METHODS = new Set(['cash', 'card', 'bank_transfer', 'treatwell', 'fresha']);
   const billTaken = (b) => {
     if (b.payment_status === 'refunded') return 0;
     const sp = parseSplit(b);

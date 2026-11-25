@@ -102,6 +102,7 @@ function PaymentEditBlock({ appointment, onUpdated }) {
   const METHODS = [
     { id: 'cash',      label: 'Cash',      bg: '#ffedd5', border: '#f97316', text: '#9a3412' },
     { id: 'card',      label: 'Card',      bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
+    { id: 'bank_transfer', label: '🏦 Bank transfer', bg: '#ecfccb', border: '#4d7c0f', text: '#365314' }, // SPA-BANK-TRANSFER-001
     { id: 'voucher',   label: '🎁 Voucher', bg: '#dcfce7', border: '#16a34a', text: '#14532d' },
     { id: 'treatwell', label: '🌐 Treatwell', bg: '#fef9c3', border: '#eab308', text: '#854d0e' },
     { id: 'fresha',    label: '💜 Fresha',  bg: '#ccfbf1', border: '#0d9488', text: '#115e59' },
@@ -250,7 +251,7 @@ function ManualDepositBlock({ appointment, onUpdated }) {
       }}>
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
           <span style={{ color: '#166534' }}>
-            💵 <strong>£{existing.toFixed(2)} {existingMethod.toUpperCase()} deposit taken</strong>
+            💵 <strong>£{existing.toFixed(2)} {existingMethod === 'bank_transfer' ? 'BANK TRANSFER' : existingMethod.toUpperCase()} deposit taken</strong>
             {takenAt && <span style={{ marginLeft: 6, color: '#15803d', fontSize: 11 }}>· {takenAt}</span>}
           </span>
           <button onClick={clear} disabled={busy} style={{ fontSize: 11, padding: '4px 10px', background: 'white', color: '#9d174d', border: '1px solid #ec4899', fontWeight: 600 }}>
@@ -274,7 +275,7 @@ function ManualDepositBlock({ appointment, onUpdated }) {
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
         <span style={{ color: '#7a4f1e' }}>
           💵 <strong>Take deposit at till</strong>
-          <span style={{ fontSize: 11, color: '#92400e', marginLeft: 6 }}>(cash or card terminal — not Stripe)</span>
+          <span style={{ fontSize: 11, color: '#92400e', marginLeft: 6 }}>(cash, card terminal or bank transfer — not Stripe)</span>
         </span>
         {!open && (
           <button onClick={() => setOpen(true)} style={{ fontSize: 12, padding: '5px 12px', background: '#1e3a6e', color: 'white', fontWeight: 600 }}>
@@ -313,6 +314,12 @@ function ManualDepositBlock({ appointment, onUpdated }) {
               disabled={busy}
               style={{ flex: 1, padding: '8px 10px', background: '#fce7f3', color: '#9d174d', border: '2px solid #ec4899', fontWeight: 700 }}
             >💳 Card</button>
+            <button
+              onClick={() => take('bank_transfer')}
+              disabled={busy}
+              title="Deposit paid into the shop's bank account"
+              style={{ flex: 1, padding: '8px 10px', background: '#ecfccb', color: '#365314', border: '2px solid #4d7c0f', fontWeight: 700 }}
+            >🏦 Bank</button>
             <button onClick={() => setOpen(false)} disabled={busy} style={{ fontSize: 12, padding: '6px 10px' }}>
               Cancel
             </button>
