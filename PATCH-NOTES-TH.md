@@ -5,6 +5,35 @@
 
 ---
 
+## แอปมือถือ Android รุ่น 1.5.3 — 27 พฤศจิกายน 2026
+
+แอปบนโทรศัพท์/แท็บเล็ตมีสำเนาหน้าจอของตัวเอง ต้อง**อัปเดตแอป**ถึงจะได้ของใหม่ (เว็บบนคอมพิวเตอร์ได้ทันที)
+รุ่นนี้รวมทุกอย่างตั้งแต่เดือนตุลาคม:
+
+* **🏦 Bank transfer (โอนเงิน)** — ตอนชำระเงิน, แบ่งจ่าย, รับมัดจำ, ขายบัตรกำนัล/แพ็กเกจ
+* **รวมโปรไฟล์ลูกค้าที่ซ้ำ** (ผู้จัดการ/แอดมิน) และพนักงานต้อนรับแจ้งว่าน่าจะซ้ำได้ — **ค้นหาลูกค้า**พิมพ์ผิดก็ยังเจอ
+* **Treatwell** บอกชัดว่า **จ่ายแล้ว (PREPAID)**, มัดจำ หรือ **ยังไม่จ่าย**
+* **ตารางนัดบนโทรศัพท์** แสดงการจองครบ แม้หมอนวดคนนั้นตารางบอกว่า Off
+* **เวลาที่บล็อกไว้** ไม่นับเป็นการจองแล้ว (เช่น Nam 3✓ → 1✓)
+* **บัตรกำนัล:** แบ่งจ่ายได้, แก้ไขรายละเอียด, ส่งอีเมลซ้ำ, และบอกเหตุผลถ้าบิลเป็น £0
+
+**สิ่งที่ร้านต้องทำ:** เปิด **Play Store** → ค้นหา SiamEPOS Spa → กด **Update** (หรือถ้าติดตั้งจากลิงก์ เปิดลิงก์ใหม่แล้วติดตั้งทับ — การเข้าสู่ระบบยังอยู่เหมือนเดิม)
+
+### English
+
+The phone/tablet app has its own copy of the screens, so it needs an **app update** to get new features (the website on the computer updates straight away). This version includes everything since October:
+
+* **🏦 Bank transfer** — checkout, split, deposits, voucher/package sales
+* **Merge duplicate client profiles** (managers/admins); reception can flag a possible duplicate. **Client search** finds people even with typos
+* **Treatwell** bookings say clearly: **PREPAID**, deposit or **NOT paid**
+* **Phone timetable** shows every booking, even for a therapist the rota marks Off
+* **Blocked time** no longer counts as bookings (e.g. Nam 3✓ → 1✓)
+* **Gift vouchers:** split payment, edit details, resend email, and a clear message on a £0 bill
+
+**What you need to do:** open the **Play Store** → SiamEPOS Spa → **Update** (or, if you installed from the link, open the link and install over the old app — you stay signed in).
+
+---
+
 ## อัปเดต — 27 พฤศจิกายน 2026 — การจองของหมอนวดที่ "Off" ไม่หายจากหน้าจอโทรศัพท์อีกแล้ว
 
 * บนโทรศัพท์ หมอนวดที่ตารางงานบอกว่า **Off** จะถูกพับเก็บเพื่อให้หน้าจอพอดี — แต่ถ้าคนนั้นมี**การจอง**ในวันนั้น การจองจะหายไปด้วย (เช่น Tim มีลูกค้า 10:15 แต่บนโทรศัพท์มองไม่เห็น)
