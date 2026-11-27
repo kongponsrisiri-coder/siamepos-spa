@@ -61,12 +61,30 @@ A short link that always points at the newest build lives on the spa API:
 never changes — only the version behind it.** After publishing a release:
 
 1. bump `ANDROID_APK_VERSION` in `src/server.js`
-2. deploy the clouds
+2. set `"apk"` in `scripts/app-releases.json`
+3. deploy the clouds
 
 Admin → **Mobile App** then shows the new version, the link, a QR code, and —
 for a till already running inside the app — an "Update available" banner
 (`GET /api/app/android` serves the version; the app compares it with its own
 `VITE_APP_BUILD` stamp).
+
+## Google Play (closed testing) — the SECOND channel, never skip it
+
+Phones that installed from Google Play only get what we upload there; the APK
+release does not reach them. Every app release builds BOTH flavours:
+
+```bash
+JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home" \
+  ./gradlew assembleSideloadRelease bundleStoreRelease
+cp app/build/outputs/apk/sideload/release/app-sideload-release.apk ~/Documents/SiamEPOS-Android/SiamEPOS-Spa-v<version>.apk
+cp app/build/outputs/bundle/storeRelease/app-store-release.aab   ~/Documents/SiamEPOS-Android/SiamEPOS-Spa-v<version>-play.aab
+```
+
+Korakot uploads the `.aab` (Play Console → SiamEPOS Spa → Test and release →
+Closed testing → Create new release). Then set `"play"` in
+`scripts/app-releases.json`. `deploy-all` warns on every run while Play or the
+APK is behind the screens on the web (SPA-APP-BEHIND-001).
 
 ## Adding a new spa to the first-run list
 
