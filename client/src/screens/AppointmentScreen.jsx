@@ -714,8 +714,12 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   // taking the first columns. Now: off-duty fold away when space is tight,
   // and the remaining columns share the width evenly, down to a floor that
   // keeps a name and a booking readable.
+  // SPA-FOLD-BOOKED-001 — an "off" therapist who still has a booking that day
+  // is never folded away: the phone hid Tim's 10:15 booking because his rota
+  // said Off, so the phone and the till disagreed. Only empty off columns fold.
   const allColumns = columns;
-  const offCount   = allColumns.filter((c) => c.isOff).length;
+  const hasLiveAppt = (c) => c.appts.some((a) => !['cancelled', 'no_show'].includes(a.status));
+  const offCount   = allColumns.filter((c) => c.isOff && !hasLiveAppt(c)).length;
   const workingCount = allColumns.length - offCount;
   const MIN_COL = isMobile ? 84 : 104;     // below this a name/booking is unreadable
   const MAX_COL = isMobile ? COL_W_MOB : COL_W;
@@ -724,7 +728,7 @@ function TimelineView({ appointments, therapistColumns, workingTherapists, selec
   // Would everyone fit at the minimum width? If not, and some are off, fold them.
   const fitsAll = avail === 0 || allColumns.length * MIN_COL <= avail;
   const foldOff = !showOff && offCount > 0 && workingCount > 0 && !fitsAll;
-  columns = foldOff ? allColumns.filter((c) => !c.isOff) : allColumns;
+  columns = foldOff ? allColumns.filter((c) => !c.isOff || hasLiveAppt(c)) : allColumns;
   const colCount = Math.max(1, columns.length);
   const COL_W_FIT_BASE = avail > 0
     ? Math.max(MIN_COL, Math.min(MAX_COL, Math.floor(avail / colCount)))

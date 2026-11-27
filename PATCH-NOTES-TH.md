@@ -5,6 +5,22 @@
 
 ---
 
+## อัปเดต — 27 พฤศจิกายน 2026 — การจองของหมอนวดที่ "Off" ไม่หายจากหน้าจอโทรศัพท์อีกแล้ว
+
+* บนโทรศัพท์ หมอนวดที่ตารางงานบอกว่า **Off** จะถูกพับเก็บเพื่อให้หน้าจอพอดี — แต่ถ้าคนนั้นมี**การจอง**ในวันนั้น การจองจะหายไปด้วย (เช่น Tim มีลูกค้า 10:15 แต่บนโทรศัพท์มองไม่เห็น)
+* ตอนนี้ หมอนวดที่ Off แต่**มีการจอง** จะแสดงคอลัมน์เสมอ — โทรศัพท์กับคอมพิวเตอร์เห็นการจองตรงกัน
+
+**สิ่งที่ร้านต้องทำ:** ถ้าหมอนวดมาทำงานจริงในวันที่ตารางบอกว่า Off ให้แก้ตารางงานวันนั้นใน Admin → Rota เพื่อให้ชั่วโมงทำงานถูกต้อง
+
+### English
+
+* On a phone, therapists the rota marks **Off** fold away to save space — but if they had a **booking** that day, the booking vanished with them (Tim's 10:15 client didn't show on the phone).
+* Now an Off therapist who has a booking always keeps their column, so the phone and the till show the same bookings.
+
+**What you need to do:** if a therapist is actually working on a day the rota says Off, update that day in Admin → Rota so their hours are right.
+
+---
+
 ## อัปเดต — 25 พฤศจิกายน 2026 — เพิ่มวิธีชำระเงิน "โอนเงินผ่านธนาคาร"
 
 * **🏦 Bank transfer (โอนเงิน)** — ปุ่มใหม่ตอนชำระเงิน (ถัดจาก Card) กดแล้วระบบจะถามยืนยันว่าเงินเข้าบัญชีร้านแล้ว จึงปิดบิล
