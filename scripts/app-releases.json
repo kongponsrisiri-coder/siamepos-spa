@@ -1,0 +1,14 @@
+{
+  "_comment": [
+    "SPA-APP-BEHIND-001 — which version of the phone/tablet app each channel actually has.",
+    "The Android app carries its OWN frozen copy of the till screens, so a web deploy does",
+    "NOT reach it. deploy-all.js reads this file and warns loudly when either channel is behind.",
+    "",
+    "apk  = the newest spa-v* APK published (prerelease) on siamepos-releases. Bump with ANDROID_APK_VERSION in src/server.js.",
+    "play = the newest .aab Korakot has uploaded to Google Play Console (closed testing). Only bump",
+    "       AFTER he confirms the upload. Highbury's phone sat on Play 1.5.0 for 7 weeks (27 Nov 2026)",
+    "       because 1.5.1 and 1.5.2 only went out as APKs."
+  ],
+  "apk": "1.5.3",
+  "play": "1.5.0"
+}

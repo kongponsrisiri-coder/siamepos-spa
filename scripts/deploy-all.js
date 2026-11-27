@@ -97,6 +97,37 @@ function getText(url, timeoutMs = 20000) {
   });
 }
 
+// SPA-APP-BEHIND-001 — the Android app has its own frozen copy of the screens,
+// so this deploy did NOT reach it. Say so loudly every time, so a phone never
+// again runs weeks-old code (Highbury, 27 Nov 2026: Play stuck on 1.5.0).
+function checkAppBehind(sha) {
+  try {
+    const gradle = path.join(ROOT, 'client/android/app/build.gradle');
+    const built  = (fs.readFileSync(gradle, 'utf8').match(/versionName "([^"]+)"/) || [])[1];
+    const rel    = JSON.parse(fs.readFileSync(path.join(__dirname, 'app-releases.json'), 'utf8'));
+    const server = (fs.readFileSync(path.join(ROOT, 'src/server.js'), 'utf8').match(/ANDROID_APK_VERSION = '([^']+)'/) || [])[1];
+    // The last commit that bumped the app version = when the app was last built.
+    const bump = run('git', ['log', '-1', '--format=%h', '-S', `versionName "${built}"`, '--', 'client/android/app/build.gradle'], ROOT).trim();
+    const since = bump
+      ? run('git', ['log', '--oneline', `${bump}..${sha}`, '--', 'client/src', 'client/public'], ROOT).trim().split('\n').filter(Boolean)
+      : [];
+    const lines = [];
+    if (since.length) lines.push(`the phone app (v${built}) is missing ${since.length} screen change(s) that just went to the web tills:`,
+      ...since.slice(0, 5).map((l) => `    ${l}`), ...(since.length > 5 ? [`    … and ${since.length - 5} more`] : []),
+      '  → build a new app version (ANDROID.md) — a release, so it needs Korakot\'s yes.');
+    if (rel.apk !== built) lines.push(`build.gradle says v${built} but the published APK is v${rel.apk} — publish it (--prerelease) or fix app-releases.json.`);
+    if (server && server !== rel.apk) lines.push(`src/server.js ANDROID_APK_VERSION is ${server}, published APK is ${rel.apk} — the /app link points at the wrong file.`);
+    if (rel.play !== rel.apk) lines.push(`Google Play is on v${rel.play}, the APK on v${rel.apk} — phones that installed from Play are behind.`,
+      `  → Korakot uploads SiamEPOS-Spa-v${rel.apk}-play.aab in Play Console, then set "play" in scripts/app-releases.json.`);
+    if (!lines.length) { ok(`phone app up to date (APK + Google Play v${rel.apk})`); return; }
+    say(`${C.yellow}${C.bold}⚠ PHONE APP IS BEHIND — this deploy did not reach it${C.off}`);
+    lines.forEach((l) => warn(l));
+    say(`   ${C.dim}put it on the team board (../restaurant-epos/TEAM-STATUS.md).${C.off}\n`);
+  } catch (e) {
+    warn(`could not check the phone app version: ${e.message}`);
+  }
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── the two checks that would have caught every real incident ───────────────
@@ -265,4 +296,5 @@ async function deployTill(t, src) {
 
   fs.rmSync(src, { recursive: true, force: true });
   say(`\n${C.green}${C.bold}Done.${C.off} ${sha} — ${done.join(' · ')}\n`);
+  checkAppBehind(sha);
 })().catch((e) => die(e.stack || e.message));
