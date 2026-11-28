@@ -5,6 +5,24 @@
 
 ---
 
+## อัปเดต — 28 พฤศจิกายน 2026 — ย้ายการจองไปหมอนวดคนอื่นได้แล้ว แม้ห้องเดิมไม่ว่าง
+
+* การจองจาก Treatwell / Fresha ได้ห้องอัตโนมัติ (เช่น Room 1) — ถ้าตอนนั้นมีลูกค้าอีกคนอยู่ในห้องเดียวกัน ระบบ**ไม่ยอมให้ย้าย**ไปหมอนวดคนอื่น และข้อความยังโทษหมอนวดอีกคน (เช่น "Money is booked") ทั้งที่ปัญหาคือ**ห้อง**
+* ตอนนี้ ถ้าห้องเดิมไม่ว่าง ระบบจะ**เลือกห้องที่ว่างให้อัตโนมัติ**แล้วย้ายได้เลย
+* ถ้า**ทุกห้อง**เต็มจริง ๆ ข้อความจะบอกตรง ๆ ว่าห้องไหนไม่ว่าง
+
+**สิ่งที่ร้านต้องทำ:** กด Ctrl + Shift + R หนึ่งครั้งบนคอมพิวเตอร์
+
+### English
+
+* Treatwell / Fresha bookings are given a room automatically (e.g. Room 1). If another client was in that room at the same time, the till **refused to move** the booking to a different therapist, and the message blamed the other therapist ("Money is booked") when the real problem was the **room**.
+* Now, if the room is taken, the till **picks a free room automatically** and the move goes through.
+* If **every** room is genuinely full, the message says which room is in use.
+
+**What you need to do:** press Ctrl + Shift + R once on the computer.
+
+---
+
 ## แอปมือถือ Android รุ่น 1.5.3 — 27 พฤศจิกายน 2026
 
 แอปบนโทรศัพท์/แท็บเล็ตมีสำเนาหน้าจอของตัวเอง ต้อง**อัปเดตแอป**ถึงจะได้ของใหม่ (เว็บบนคอมพิวเตอร์ได้ทันที)

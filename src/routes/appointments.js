@@ -644,6 +644,7 @@ router.put('/:id', async (req, res) => {
     // SEPOS-SPA-BUGHUNT #1 — hoisted so the final UPDATE can re-use them for a
     // race-safe move guard (see below), not just the friendly upfront check.
     let checkTherapist = null, checkRoom = null, checkStart = null, checkEnd = null;
+    let autoRoomId = null;   // SPA-ROOM-AUTO-001
     if (needsConflictCheck) {
       // Fall back to the current row's values for fields not changed.
       const cur = await pool.query(
@@ -655,6 +656,33 @@ router.put('/:id', async (req, res) => {
       checkRoom      = room_id      !== undefined ? room_id      : cur.rows[0].room_id;
       checkStart     = effectiveStart || cur.rows[0].starts_at;
       checkEnd       = newEnds || cur.rows[0].ends_at;
+
+      // SPA-ROOM-AUTO-001 — a booking keeps the room it was auto-given (Treatwell
+      // / Fresha imports pick one). Moving it to another therapist must not be
+      // refused because THAT room is busy: Highbury couldn't move Georgia King
+      // from Nuan to Eakky (28 Nov 2026) because Money's client sat in Room 1,
+      // and the message blamed Money. Unless staff picked the room themselves,
+      // switch to a free room; only refuse when every room is in use.
+      const roomChosen = room_id !== undefined && room_id !== null && room_id !== ''
+        && Number(room_id) !== Number(cur.rows[0].room_id);
+      if (checkRoom && !roomChosen) {
+        const roomBusy = await pool.query(
+          `SELECT 1 FROM appointments a
+           WHERE a.id != $1 AND a.status NOT IN ('cancelled','no_show')
+             AND a.room_id = $2 AND NOT (a.ends_at <= $3 OR a.starts_at >= $4)
+           LIMIT 1`, [id, checkRoom, checkStart, checkEnd]);
+        if (roomBusy.rows[0]) {
+          const free = await pool.query(
+            `SELECT r.id FROM rooms r
+             WHERE r.active = TRUE AND r.id != $1
+               AND NOT EXISTS (
+                 SELECT 1 FROM appointments a
+                 WHERE a.id != $2 AND a.status NOT IN ('cancelled','no_show')
+                   AND a.room_id = r.id AND NOT (a.ends_at <= $3 OR a.starts_at >= $4))
+             ORDER BY r.name, r.id LIMIT 1`, [checkRoom, id, checkStart, checkEnd]);
+          if (free.rows[0]) { checkRoom = free.rows[0].id; autoRoomId = checkRoom; }
+        }
+      }
 
       // Rota check on edit too. Skip if no therapist is assigned (Treatwell
       // imports that haven't been allocated yet, or "Any available" edits).
@@ -676,12 +704,13 @@ router.put('/:id', async (req, res) => {
       }
 
       const conflict = await pool.query(
-        `SELECT a.id, a.starts_at, a.ends_at,
+        `SELECT a.id, a.starts_at, a.ends_at, a.therapist_id, a.room_id, r.name AS room_name,
                 c.name AS client_name, t.name AS treatment_name, th.name AS therapist_name
          FROM appointments a
          LEFT JOIN clients    c  ON c.id  = a.client_id
          LEFT JOIN treatments t  ON t.id  = a.treatment_id
          LEFT JOIN therapists th ON th.id = a.therapist_id
+         LEFT JOIN rooms      r  ON r.id  = a.room_id
          WHERE a.id != $5
            AND a.status NOT IN ('cancelled','no_show')
            AND ( ($1::int IS NOT NULL AND a.therapist_id = $1)
@@ -693,6 +722,8 @@ router.put('/:id', async (req, res) => {
 
       if (conflict.rows[0]) {
         const conflicting = conflict.rows[0];
+        // SPA-ROOM-AUTO-001 — say WHAT clashes: the therapist, or only the room.
+        conflicting.reason = (checkTherapist && Number(conflicting.therapist_id) === Number(checkTherapist)) ? 'therapist' : 'room';
         const duration    = effectiveDuration || cur.rows[0].duration_minutes || 60;
 
         // Same alternative-slots / alternative-therapists logic as POST,
@@ -832,7 +863,7 @@ router.put('/:id', async (req, res) => {
          source               = $12,
          treatwell_payment_type = $13
        WHERE id = $1${moveGuard} RETURNING *`;
-    const moveAllParams = [id, therapist_id ?? null, room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null, newPriceAtBooking, newSource, newTwType, ...moveParams];
+    const moveAllParams = [id, therapist_id ?? null, autoRoomId ?? room_id ?? null, starts_at ?? null, newEnds, treatment_id ?? null, notes ?? null, client_id ?? null, safeStatus, therapist_requested ?? null, newPriceAtBooking, newSource, newTwType, ...moveParams];
     // SEPOS-SPA-BUGHUNT #1 (v2) — a move into an empty slot has the same concurrency
     // race as create. When it's an actual move, serialise per therapist + room on PG
     // with advisory locks (SQLite is single-writer). Status/notes-only edits skip it.

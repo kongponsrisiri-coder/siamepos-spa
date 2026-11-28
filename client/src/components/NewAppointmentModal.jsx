@@ -1301,7 +1301,10 @@ export default function NewAppointmentModal({
                 {/* Body — time-conflict variant */}
                 {conflict.conflicting && (
                 <div style={{ fontSize: 13, color: '#92400e', background: '#fef3c7', borderRadius: 7, padding: '8px 12px', marginBottom: 10 }}>
-                  <strong>{conflict.conflicting.therapist_name || 'This therapist'}</strong> is booked{' '}
+                  {/* SPA-ROOM-AUTO-001 — when only the ROOM is full, say so (it used to blame the other therapist). */}
+                  {conflict.conflicting.reason === 'room'
+                    ? <>Every room is in use — <strong>{conflict.conflicting.room_name || 'the room'}</strong> has {conflict.conflicting.therapist_name || 'another booking'}{' '}</>
+                    : <><strong>{conflict.conflicting.therapist_name || 'This therapist'}</strong> is booked{' '}</>}
                   <strong>
                     {new Date(conflict.conflicting.starts_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
                     {' – '}
