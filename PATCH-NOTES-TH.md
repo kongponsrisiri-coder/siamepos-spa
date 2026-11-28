@@ -5,6 +5,22 @@
 
 ---
 
+## อัปเดต — 28 พฤศจิกายน 2026 — ราคา Treatwell ไม่เปลี่ยนเป็นราคาร้านเมื่อแก้ไขการจอง
+
+* การจองจาก Treatwell ใช้ราคาที่ลูกค้าจ่ายบน Treatwell (เช่น £75) — แต่ถ้าพนักงาน**แก้ไขการจอง**ในหน้าต่าง Edit (เช่น เปลี่ยนหมอนวด) ระบบเปลี่ยนราคาเป็น**ราคาของร้าน** (£69) โดยไม่ตั้งใจ
+* แก้แล้ว: ราคาจะเปลี่ยนเฉพาะเมื่อ**เปลี่ยนทรีตเมนต์**เท่านั้น
+
+**สิ่งที่ร้านต้องทำ:** กด Ctrl + Shift + R หนึ่งครั้ง — การจองของ Georgia King วันนี้ยังแสดง £69 (ลูกค้าจ่ายบน Treatwell แล้ว ไม่ต้องเก็บเงินที่ร้าน — กดปุ่ม Treatwell เพื่อปิดบิลตามปกติ)
+
+### English
+
+* Treatwell bookings use the price the customer paid on Treatwell (e.g. £75). But **editing the booking** in the Edit window (e.g. changing therapist) accidentally switched it to the **shop's own price** (£69).
+* Fixed: the price only changes when you **choose a different treatment**.
+
+**What you need to do:** press Ctrl + Shift + R once. Georgia King's booking today still shows £69. She has paid on Treatwell, so take no money: press the Treatwell button to close the bill as usual.
+
+---
+
 ## อัปเดต — 28 พฤศจิกายน 2026 — ตารางงานไม่เปลี่ยนเองหลังอัปเดตอีกแล้ว
 
 * หมอนวดที่ปิดทุกวันในตารางงาน (เช่น Aoy, Cover) ถูกระบบใส่กลับเป็น **10:00–20:00 ทุกวัน** ทุกครั้งที่เราอัปเดตระบบ — นี่คือสาเหตุที่ "อัปเดตแล้วตารางงานเพี้ยน"

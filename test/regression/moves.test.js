@@ -36,6 +36,15 @@ const { pool, ok } = h;
   const lr = await h.row('appointments', long);
   ok('moved Treatwell booking keeps its 90 minutes', r.s === 200 && (lr.ends_at - lr.starts_at) === 90 * 60000, r.b);
 
+  // SPA-TW-PRICE-KEEP-001 — Treatwell's price survives an edit that keeps the treatment.
+  const t69 = await h.treatment(`Aroma shop price ${h.tag}`, 60, 69);
+  const t80 = await h.treatment(`Aroma other ${h.tag}`, 60, 80);
+  const tw = await h.appt({ client: c, treatment: t69, therapist: nuan, start: '09:00', end: '10:00', source: 'treatwell', price: 75 });
+  r = await api.j(`/api/appointments/${tw}`, { method: 'PUT', body: { therapist_id: money, treatment_id: t69, starts_at: at('09:00') } });
+  ok('edit pop-up save keeps the Treatwell price (£75, not shop £69)', r.s === 200 && Number((await h.row('appointments', tw)).price_at_booking) === 75, r.b);
+  r = await api.j(`/api/appointments/${tw}`, { method: 'PUT', body: { treatment_id: t80 } });
+  ok('choosing a DIFFERENT treatment does re-price', r.s === 200 && Number((await h.row('appointments', tw)).price_at_booking) === 80, r.b);
+
   console.log('Rooms (SPA-ROOM-AUTO-001):');
   const sophia = await h.appt({ client: c, treatment: t60, therapist: money, room: r1, start: '17:00', end: '17:45', source: 'fresha' });
   const georgia = await h.appt({ client: c, treatment: t60, therapist: nuan, room: r1, start: '17:30', end: '18:30', source: 'treatwell' });

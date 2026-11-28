@@ -801,8 +801,16 @@ router.put('/:id', async (req, res) => {
 
     // If the treatment is being swapped, re-snapshot the price from the
     // new treatment. Pure status/notes edits leave price_at_booking alone.
+    // SPA-TW-PRICE-KEEP-001 — the edit pop-up ALWAYS sends treatment_id, so
+    // "sent" is not "changed". Re-pricing on every save turned Georgia King's
+    // Treatwell £75 into the shop's £69 when she was moved to another
+    // therapist (Highbury, 28 Nov 2026). Same rule as the length
+    // (SPA-TREATWELL-DURATION-001): only a DIFFERENT treatment re-prices.
     let newPriceAtBooking = null;
-    if (treatment_id) {
+    const curTreat = treatment_id
+      ? (await pool.query('SELECT treatment_id FROM appointments WHERE id = $1', [id])).rows[0]
+      : null;
+    if (treatment_id && curTreat && Number(treatment_id) !== Number(curTreat.treatment_id)) {
       const pr = await pool.query('SELECT price FROM treatments WHERE id = $1', [treatment_id]);
       newPriceAtBooking = Number(pr.rows[0]?.price || 0);
     }
