@@ -5,6 +5,22 @@
 
 ---
 
+## อัปเดต — 28 พฤศจิกายน 2026 — ตารางงานไม่เปลี่ยนเองหลังอัปเดตอีกแล้ว
+
+* หมอนวดที่ปิดทุกวันในตารางงาน (เช่น Aoy, Cover) ถูกระบบใส่กลับเป็น **10:00–20:00 ทุกวัน** ทุกครั้งที่เราอัปเดตระบบ — นี่คือสาเหตุที่ "อัปเดตแล้วตารางงานเพี้ยน"
+* แก้แล้ว: ตารางงานที่ร้านตั้งไว้จะไม่ถูกเปลี่ยนตอนอัปเดตอีก หมอนวดคนใหม่ได้ 10:00–20:00 แค่ครั้งแรกที่เพิ่มเข้าระบบ
+
+**สิ่งที่ร้านต้องทำ (ครั้งเดียว):** Admin → Rota → ปิดทุกวันของ Aoy และ Cover แล้วกด Save — ครั้งนี้จะไม่กลับมาอีก
+
+### English
+
+* Therapists with every day switched off on the rota (e.g. Aoy, Cover) were put back on **10:00–20:00 every day** each time we updated the system. That is why "every update messes up the rota".
+* Fixed: updates never change the shop's rota again. A brand-new therapist gets 10:00–20:00 only once, when first added.
+
+**What you need to do (once):** Admin → Rota → switch off every day for Aoy and Cover and press Save. This time it stays.
+
+---
+
 ## อัปเดต — 28 พฤศจิกายน 2026 — ย้ายการจองไปหมอนวดคนอื่นได้แล้ว แม้ห้องเดิมไม่ว่าง
 
 * การจองจาก Treatwell / Fresha ได้ห้องอัตโนมัติ (เช่น Room 1) — ถ้าตอนนั้นมีลูกค้าอีกคนอยู่ในห้องเดียวกัน ระบบ**ไม่ยอมให้ย้าย**ไปหมอนวดคนอื่น และข้อความยังโทษหมอนวดอีกคน (เช่น "Money is booked") ทั้งที่ปัญหาคือ**ห้อง**

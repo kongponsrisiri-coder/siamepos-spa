@@ -594,26 +594,19 @@ async function initSchema() {
       ('cancel_policy_text',    'Cancellations within 24 hours of your appointment forfeit the deposit. We''re happy to reschedule any time before then.')
     ON CONFLICT (key) DO NOTHING;
 
-    -- Seed default 7-day rota (10:00–20:00) ONLY for a therapist that has
-    -- no rota entries AT ALL (a brand-new therapist who'd otherwise be
-    -- unbookable). Runs on every boot, so it must never touch a therapist
-    -- who already has any rota — real tenants configure their own hours.
-    INSERT INTO therapist_availability (therapist_id, day_of_week, start_time, end_time)
-    SELECT t.id, d.day, '10:00', '20:00'
-    FROM   therapists t
-    CROSS JOIN (VALUES (0),(1),(2),(3),(4),(5),(6)) AS d(day)
-    WHERE  t.active = TRUE
-    AND    NOT EXISTS (
-             SELECT 1 FROM therapist_availability a WHERE a.therapist_id = t.id
-           )
-    ON CONFLICT DO NOTHING;
+    -- SPA-ROTA-SEED-002 — NO rota seeding on boot, ever. The old seed gave any
+    -- therapist with NO rota rows a 10:00–20:00 week on every server start. But
+    -- "no rows" is how the owner says "not working" (untick every day in Admin →
+    -- Rota), so every deploy put Aoy and Cover back on 7 days at Highbury
+    -- (28 Nov 2026 — "every time you update, it affects the rota"). A new
+    -- therapist now gets the default week once, when created (POST /therapists).
 
     -- NOTE: the old "fill missing days for incomplete rotas" seed (83ed476)
     -- was REMOVED — it ran on every boot and re-added default 10:00–20:00 rows
     -- for any day a therapist was deliberately OFF, silently overwriting the
     -- operator's rota (broke Highbury's live rota after a deploy, 2026-08-01).
     -- A therapist being off on some days is a valid, intentional rota — never
-    -- auto-fill it. Genuinely-empty rotas are covered by the seed above.
+    -- auto-fill it. An EMPTY rota is equally intentional (SPA-ROTA-SEED-002).
   `);
 
   // ── SEPOS-SPA-PRO-001 Phase B — offline push idempotency ────────────────

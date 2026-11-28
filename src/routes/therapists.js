@@ -48,6 +48,15 @@ router.post('/', requireRole('admin', 'manager'), async (req, res) => {
        RETURNING id, name, role, specialisms, photo_url, active`,
       [name, hash, pinHmac(pin), role || 'therapist', specialisms || null, photo_url || null],
     );
+    // SPA-ROTA-SEED-002 — a brand-new therapist starts bookable (10:00–20:00,
+    // every day) ONCE, here. Never on boot: an empty rota the owner set must stay empty.
+    if (rows[0].role === 'therapist') {
+      for (let d = 0; d < 7; d++) {
+        await pool.query(
+          `INSERT INTO therapist_availability (therapist_id, day_of_week, start_time, end_time) VALUES ($1, $2, '10:00', '20:00')`,
+          [rows[0].id, d]);
+      }
+    }
     res.status(201).json({ therapist: rows[0] });
   } catch (err) {
     console.error('[therapists] create', err);
