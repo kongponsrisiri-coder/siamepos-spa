@@ -6,6 +6,7 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "test": "node scripts/regression.js",
     "dev": "nodemon src/server.js",
     "client:dev": "cd client && npm run dev",
     "client:build": "cd client && npm run build",

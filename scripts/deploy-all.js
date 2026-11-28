@@ -27,6 +27,9 @@
  *   node scripts/deploy-all.js --api-only      # clouds only, skip the tills
  *   node scripts/deploy-all.js --till-only     # tills only, skip the clouds
  *
+ * Before anything ships, scripts/regression.js runs on the exported commit
+ * (SPA-REGRESSION-001); if any check fails, nothing is deployed.
+ *
  * Stages run in order and the whole run STOPS at the first failure, so a broken
  * build reaches the demo and goes no further.
  *
@@ -277,6 +280,20 @@ async function deployTill(t, src) {
   const src = fs.mkdtempSync(path.join(os.tmpdir(), 'spa-deploy-'));
   say(`\n${C.dim}exporting ${sha} to ${src}${C.off}`);
   execSync(`git archive ${sha} | tar -x -C ${JSON.stringify(src)}`, { cwd: ROOT, shell: '/bin/bash' });
+
+  // SPA-REGRESSION-001 — the exact commit being shipped must pass the regression
+  // checks first (rota survives a restart, bookings move, checkout + reports,
+  // Treatwell import…). No flag skips this: a failing check means a shop would
+  // get a broken till. Fix the code (or a wrong test) and run again.
+  say(`\n${C.bold}regression checks${C.off} ${C.dim}(on ${sha}, throwaway database)${C.off}`);
+  try { fs.symlinkSync(path.join(ROOT, 'node_modules'), path.join(src, 'node_modules')); } catch { /* already there */ }
+  try {
+    execFileSync(process.execPath, [path.join(src, 'scripts/regression.js')], { cwd: src, stdio: 'inherit' });
+  } catch {
+    fs.rmSync(src, { recursive: true, force: true });
+    die('regression checks FAILED — nothing was deployed. See the ✗ lines above.');
+  }
+  fs.unlinkSync(path.join(src, 'node_modules'));   // the till build does its own npm install in client/
   if (!DRY && !API_ONLY) {
     step('npm install (client) — needed to build the tills');
     execSync('npm install --silent', { cwd: path.join(src, 'client'), stdio: ['ignore', 'pipe', 'pipe'] });
